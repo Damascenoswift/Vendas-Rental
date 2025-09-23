@@ -19,31 +19,40 @@
 - [x] Schemas Zod baseados no IndicacaoModel atual
 - [x] Componentes UI essenciais (shadcn/ui)
 - [x] Estrutura de pastas organizada
-- [x] Integração Zapier configurada
+- [x] Integração Supabase MCP configurada
+- [x] Limpeza de arquivos desnecessários do template
+- [x] Sistema de roles e marcas (rental/dorata) configurado
+- [x] Migrações SQL para multi-marca preparadas
+- [x] Policies RLS baseadas em marca autorizada
+- [x] API REST básica `/api/indicacoes` (GET/POST)
+- [x] Uploads validados e anexos listados com links seguros
+- [x] Perfis de acesso segmentados por marca (Rental/Dorata)
 
 ### 🔄 Em Desenvolvimento (Semana 1-5)
 
 #### **Semana 1: Auth + Base**
-- [ ] Sistema de login/logout
+- [x] Sistema de login/logout
 - [ ] Middleware de autenticação
-- [ ] Páginas protegidas
+- [x] Páginas protegidas
+- [x] Perfis segmentados por role/marca
 - [ ] Reutilizar RLS policies existentes
 
 #### **Semana 2: Formulários**
 - [ ] Wizard PF/PJ com Zod validation
-- [ ] Upload para Supabase Storage
-- [ ] Campos dinâmicos baseados no tipo
+- [x] Upload para Supabase Storage
+- [x] Campos dinâmicos baseados no tipo
 
-#### **Semana 3: Listagem + Realtime**
 - [ ] Tabela de indicações filtrável
-- [ ] Status coloridos e busca
-- [ ] Realtime updates via Supabase
+- [x] Status coloridos e busca
+- [x] Realtime updates via Supabase
+- [x] Visão por marca e anexos disponíveis
 - [ ] Histórico detalhado
+- [x] Exibição e download de anexos por indicação
 
 #### **Semana 4: Integrações**
 - [ ] Zapier/Clicksign funcionais
-- [ ] Métricas básicas
-- [ ] Feedback de envio
+- [x] Métricas básicas
+- [x] Feedback de envio
 - [ ] Logs de erro
 
 #### **Semana 5: Qualidade + Deploy**
@@ -115,6 +124,9 @@ npm run lint
 NEXT_PUBLIC_SUPABASE_URL=https://sliebietpkyrqihaoexj.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_aqui
 
+# Supabase MCP (para operações avançadas via MCP)
+SUPABASE_SECRET=sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf
+
 # Integrações graduais
 ZAPIER_WEBHOOK_URL=sua_webhook_url
 
@@ -134,9 +146,15 @@ src/
 │   └── forms/            # Formulários
 ├── lib/                  # Utilitários
 │   ├── supabase.ts       # Cliente Supabase
+│   ├── supabase-mcp.ts   # Utilitários MCP
+│   ├── integrations/     # APIs externas
 │   └── validations/      # Schemas Zod
 ├── types/                # TypeScript types
-└── hooks/                # Custom hooks
+├── hooks/                # Custom hooks
+├── supabase/
+│   └── migrations/       # Migrações SQL
+├── scripts/              # Scripts de automação
+└── docs/                 # Documentação
 ```
 
 ## 🎉 Resultado Esperado

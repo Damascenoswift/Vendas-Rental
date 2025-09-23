@@ -1,0 +1,193 @@
+import { NextResponse } from 'next/server'
+
+import { formatPhone, onlyDigits } from '@/lib/formatters'
+import { createSupabaseServiceClient, getUserFromAuthorizationHeader } from '@/lib/supabase-server'
+import { indicacaoSchema } from '@/lib/validations/indicacao'
+import { buildUserProfile } from '@/lib/auth'
+
+const DEFAULT_PAGE_SIZE = 20
+const MAX_PAGE_SIZE = 100
+
+export async function GET(request: Request) {
+  const authResult = await getUserFromAuthorizationHeader(request)
+
+  if ('error' in authResult) {
+    return NextResponse.json(
+      {
+        error: 'Não autorizado',
+        message: authResult.error,
+      },
+      { status: 401 }
+    )
+  }
+
+  const { user } = authResult
+  const profile = buildUserProfile(user)
+
+  if (!profile) {
+    return NextResponse.json(
+      {
+        error: 'Perfil não encontrado',
+        message: 'Não foi possível identificar o usuário autenticado',
+      },
+      { status: 403 }
+    )
+  }
+  const { searchParams } = new URL(request.url)
+
+  const pageParam = Number.parseInt(searchParams.get('page') ?? '1', 10)
+  const limitParam = Number.parseInt(
+    searchParams.get('limit') ?? `${DEFAULT_PAGE_SIZE}`,
+    10
+  )
+  const statusParam = searchParams.get('status')
+
+  const page = Number.isNaN(pageParam) || pageParam < 1 ? 1 : pageParam
+  const limit = Number.isNaN(limitParam)
+    ? DEFAULT_PAGE_SIZE
+    : Math.min(Math.max(limitParam, 1), MAX_PAGE_SIZE)
+  const offset = (page - 1) * limit
+
+  const supabase = createSupabaseServiceClient()
+
+  let query = supabase
+    .from('indicacoes')
+    .select('id, tipo, nome, email, telefone, status, created_at, updated_at, marca', {
+      count: 'estimated',
+    })
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (profile.allowedBrands.length > 0) {
+    query = query.in('marca', profile.allowedBrands)
+  }
+
+  if (statusParam) {
+    query = query.eq('status', statusParam)
+  }
+
+  const { data, error, count } = await query
+
+  if (error) {
+    return NextResponse.json(
+      {
+        error: 'Falha ao buscar indicações',
+        message: error.message,
+      },
+      { status: 500 }
+    )
+  }
+
+  const formatted = (data ?? []).map((indicacao) => ({
+    ...indicacao,
+    telefone: formatPhone(indicacao.telefone ?? ''),
+  }))
+
+  return NextResponse.json({
+    data: formatted,
+    pagination: {
+      page,
+      limit,
+      total: count ?? formatted.length,
+    },
+  })
+}
+
+export async function POST(request: Request) {
+  const authResult = await getUserFromAuthorizationHeader(request)
+
+  if ('error' in authResult) {
+    return NextResponse.json(
+      {
+        error: 'Não autorizado',
+        message: authResult.error,
+      },
+      { status: 401 }
+    )
+  }
+
+  const { user } = authResult
+  const profile = buildUserProfile(user)
+
+  if (!profile) {
+    return NextResponse.json(
+      {
+        error: 'Perfil não encontrado',
+        message: 'Não foi possível identificar o usuário autenticado',
+      },
+      { status: 403 }
+    )
+  }
+
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json(
+      {
+        error: 'Payload inválido',
+        message: 'Não foi possível ler o corpo da requisição',
+      },
+      { status: 400 }
+    )
+  }
+
+  const parsed = indicacaoSchema.safeParse(body)
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      {
+        error: 'Validação falhou',
+        details: parsed.error.flatten(),
+      },
+      { status: 422 }
+    )
+  }
+
+  const payload = parsed.data
+
+  if (!profile.allowedBrands.includes(payload.marca)) {
+    return NextResponse.json(
+      {
+        error: 'Marca não permitida',
+        message: 'Você não possui acesso para registrar indicações nesta marca',
+      },
+      { status: 403 }
+    )
+  }
+
+  const supabase = createSupabaseServiceClient()
+
+  const { data, error } = await supabase
+    .from('indicacoes')
+    .insert({
+      tipo: payload.tipo,
+      nome: payload.nome.trim(),
+      email: payload.email.trim().toLowerCase(),
+      telefone: onlyDigits(payload.telefone),
+      status: 'EM_ANALISE',
+      user_id: user.id,
+      marca: payload.marca,
+    })
+    .select('id, created_at')
+    .single()
+
+  if (error) {
+    return NextResponse.json(
+      {
+        error: 'Falha ao criar indicação',
+        message: error.message,
+      },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json(
+    {
+      data,
+      message: 'Indicação registrada com sucesso',
+    },
+    { status: 201 }
+  )
+}

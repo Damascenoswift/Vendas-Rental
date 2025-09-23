@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": ["@supabase/mcp-server"],
+      "env": {
+        "SUPABASE_SECRET": "sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf"
+      }
+    }
+  }
+}

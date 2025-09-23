@@ -39,6 +39,7 @@ export interface Database {
           created_at: string
           updated_at: string
           user_id: string
+          marca: 'dorata' | 'rental'
         }
         Insert: {
           id?: string
@@ -50,6 +51,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           user_id: string
+          marca: 'dorata' | 'rental'
         }
         Update: {
           id?: string
@@ -61,6 +63,7 @@ export interface Database {
           created_at?: string
           updated_at?: string
           user_id?: string
+          marca?: 'dorata' | 'rental'
         }
       }
     }

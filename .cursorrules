@@ -1,0 +1,31 @@
+# Cursor MCP Configuration for Supabase
+
+## MCP Server Configuration
+Configure the Supabase MCP server with the following settings:
+
+### Server Details
+- **Name**: supabase
+- **Command**: npx
+- **Args**: ["@supabase/mcp-server"]
+- **Environment Variables**:
+  - `SUPABASE_SECRET`: sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf
+
+### Available MCP Tools
+The following Supabase MCP tools will be available:
+- `mcp_supabase_list_tables`: List all tables in schemas
+- `mcp_supabase_execute_sql`: Execute raw SQL queries
+- `mcp_supabase_apply_migration`: Apply database migrations
+- `mcp_supabase_get_logs`: Get service logs for debugging
+- `mcp_supabase_generate_typescript_types`: Generate TypeScript types
+- `mcp_supabase_list_edge_functions`: List Edge Functions
+- `mcp_supabase_deploy_edge_function`: Deploy Edge Functions
+- `mcp_supabase_create_branch`: Create development branches
+- `mcp_supabase_list_branches`: List development branches
+- `mcp_supabase_merge_branch`: Merge branches to production
+
+### Project Context
+This is a Next.js 15 + TypeScript project using:
+- Supabase for backend services
+- Existing database schema with `users` and `indicacoes` tables
+- Current Supabase URL: https://sliebietpkyrqihaoexj.supabase.co
+- Strategy: Hybrid approach reusing existing Supabase data

@@ -6,6 +6,7 @@ export const indicacaoBaseSchema = z.object({
   nome: z.string().min(1, 'Nome é obrigatório'),
   email: z.string().email('Email inválido'),
   telefone: z.string().min(10, 'Telefone deve ter pelo menos 10 dígitos'),
+  marca: z.enum(['dorata', 'rental']).default('rental'),
 })
 
 // Schema específico para Pessoa Física
