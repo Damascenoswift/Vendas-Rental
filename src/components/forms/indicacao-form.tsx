@@ -632,10 +632,10 @@ export function IndicacaoForm({
         </form>
       </Form>
 
-      <FormDescription className="mt-4">
+      <p className="mt-4 text-sm text-muted-foreground">
         Todos os campos marcados como obrigatórios garantem que a equipe interna
         avance com a análise sem retrabalho.
-      </FormDescription>
+      </p>
     </div>
   )
 }

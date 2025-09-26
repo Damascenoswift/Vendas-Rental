@@ -221,7 +221,7 @@ function StatusCard() {
         )}
 
         {!status && !loading && (
-          <p className="text-gray-500">Clique em "Testar Conexão" para verificar a API</p>
+          <p className="text-gray-500">Clique em &quot;Testar Conexão&quot; para verificar a API</p>
         )}
       </CardContent>
     </Card>

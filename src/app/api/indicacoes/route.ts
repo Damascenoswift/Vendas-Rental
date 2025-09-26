@@ -4,6 +4,7 @@ import { formatPhone, onlyDigits } from '@/lib/formatters'
 import { createSupabaseServiceClient, getUserFromAuthorizationHeader } from '@/lib/supabase-server'
 import { indicacaoSchema } from '@/lib/validations/indicacao'
 import { buildUserProfile } from '@/lib/auth'
+import type { Database } from '@/types/database'
 
 const DEFAULT_PAGE_SIZE = 20
 const MAX_PAGE_SIZE = 100
@@ -80,8 +81,8 @@ export async function GET(request: Request) {
   }
 
   const formatted = (data ?? []).map((indicacao) => ({
-    ...indicacao,
-    telefone: formatPhone(indicacao.telefone ?? ''),
+    ...(indicacao as Record<string, unknown>),
+    telefone: formatPhone((indicacao as Record<string, unknown>).telefone as string ?? ''),
   }))
 
   return NextResponse.json({
@@ -159,17 +160,19 @@ export async function POST(request: Request) {
 
   const supabase = createSupabaseServiceClient()
 
+  const newRow: Database['public']['Tables']['indicacoes']['Insert'] = {
+    tipo: payload.tipo,
+    nome: payload.nome.trim(),
+    email: payload.email.trim().toLowerCase(),
+    telefone: onlyDigits(payload.telefone),
+    status: 'EM_ANALISE',
+    user_id: user.id,
+    marca: payload.marca,
+  }
+
   const { data, error } = await supabase
     .from('indicacoes')
-    .insert({
-      tipo: payload.tipo,
-      nome: payload.nome.trim(),
-      email: payload.email.trim().toLowerCase(),
-      telefone: onlyDigits(payload.telefone),
-      status: 'EM_ANALISE',
-      user_id: user.id,
-      marca: payload.marca,
-    })
+    .insert(newRow)
     .select('id, created_at')
     .single()
 

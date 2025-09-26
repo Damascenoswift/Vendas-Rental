@@ -38,6 +38,8 @@ export default function LoginPage() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [isCheckingSession, setIsCheckingSession] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSendingReset, setIsSendingReset] = useState(false)
+  const [resetInfo, setResetInfo] = useState<string | null>(null)
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -91,6 +93,30 @@ export default function LoginPage() {
     setIsSubmitting(false)
     router.replace("/dashboard")
     router.refresh()
+  }
+
+  const handleForgotPassword = async () => {
+    setResetInfo(null)
+    setAuthError(null)
+    const email = form.getValues("email").trim()
+    if (!email) {
+      setAuthError("Informe seu email no campo acima e clique em 'Esqueci minha senha'.")
+      return
+    }
+    setIsSendingReset(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    setIsSendingReset(false)
+    if (error) {
+      setAuthError(
+        error.message === "For security purposes, you can only request this after 60 seconds."
+          ? "Aguarde 60 segundos antes de solicitar outro email."
+          : "Não foi possível enviar o email de redefinição."
+      )
+      return
+    }
+    setResetInfo("Enviamos um email com o link para redefinir sua senha. Verifique sua caixa de entrada e spam.")
   }
 
   if (isCheckingSession) {
@@ -158,9 +184,26 @@ export default function LoginPage() {
               </div>
             ) : null}
 
-            <Button className="w-full" disabled={isSubmitting} type="submit">
-              {isSubmitting ? "Entrando…" : "Entrar"}
-            </Button>
+            {resetInfo ? (
+              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                {resetInfo}
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between">
+              <Button className="w-[55%]" disabled={isSubmitting} type="submit">
+                {isSubmitting ? "Entrando…" : "Entrar"}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-sm text-foreground/70 hover:text-foreground"
+                onClick={handleForgotPassword}
+                disabled={isSendingReset}
+              >
+                {isSendingReset ? "Enviando…" : "Esqueci minha senha"}
+              </Button>
+            </div>
           </form>
         </Form>
       </div>

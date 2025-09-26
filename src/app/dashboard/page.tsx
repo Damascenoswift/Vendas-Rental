@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react"
+import Link from "next/link"
 
 import {
   Card,
@@ -18,6 +19,7 @@ import {
 import { useAuthSession } from "@/hooks/use-auth-session"
 import type { Brand } from "@/lib/auth"
 import { supabase } from "@/lib/supabase"
+import { Button } from "@/components/ui/button"
 
 type StatusKey = "EM_ANALISE" | "APROVADA" | "REJEITADA" | "CONCLUIDA"
 
@@ -210,9 +212,9 @@ export default function DashboardPage() {
     () =>
       allowedBrands.map((brand) => ({
         brand,
-        title: `Indicações ${brandLabels[brand]}`,
-        subtitle: `Total enviado para ${brandLabels[brand]}`,
-        value: metrics.porMarca[brand],
+        title: `Indicações ${brandLabels[brand as keyof typeof brandLabels]}`,
+        subtitle: `Total enviado para ${brandLabels[brand as keyof typeof brandLabels]}`,
+        value: metrics.porMarca[brand as keyof typeof metrics.porMarca],
       })),
     [allowedBrands, metrics.porMarca]
   )
@@ -255,6 +257,11 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">
           Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
         </p>
+        <div className="pt-2">
+          <Link href="/indicacoes">
+            <Button size="sm">Nova indicação</Button>
+          </Link>
+        </div>
       </header>
 
       {metricsError ? (

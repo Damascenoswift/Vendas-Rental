@@ -92,7 +92,7 @@ export interface CogniUsina {
   lastUpdateAt?: Date;
   
   /** Metadados adicionais */
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -118,7 +118,7 @@ export interface CogniAlert {
   timestamp: Date;
   
   /** Dados adicionais */
-  dados?: Record<string, any>;
+  dados?: Record<string, unknown>;
 }
 
 /**
@@ -147,7 +147,7 @@ export interface CogniMetricas {
 /**
  * Response padrão da API COGNI
  */
-export interface CogniApiResponse<T = any> {
+export interface CogniApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;

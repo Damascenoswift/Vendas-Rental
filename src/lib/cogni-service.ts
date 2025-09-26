@@ -4,8 +4,7 @@
 import type { 
   CogniCompensacao, 
   CogniUsina, 
-  CogniAlert, 
-  CogniMetricas,
+  CogniAlert,
   CogniApiResponse 
 } from '@/types/cogni'
 
@@ -27,7 +26,7 @@ const COGNI_CONFIG = {
  * SEGURO: Evita chamadas desnecessárias à API
  */
 class CogniCache {
-  private static cache = new Map<string, { data: any; timestamp: number }>()
+  private static cache = new Map<string, { data: unknown; timestamp: number }>()
   private static TTL = 5 * 60 * 1000 // 5 minutos
 
   static get<T>(key: string): T | null {
@@ -47,7 +46,7 @@ class CogniCache {
     }
   }
 
-  static set(key: string, data: any): void {
+  static set(key: string, data: unknown): void {
     try {
       this.cache.set(key, { data, timestamp: Date.now() })
     } catch (error) {
@@ -179,17 +178,18 @@ export class CogniService {
       }
 
       // 2. Busca na API
-      const response = await this.request<any>(`/compensacao/cliente/${codigoCliente}`)
+      const response = await this.request<Record<string, unknown>>(`/compensacao/cliente/${codigoCliente}`)
       
       if (response.success && response.data) {
+        const data = response.data as Record<string, unknown>
         const compensacao: CogniCompensacao = {
           clienteId: codigoCliente,
-          plantId: response.data.plantId || 'unknown',
-          compensacaoHoje: response.data.compensacaoHoje || 0,
-          compensacaoMes: response.data.compensacaoMes || 0,
-          economiaAcumulada: response.data.economiaAcumulada || 0,
-          sistemaAtivo: response.data.sistemaAtivo ?? false,
-          statusConexao: response.data.statusConexao || 'offline',
+          plantId: (data.plantId as string) || 'unknown',
+          compensacaoHoje: Number(data.compensacaoHoje) || 0,
+          compensacaoMes: Number(data.compensacaoMes) || 0,
+          economiaAcumulada: Number(data.economiaAcumulada) || 0,
+          sistemaAtivo: Boolean(data.sistemaAtivo),
+          statusConexao: (data.statusConexao as string) || 'offline',
           timestamp: new Date(),
         }
 
