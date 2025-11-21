@@ -12,8 +12,8 @@ Edite o arquivo `.env.local` e substitua `sua_chave_aqui` pela chave real:
 
 ```env
 # Supabase Configuration  
-NEXT_PUBLIC_SUPABASE_URL=https://sliebietpkyrqihaoexj.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=SUA_CHAVE_REAL_AQUI  # ⚠️ SUBSTITUIR
+NEXT_PUBLIC_SUPABASE_URL=https://zqilrsijdatoxesdryyt.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1MDAzOTMsImV4cCI6MjA3NjA3NjM5M30.4pVP51u1V2J_IKEm5w_xDaQyraWohb4hwWZ5x_ehDjo
 
 # Supabase MCP Secret (for database operations via MCP)
 SUPABASE_SECRET=sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf

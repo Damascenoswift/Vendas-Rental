@@ -10,24 +10,36 @@ export function createSupabaseServiceClient({
   accessToken,
 }: ServiceClientOptions = {}) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   const serviceKey = process.env.SUPABASE_SECRET ?? process.env.SUPABASE_SERVICE_ROLE_KEY
 
   if (!supabaseUrl) {
     throw new Error('NEXT_PUBLIC_SUPABASE_URL não está configurada')
   }
 
+  // Se tem token de usuário, usa a chave ANON para respeitar o RLS
+  if (accessToken) {
+    if (!anonKey) {
+      throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY não está configurada')
+    }
+    return createClient<Database>(supabaseUrl, anonKey, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+      auth: {
+        persistSession: false,
+      },
+    })
+  }
+
+  // Se não tem token, usa a Service Key (Admin/Cron jobs)
   if (!serviceKey) {
     throw new Error('SUPABASE_SECRET ou SUPABASE_SERVICE_ROLE_KEY não está configurada')
   }
 
   return createClient<Database>(supabaseUrl, serviceKey, {
-    global: {
-      headers: accessToken
-        ? {
-            Authorization: `Bearer ${accessToken}`,
-          }
-        : undefined,
-    },
     auth: {
       persistSession: false,
     },

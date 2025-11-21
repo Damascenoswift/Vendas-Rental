@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { formatPhone, onlyDigits } from '@/lib/formatters'
 import { createSupabaseServiceClient, getUserFromAuthorizationHeader } from '@/lib/supabase-server'
 import { indicacaoSchema } from '@/lib/validations/indicacao'
-import { buildUserProfile } from '@/lib/auth'
+import { getProfile } from '@/lib/auth'
 import type { Database } from '@/types/database'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -22,18 +22,24 @@ export async function GET(request: Request) {
     )
   }
 
-  const { user } = authResult
-  const profile = buildUserProfile(user)
+  const { user, token } = authResult
+
+  // Criar cliente com o token do usuário para respeitar RLS
+  const supabase = createSupabaseServiceClient({ accessToken: token })
+
+  // Buscar perfil na tabela public.users (Fonte da verdade)
+  const profile = await getProfile(supabase, user.id)
 
   if (!profile) {
     return NextResponse.json(
       {
         error: 'Perfil não encontrado',
-        message: 'Não foi possível identificar o usuário autenticado',
+        message: 'Não foi possível recuperar os dados do usuário. Contate o suporte.',
       },
       { status: 403 }
     )
   }
+
   const { searchParams } = new URL(request.url)
 
   const pageParam = Number.parseInt(searchParams.get('page') ?? '1', 10)
@@ -49,23 +55,19 @@ export async function GET(request: Request) {
     : Math.min(Math.max(limitParam, 1), MAX_PAGE_SIZE)
   const offset = (page - 1) * limit
 
-  const supabase = createSupabaseServiceClient()
-
   let query = supabase
     .from('indicacoes')
     .select('id, tipo, nome, email, telefone, status, created_at, updated_at, marca', {
       count: 'estimated',
     })
-    .eq('user_id', user.id)
+    // RLS já filtra por user_id e marca permitida, mas mantemos user_id por clareza se necessário
+    // .eq('user_id', user.id) // RLS já garante isso
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
-  if (profile.allowedBrands.length > 0) {
-    query = query.in('marca', profile.allowedBrands)
-  }
-
+  // Filtros adicionais (Opcionais, pois RLS já restringe o que não pode ver)
   if (statusParam) {
-    query = query.eq('status', statusParam)
+    query = query.eq('status', statusParam as 'EM_ANALISE' | 'APROVADA' | 'REJEITADA' | 'CONCLUIDA')
   }
 
   const { data, error, count } = await query
@@ -108,14 +110,16 @@ export async function POST(request: Request) {
     )
   }
 
-  const { user } = authResult
-  const profile = buildUserProfile(user)
+  const { user, token } = authResult
+  const supabase = createSupabaseServiceClient({ accessToken: token })
+
+  const profile = await getProfile(supabase, user.id)
 
   if (!profile) {
     return NextResponse.json(
       {
         error: 'Perfil não encontrado',
-        message: 'Não foi possível identificar o usuário autenticado',
+        message: 'Não foi possível recuperar os dados do usuário.',
       },
       { status: 403 }
     )
@@ -148,6 +152,7 @@ export async function POST(request: Request) {
 
   const payload = parsed.data
 
+  // Validação de negócio ( redundante com RLS, mas bom para UX imediata)
   if (!profile.allowedBrands.includes(payload.marca)) {
     return NextResponse.json(
       {
@@ -157,8 +162,6 @@ export async function POST(request: Request) {
       { status: 403 }
     )
   }
-
-  const supabase = createSupabaseServiceClient()
 
   const newRow: Database['public']['Tables']['indicacoes']['Insert'] = {
     tipo: payload.tipo,

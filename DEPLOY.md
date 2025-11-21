@@ -26,13 +26,8 @@ Configure estas variáveis na Vercel:
 
 ```env
 # OBRIGATÓRIAS
-NEXT_PUBLIC_SUPABASE_URL=https://sliebietpkyrqihaoexj.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://zqilrsijdatoxesdryyt.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-# OPCIONAIS (COGNI)
-NEXT_PUBLIC_COGNI_API_URL=https://api.cogni.group
-NEXT_PUBLIC_COGNI_API_TOKEN=cdcc5fb03482a5804dfbf8a4
-NEXT_PUBLIC_COGNI_SECRET_KEY=12f35abcf40bd2f978ff1e11
 
 # OPCIONAIS (INTEGRAÇÃO)
 ZAPIER_WEBHOOK_URL=https://hooks.zapier.com/hooks/catch/24229386/u6ns2kc/
@@ -88,7 +83,6 @@ npm run build
 
 - [ ] Site carrega corretamente
 - [ ] Supabase conecta (teste login)
-- [ ] COGNI funciona (acesse `/cogni-test`)
 - [ ] SSL ativo (https://)
 - [ ] Performance OK (< 3s carregamento)
 - [ ] Responsivo (mobile/desktop)
@@ -101,7 +95,6 @@ O projeto já inclui:
 - ✅ **Tailwind CSS** - CSS otimizado
 - ✅ **TypeScript** - Code splitting automático
 - ✅ **shadcn/ui** - Componentes leves
-- ✅ **Cache inteligente** - COGNI com TTL
 
 ### **💰 Custos**
 

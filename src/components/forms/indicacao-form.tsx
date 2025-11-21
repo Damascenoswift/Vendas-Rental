@@ -45,7 +45,7 @@ const baseSchema = z.object({
   consumoMedioKwh: z.coerce.number().positive().max(99999).optional(),
   valorContaEnergia: z.coerce.number().positive().optional(),
   vendedorId: z.string().min(1, "Vendedor obrigatório"),
-  status: z.enum(["nova", "em_analise", "aprovada", "rejeitada"]).default("nova"),
+  status: z.enum(["EM_ANALISE", "APROVADA", "REJEITADA", "CONCLUIDA"]).default("EM_ANALISE"),
 })
 
 const pfSchema = baseSchema.extend({
@@ -129,7 +129,7 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
       marca: initialBrand,
       codigoClienteEnergia: "",
       vendedorId: userId,
-      status: "nova",
+      status: "EM_ANALISE",
       // PF defaults
       nomeCliente: "",
       emailCliente: "",
@@ -249,6 +249,51 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
     }
 
     await Promise.all(uploads)
+
+    // Dispara Clicksign via Zapier (não bloqueia salva/UX)
+    try {
+      const { ClicksignService } = await import("@/lib/integrations/clicksign")
+      const payload = ClicksignService.prepararDados({
+        id: data.id,
+        tipoPessoa: values.tipoPessoa,
+        nomeCliente: values.nomeCliente,
+        emailCliente: values.emailCliente,
+        telefoneCliente: values.telefoneCliente,
+        endereco: values.endereco,
+        cidade: values.cidade,
+        estado: values.estado,
+        cep: values.cep,
+        consumoMedioKwh: (values as any).consumoMedioKwh ?? (values as any).consumoMedioPF,
+        valorContaEnergia: values.valorContaEnergia,
+        vendedorId: userId,
+        vendedorNome: (values as any).vendedorNome ?? (values as any).vendedorNomePF,
+        vendedorTelefone: (values as any).vendedorTelefone ?? (values as any).vendedorTelefonePF,
+        vendedorCPF: (values as any).vendedorCPF,
+        vendedorCNPJ: (values as any).vendedorCNPJ,
+        dataVenda: (values as any).dataVenda,
+        dataVendaPF: (values as any).dataVendaPF,
+        cpfCnpj: (values as any).cpfCnpj,
+        rg: (values as any).rg,
+        nomeEmpresa: (values as any).nomeEmpresa,
+        representanteLegal: (values as any).representanteLegal,
+        cpfRepresentante: (values as any).cpfRepresentante,
+        rgRepresentante: (values as any).rgRepresentante,
+        logradouro: (values as any).logradouro,
+        numero: (values as any).numero,
+        bairro: (values as any).bairro,
+        emailSignatario: (values as any).emailSignatario,
+        emailFatura: (values as any).emailFatura,
+        telefoneCobranca: (values as any).telefoneCobranca,
+        whatsappSignatario: (values as any).whatsappSignatario ?? (values as any).whatsappSignatarioPF,
+        codigoClienteEnergia: values.codigoClienteEnergia,
+        createdAt: new Date(),
+        status: 'EM_ANALISE',
+      })
+      // fire-and-forget (sem travar UX)
+      void ClicksignService.criarContrato(payload)
+    } catch (e) {
+      console.error('Zapier/Clicksign não disparado:', e)
+    }
 
     showToast({ variant: "success", title: "Indicação criada", description: "Documentos recebidos com sucesso." })
     if (onCreated) await onCreated()

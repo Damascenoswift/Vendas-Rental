@@ -1,0 +1,30 @@
+[
+  {
+    "test": "marca",
+    "error": "permission denied for table indicacoes"
+  },
+  {
+    "test": "status",
+    "error": "permission denied for table indicacoes"
+  },
+  {
+    "test": "tipo",
+    "error": "permission denied for table indicacoes"
+  },
+  {
+    "test": "marca_column",
+    "error": "permission denied for table indicacoes"
+  },
+  {
+    "test": "counts",
+    "error": ""
+  },
+  {
+    "test": "samples",
+    "error": "permission denied for table indicacoes"
+  },
+  {
+    "test": "allowed_brands",
+    "error": "permission denied for table users"
+  }
+]

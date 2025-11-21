@@ -9,9 +9,9 @@
 - Tipos TypeScript sincronizados
 
 ✅ **Estrutura de Integrações Criada**
-- Base para Clicksign, Zapier e Cogni
+- Base para Clicksign e Zapier
 - Configurações centralizadas
-- Pronto para implementação das 3 APIs
+- Pronto para implementação das 2 APIs
 
 ## 🔧 Como Executar as Migrações
 
@@ -109,18 +109,11 @@ VALUES ('PF', 'Teste', 'teste@email.com', '11999999999', 'rental', auth.uid());
 // Integração com mudanças de status das indicações
 ```
 
-### 3. **Cogni/API Imobiliária**
-```typescript  
-// Busca de dados de imóveis
-// Enriquecimento de dados das indicações
-```
-
 ## 📊 Pontos de Implementação das APIs
 
 ### **Semana 4: Integrações** (conforme roadmap)
 
 1. **Formulário de Indicação** (`src/app/indicacoes/nova/page.tsx`)
-   - Integrar Cogni para buscar dados do imóvel
    - Validar CPF/CNPJ via API externa
 
 2. **Mudança de Status** (`src/app/indicacoes/[id]/page.tsx`)

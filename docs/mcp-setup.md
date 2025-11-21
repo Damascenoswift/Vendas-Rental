@@ -12,15 +12,20 @@ Create a `.env.local` file in your project root with:
 
 ```env
 # Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=https://sliebietpkyrqihaoexj.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://zqilrsijdatoxesdryyt.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Supabase MCP Secret (for database operations via MCP)
-SUPABASE_SECRET=sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf
+SUPABASE_SECRET=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDUwMDM5MywiZXhwIjoyMDc2MDc2MzkzfQ.q82p0a4l7l-zvFfFnSHa6zcFaFbp2tD1R0UjYbSmOFk
 
 # Other configurations
 ZAPIER_WEBHOOK_URL=your_webhook_url
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+   NEXT_PUBLIC_SUPABASE_URL=https://zqilrsijdatoxesdryyt.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9zZSIsImFub24iLCJpYXQiOjE3NjA1MDAzOTMsImV4cCI6MjA3NjA3NjM5M30.4pVP51u1V2J_IKEm5w_xDaQyraWohb4hwWZ5x_ehDjo
+   SUPABASE_SECRET=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9zZSIsInNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDUwMDM5MywiZXhwIjoyMDc2MDc2MzkzfQ.q82p0a4l7l-zvFfFnSHa6zcFaFbp2tD1R0UjYbSmOFk
+   NEXT_PUBLIC_ZAPIER_WEBHOOK_URL=https://hooks.zapier.com/hooks/catch/24229386/u6ns2kc/
 ```
 
 ### 2. Cursor MCP Configuration

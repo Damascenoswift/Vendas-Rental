@@ -4,7 +4,10 @@
       "command": "npx",
       "args": ["@supabase/mcp-server"],
       "env": {
-        "SUPABASE_SECRET": "sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf"
+        "SUPABASE_PROJECT_REF": "zqilrsijdatoxesdryyt",
+        "SUPABASE_URL": "https://zqilrsijdatoxesdryyt.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1MDAzOTMsImV4cCI6MjA3NjA3NjM5M30.4pVP51u1V2J_IKEm5w_xDaQyraWohb4hwWZ5x_ehDjo",
+        "SUPABASE_SECRET": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDUwMDM5MywiZXhwIjoyMDc2MDc2MzkzfQ.q82p0a4l7l-zvFfFnSHa6zcFaFbp2tD1R0UjYbSmOFk"
       }
     }
   }

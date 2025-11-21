@@ -17,9 +17,9 @@ Você está certo! O problema pode ser que:
 4. **Adicione estas variáveis:**
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://sliebietpkyrqihaoexj.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaWViaWV0cGt5cnFpaGFvZXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4MTIyOTEsImV4cCI6MjA2OTM4ODI5MX0.yWlXly2oYdEmdy_orto-h0cVpKfeg4HkkYWJFvSJ230
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsaWViaWV0cGt5cnFpaGFvZXhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MzgxMjI5MSwiZXhwIjoyMDY5Mzg4MjkxfQ.IhffKG6c10MnlhLOx86RJ2U89sSvBOoFWnGIG0ZLEnA
+NEXT_PUBLIC_SUPABASE_URL=https://zqilrsijdatoxesdryyt.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9zZSIsImFub24iLCJpYXQiOjE3NjA1MDAzOTMsImV4cCI6MjA3NjA3NjM5M30.4pVP51u1V2J_IKEm5w_xDaQyraWohb4hwWZ5x_ehDjo
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9zZSIsInNlcnZpY2Vfcm9zZSIsImlhdCI6MTc2MDUwMDM5MywiZXhwIjoyMDc2MDc2MzkzfQ.q82p0a4l7l-zvFfFnSHa6zcFaFbp2tD1R0UjYbSmOFk
 ```
 
 ### **Opção 2: Via CLI (Após Login)**
@@ -27,7 +27,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 ```bash
 # Depois de completar o login
 npx vercel env add NEXT_PUBLIC_SUPABASE_URL
-# Cole: https://sliebietpkyrqihaoexj.supabase.co
+# Cole: https://zqilrsijdatoxesdryyt.supabase.co
 
 npx vercel env add NEXT_PUBLIC_SUPABASE_ANON_KEY  
 # Cole a chave anon atualizada

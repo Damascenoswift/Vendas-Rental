@@ -1,4 +1,5 @@
-import type { User } from '@supabase/supabase-js'
+import type { User, SupabaseClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database'
 
 export type UserRole =
   | 'vendedor_externo'
@@ -28,6 +29,7 @@ export function getAllowedBrands(role: UserRole): Brand[] {
   return roleBrandsMap[role] ?? ['rental']
 }
 
+// @deprecated Use getProfile instead
 export function buildUserProfile(user: User | null): UserProfile | null {
   if (!user) return null
 
@@ -41,6 +43,30 @@ export function buildUserProfile(user: User | null): UserProfile | null {
     id: user.id,
     role,
     companyName,
+    allowedBrands,
+  }
+}
+
+export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('role, allowed_brands')
+    .eq('id', userId)
+    .single()
+
+  if (error || !data) {
+    console.error('Erro ao buscar perfil:', error)
+    return null
+  }
+
+  // Converter tipos do banco para tipos da aplicação
+  const role = data.role as UserRole
+  const allowedBrands = (data.allowed_brands as Brand[]) ?? ['rental']
+
+  return {
+    id: userId,
+    role,
+    companyName: null, // A tabela users ainda não tem company_name, mantendo null por enquanto
     allowedBrands,
   }
 }

@@ -1,4 +1,11 @@
-// Tipos baseados no schema existente do Supabase (sua estratégia de reutilização)
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
 export interface Database {
   public: {
     Tables: {
@@ -7,7 +14,8 @@ export interface Database {
           id: string
           email: string
           role: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-          nome: string
+          nome: string | null
+          allowed_brands: string[] | null
           created_at: string
           updated_at: string
         }
@@ -15,7 +23,8 @@ export interface Database {
           id?: string
           email: string
           role?: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-          nome: string
+          nome?: string | null
+          allowed_brands?: string[] | null
           created_at?: string
           updated_at?: string
         }
@@ -23,10 +32,12 @@ export interface Database {
           id?: string
           email?: string
           role?: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-          nome?: string
+          nome?: string | null
+          allowed_brands?: string[] | null
           created_at?: string
           updated_at?: string
         }
+        Relationships: []
       }
       indicacoes: {
         Row: {
@@ -65,6 +76,14 @@ export interface Database {
           user_id?: string
           marca?: 'dorata' | 'rental'
         }
+        Relationships: [
+          {
+            foreignKeyName: "indicacoes_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: {
@@ -76,6 +95,9 @@ export interface Database {
     Enums: {
       user_role: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
       indicacao_marca: 'dorata' | 'rental'
+    }
+    CompositeTypes: {
+      [_ in never]: never
     }
   }
 }
