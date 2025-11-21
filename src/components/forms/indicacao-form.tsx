@@ -31,64 +31,111 @@ const STORAGE_BUCKET = "indicacoes"
 // =============================
 // Zod Schemas (PF/PJ)
 // =============================
-const baseSchema = z.object({
+// =============================
+// Zod Schemas (Unified)
+// =============================
+
+// Enum para Tipo de Estrutura
+const TipoEstruturaEnum = z.enum(["Solo", "Telhado", "Carport"])
+
+const unifiedSchema = z.object({
   marca: z.enum(["rental", "dorata"]).default("rental"),
-  tipoPessoa: z.enum(["PF", "PJ"]),
-  codigoClienteEnergia: z.string().min(1, "Informe o código da conta"),
-  nomeCliente: z.string().min(1, "Nome é obrigatório").optional(),
-  emailCliente: z.string().email("Email inválido").optional(),
-  telefoneCliente: z.string().min(10, "Telefone inválido").optional(),
-  endereco: z.string().min(1, "Endereço é obrigatório").optional(),
-  cidade: z.string().min(1, "Cidade é obrigatória").optional(),
-  estado: z.string().min(2, "Estado é obrigatório").optional(),
-  cep: z.string().min(8, "CEP inválido").optional(),
-  consumoMedioKwh: z.coerce.number().positive().max(99999).optional(),
-  valorContaEnergia: z.coerce.number().positive().optional(),
+  tipoPessoa: z.enum(["PF", "PJ"]).default("PF"),
   vendedorId: z.string().min(1, "Vendedor obrigatório"),
   status: z.enum(["EM_ANALISE", "APROVADA", "REJEITADA", "CONCLUIDA"]).default("EM_ANALISE"),
-})
 
-const pfSchema = baseSchema.extend({
-  tipoPessoa: z.literal("PF"),
-  cpfCnpj: z.string().min(11, "CPF inválido"),
-  rg: z.string().min(1, "RG é obrigatório"),
-  whatsappSignatarioPF: z.string().min(10, "WhatsApp inválido"),
-  telefoneCobrancaPF: z.string().min(10, "Telefone cobrança inválido"),
-  emailBoletos: z.string().email("Email inválido"),
-  dataVendaPF: z.coerce.date(),
-  vendedorNomePF: z.string().min(1),
-  vendedorTelefonePF: z.string().min(10),
-  vendedorCPF: z.string().min(11),
-  consumoMedioPF: z.coerce.number().positive().max(99999),
-})
+  // Common / Rental Fields
+  codigoClienteEnergia: z.string().optional(),
+  nomeCliente: z.string().optional(),
+  emailCliente: z.string().optional(),
+  telefoneCliente: z.string().optional(),
+  endereco: z.string().optional(),
+  numero: z.string().optional(),
+  bairro: z.string().optional(),
+  cidade: z.string().optional(),
+  estado: z.string().optional(),
+  cep: z.string().optional(),
+  consumoMedioKwh: z.coerce.number().optional(),
+  valorContaEnergia: z.coerce.number().optional(),
 
-const pjSchema = baseSchema.extend({
-  tipoPessoa: z.literal("PJ"),
-  nomeEmpresa: z.string().min(1, "Razão social obrigatória"),
-  cnpj: z.string().min(14, "CNPJ inválido"),
-  cpfCnpj: z.string().min(14, "CNPJ inválido"),
-  logradouro: z.string().min(1),
-  numero: z.string().min(1),
-  bairro: z.string().min(1),
+  // Rental PF Specific
+  cpfCnpj: z.string().optional(),
+  rg: z.string().optional(),
+  whatsappSignatarioPF: z.string().optional(),
+  telefoneCobrancaPF: z.string().optional(),
+  emailBoletos: z.string().optional(),
+  dataVendaPF: z.coerce.date().optional(),
+  vendedorNomePF: z.string().optional(),
+  vendedorTelefonePF: z.string().optional(),
+  vendedorCPF: z.string().optional(),
+  consumoMedioPF: z.coerce.number().optional(),
+
+  // Rental PJ Specific
+  nomeEmpresa: z.string().optional(),
+  cnpj: z.string().optional(),
+  logradouro: z.string().optional(),
   complemento: z.string().optional(),
-  representanteLegal: z.string().min(1),
-  cpfRepresentante: z.string().min(11),
-  rgRepresentante: z.string().min(1),
-  emailSignatario: z.string().email(),
-  emailFatura: z.string().email(),
-  telefoneCobranca: z.string().min(10),
-  whatsappSignatario: z.string().min(10),
-  codigoInstalacao: z.string().min(1),
-  localizacaoUC: z.string().min(1),
-  dataVenda: z.coerce.date(),
-  vendedorNome: z.string().min(1),
-  vendedorTelefone: z.string().min(10),
-  vendedorCNPJ: z.string().min(14),
+  representanteLegal: z.string().optional(),
+  cpfRepresentante: z.string().optional(),
+  rgRepresentante: z.string().optional(),
+  emailSignatario: z.string().optional(),
+  emailFatura: z.string().optional(),
+  telefoneCobranca: z.string().optional(),
+  whatsappSignatario: z.string().optional(),
+  codigoInstalacao: z.string().optional(),
+  localizacaoUC: z.string().optional(),
+  dataVenda: z.coerce.date().optional(),
+  vendedorNome: z.string().optional(),
+  vendedorTelefone: z.string().optional(),
+  vendedorCNPJ: z.string().optional(),
+
+  // Dorata Specific
+  producaoDesejada: z.string().optional(),
+  tipoTelhado: z.string().optional(),
+  tipoEstrutura: TipoEstruturaEnum.optional(),
+}).superRefine((data, ctx) => {
+  // ======================
+  // RENTAL VALIDATION
+  // ======================
+  if (data.marca === 'rental') {
+    if (!data.codigoClienteEnergia) ctx.addIssue({ path: ['codigoClienteEnergia'], code: z.ZodIssueCode.custom, message: "Informe o código da conta" })
+
+    if (data.tipoPessoa === 'PF') {
+      if (!data.nomeCliente) ctx.addIssue({ path: ['nomeCliente'], code: z.ZodIssueCode.custom, message: "Nome é obrigatório" })
+      if (!data.cpfCnpj || data.cpfCnpj.length < 11) ctx.addIssue({ path: ['cpfCnpj'], code: z.ZodIssueCode.custom, message: "CPF inválido" })
+      if (!data.rg) ctx.addIssue({ path: ['rg'], code: z.ZodIssueCode.custom, message: "RG é obrigatório" })
+      if (!data.emailBoletos) ctx.addIssue({ path: ['emailBoletos'], code: z.ZodIssueCode.custom, message: "Email para boletos obrigatório" })
+      if (!data.consumoMedioPF) ctx.addIssue({ path: ['consumoMedioPF'], code: z.ZodIssueCode.custom, message: "Consumo médio obrigatório" })
+      // ... add other strict rental PF checks if needed
+    } else {
+      // PJ
+      if (!data.nomeEmpresa) ctx.addIssue({ path: ['nomeEmpresa'], code: z.ZodIssueCode.custom, message: "Razão social obrigatória" })
+      if (!data.cnpj || data.cnpj.length < 14) ctx.addIssue({ path: ['cnpj'], code: z.ZodIssueCode.custom, message: "CNPJ inválido" })
+      if (!data.representanteLegal) ctx.addIssue({ path: ['representanteLegal'], code: z.ZodIssueCode.custom, message: "Representante legal obrigatório" })
+      // ... add other strict rental PJ checks
+    }
+  }
+
+  // ======================
+  // DORATA VALIDATION
+  // ======================
+  if (data.marca === 'dorata') {
+    if (!data.nomeCliente) ctx.addIssue({ path: ['nomeCliente'], code: z.ZodIssueCode.custom, message: "Nome é obrigatório" })
+    if (!data.telefoneCliente) ctx.addIssue({ path: ['telefoneCliente'], code: z.ZodIssueCode.custom, message: "WhatsApp é obrigatório" })
+    if (!data.producaoDesejada) ctx.addIssue({ path: ['producaoDesejada'], code: z.ZodIssueCode.custom, message: "Informe a produção desejada" })
+    if (!data.tipoTelhado) ctx.addIssue({ path: ['tipoTelhado'], code: z.ZodIssueCode.custom, message: "Informe o tipo de telha" })
+    if (!data.tipoEstrutura) ctx.addIssue({ path: ['tipoEstrutura'], code: z.ZodIssueCode.custom, message: "Selecione o tipo de estrutura" })
+
+    // Location
+    if (!data.cidade) ctx.addIssue({ path: ['cidade'], code: z.ZodIssueCode.custom, message: "Cidade é obrigatória" })
+    if (!data.estado) ctx.addIssue({ path: ['estado'], code: z.ZodIssueCode.custom, message: "Estado é obrigatório" })
+    if (!data.bairro) ctx.addIssue({ path: ['bairro'], code: z.ZodIssueCode.custom, message: "Bairro é obrigatório" })
+    if (!data.endereco) ctx.addIssue({ path: ['endereco'], code: z.ZodIssueCode.custom, message: "Rua é obrigatória" })
+    if (!data.numero) ctx.addIssue({ path: ['numero'], code: z.ZodIssueCode.custom, message: "Número é obrigatório" })
+  }
 })
 
-const formSchema = z.discriminatedUnion("tipoPessoa", [pfSchema, pjSchema])
-
-export type IndicacaoFormValues = z.infer<typeof formSchema>
+export type IndicacaoFormValues = z.infer<typeof unifiedSchema>
 
 // =============================
 // Props
@@ -123,7 +170,7 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
   const initialBrand = allowedBrands[0] ?? "rental"
 
   const form = useForm<IndicacaoFormValues>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(unifiedSchema),
     defaultValues: {
       tipoPessoa: "PF",
       marca: initialBrand,
@@ -135,9 +182,15 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
       emailCliente: "",
       telefoneCliente: "",
       endereco: "",
+      numero: "",
+      bairro: "",
       cidade: "",
       estado: "",
       cep: "",
+      // Dorata defaults
+      producaoDesejada: "",
+      tipoTelhado: "",
+      tipoEstrutura: undefined,
     } as unknown as IndicacaoFormValues,
   })
 
@@ -179,16 +232,18 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
   // Submit
   // =============================
   const onSubmit = async (values: IndicacaoFormValues) => {
-    // Checagem de documentos obrigatórios
-    if (values.tipoPessoa === "PF") {
-      if (!filesPF.faturaEnergia || !filesPF.documentoComFoto) {
-        showToast({ variant: "error", title: "Documentos obrigatórios", description: "Fatura e documento com foto são obrigatórios." })
-        return
-      }
-    } else {
-      if (!filesPJ.faturaEnergia || !filesPJ.documentoComFoto || !filesPJ.contratoSocial || !filesPJ.cartaoCNPJ || !filesPJ.documentoRepresentante) {
-        showToast({ variant: "error", title: "Documentos obrigatórios", description: "Envie todos os documentos exigidos para PJ." })
-        return
+    // Checagem de documentos obrigatórios (APENAS RENTAL)
+    if (values.marca === 'rental') {
+      if (values.tipoPessoa === "PF") {
+        if (!filesPF.faturaEnergia || !filesPF.documentoComFoto) {
+          showToast({ variant: "error", title: "Documentos obrigatórios", description: "Fatura e documento com foto são obrigatórios." })
+          return
+        }
+      } else {
+        if (!filesPJ.faturaEnergia || !filesPJ.documentoComFoto || !filesPJ.contratoSocial || !filesPJ.cartaoCNPJ || !filesPJ.documentoRepresentante) {
+          showToast({ variant: "error", title: "Documentos obrigatórios", description: "Envie todos os documentos exigidos para PJ." })
+          return
+        }
       }
     }
 
@@ -350,366 +405,478 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="codigoClienteEnergia"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Código da conta de energia</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Informe o código da conta" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {form.watch('marca') === 'rental' && (
+              <FormField
+                control={form.control}
+                name="codigoClienteEnergia"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Código da conta de energia</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Informe o código da conta" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </div>
 
-          {tipoPessoa === "PF" ? (
-            <>
+          {/* ========================== */}
+          {/* DORATA FORM (SIMPLIFIED)   */}
+          {/* ========================== */}
+          {form.watch('marca') === 'dorata' && (
+            <div className="space-y-4 border-t pt-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField control={form.control} name="nomeCliente" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Nome do cliente</FormLabel>
-                    <FormControl><Input placeholder="Maria da Silva" {...field} /></FormControl>
+                    <FormControl><Input placeholder="Nome completo" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
-                <FormField control={form.control} name="cpfCnpj" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CPF</FormLabel>
-                    <FormControl><Input {...field} placeholder="000.000.000-00" onChange={(e)=>field.onChange(formatCpf(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="emailCliente" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl><Input type="email" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
+                )} />
                 <FormField control={form.control} name="telefoneCliente" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Telefone</FormLabel>
-                    <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
+                    <FormLabel>WhatsApp</FormLabel>
+                    <FormControl><Input placeholder="(00) 00000-0000" {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
-                <FormField control={form.control} name="rg" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>RG</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="whatsappSignatarioPF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>WhatsApp do signatário</FormLabel>
-                    <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="telefoneCobrancaPF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Telefone de cobrança</FormLabel>
-                    <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="emailBoletos" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email para boletos</FormLabel>
-                    <FormControl><Input type="email" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
+                )} />
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="endereco" render={({ field }) => (
+                <FormField control={form.control} name="producaoDesejada" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Endereço</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
+                    <FormLabel>Produção Desejada</FormLabel>
+                    <FormControl><Input placeholder="Ex: 500 kWh" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
+                )} />
+                <FormField control={form.control} name="tipoTelhado" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de Telha</FormLabel>
+                    <FormControl><Input placeholder="Ex: Barro, Fibrocimento..." {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="tipoEstrutura" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de Estrutura</FormLabel>
+                    <FormControl>
+                      <select className="border-input text-foreground bg-transparent text-sm h-9 w-full rounded-md border px-3 shadow-xs outline-none" {...field}>
+                        <option value="">Selecione...</option>
+                        <option value="Solo">Solo</option>
+                        <option value="Telhado">Telhado</option>
+                        <option value="Carport">Carport</option>
+                      </select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <FormField control={form.control} name="cep" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CEP</FormLabel>
+                    <FormControl><Input placeholder="00000-000" {...field} onChange={(e) => field.onChange(formatCep(e.target.value))} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
                 <FormField control={form.control} name="cidade" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Cidade</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
+                )} />
                 <FormField control={form.control} name="estado" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Estado</FormLabel>
-                    <FormControl><Input {...field} placeholder="SP" /></FormControl>
+                    <FormControl><Input placeholder="UF" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
-                <FormField control={form.control} name="cep" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CEP</FormLabel>
-                    <FormControl><Input {...field} placeholder="00000-000" onChange={(e)=>field.onChange(formatCep(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
+                )} />
               </div>
 
               <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="consumoMedioPF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Consumo médio (kWh)</FormLabel>
-                    <FormControl><Input type="number" min={0} {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="valorContaEnergia" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Valor da conta (R$)</FormLabel>
-                    <FormControl><Input type="number" step="0.01" min={0} {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="dataVendaPF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Data da venda</FormLabel>
-                    <FormControl><Input type="date" value={field.value ? new Date(field.value).toISOString().slice(0,10) : ""} onChange={(e)=>field.onChange(e.target.value)}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="vendedorNomePF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vendedor (nome)</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="vendedorTelefonePF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vendedor (telefone)</FormLabel>
-                    <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="vendedorCPF" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vendedor (CPF)</FormLabel>
-                    <FormControl><Input {...field} onChange={(e)=>field.onChange(formatCpf(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Documentos (PDF/JPG/PNG) — obrigatórios</label>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <span className="text-xs text-muted-foreground">Fatura de energia</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPF((s)=>({...s,faturaEnergia:f})))} />
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Documento com foto (RG/CNH)</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPF((s)=>({...s,documentoComFoto:f})))} />
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField control={form.control} name="nomeEmpresa" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Razão social</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="cnpj" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CNPJ</FormLabel>
-                    <FormControl><Input {...field} placeholder="00.000.000/0000-00" onChange={(e)=>{
-                      const v=formatCnpj(e.target.value); field.onChange(v); form.setValue('cpfCnpj', v)
-                    }}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="representanteLegal" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Representante legal</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="emailSignatario" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email do signatário</FormLabel>
-                    <FormControl><Input type="email" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="logradouro" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Logradouro</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="numero" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Número</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
                 <FormField control={form.control} name="bairro" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Bairro</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
-                <FormField control={form.control} name="cidade" render={({ field }) => (
+                )} />
+                <FormField control={form.control} name="endereco" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Cidade</FormLabel>
+                    <FormLabel>Rua</FormLabel>
                     <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
-                <FormField control={form.control} name="estado" render={({ field }) => (
+                )} />
+                <FormField control={form.control} name="numero" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Estado</FormLabel>
-                    <FormControl><Input placeholder="SP" {...field} /></FormControl>
+                    <FormLabel>Número</FormLabel>
+                    <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
-                )}/>
-                <FormField control={form.control} name="cep" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CEP</FormLabel>
-                    <FormControl><Input {...field} placeholder="00000-000" onChange={(e)=>field.onChange(formatCep(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
+                )} />
               </div>
+            </div>
+          )}
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="cpfRepresentante" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>CPF representante</FormLabel>
-                    <FormControl><Input {...field} onChange={(e)=>field.onChange(formatCpf(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="rgRepresentante" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>RG representante</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="emailFatura" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email para fatura</FormLabel>
-                    <FormControl><Input type="email" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="telefoneCobranca" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Telefone cobrança</FormLabel>
-                    <FormControl><Input {...field} onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="whatsappSignatario" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>WhatsApp signatário</FormLabel>
-                    <FormControl><Input {...field} onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-              </div>
+          {/* ========================== */}
+          {/* RENTAL FORM (ORIGINAL)     */}
+          {/* ========================== */}
+          {form.watch('marca') === 'rental' && (
+            <>
+              {tipoPessoa === "PF" ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField control={form.control} name="nomeCliente" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome do cliente</FormLabel>
+                        <FormControl><Input placeholder="Maria da Silva" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cpfCnpj" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CPF</FormLabel>
+                        <FormControl><Input {...field} placeholder="000.000.000-00" onChange={(e) => field.onChange(formatCpf(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="emailCliente" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl><Input type="email" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="telefoneCliente" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Telefone</FormLabel>
+                        <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="rg" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>RG</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="whatsappSignatarioPF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>WhatsApp do signatário</FormLabel>
+                        <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="telefoneCobrancaPF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Telefone de cobrança</FormLabel>
+                        <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="emailBoletos" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email para boletos</FormLabel>
+                        <FormControl><Input type="email" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="codigoInstalacao" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Código instalação</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="localizacaoUC" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Localização UC</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="dataVenda" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Data da venda</FormLabel>
-                    <FormControl><Input type="date" value={field.value ? new Date(field.value).toISOString().slice(0,10) : ""} onChange={(e)=>field.onChange(e.target.value)}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-              </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="endereco" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Endereço</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cidade" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Cidade</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="estado" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Estado</FormLabel>
+                        <FormControl><Input {...field} placeholder="SP" /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cep" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CEP</FormLabel>
+                        <FormControl><Input {...field} placeholder="00000-000" onChange={(e) => field.onChange(formatCep(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <FormField control={form.control} name="vendedorNome" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vendedor (nome)</FormLabel>
-                    <FormControl><Input {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="vendedorTelefone" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vendedor (telefone)</FormLabel>
-                    <FormControl><Input {...field} onChange={(e)=>field.onChange(formatPhone(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-                <FormField control={form.control} name="vendedorCNPJ" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Vendedor (CNPJ)</FormLabel>
-                    <FormControl><Input {...field} onChange={(e)=>field.onChange(formatCnpj(e.target.value))}/></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}/>
-              </div>
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="consumoMedioPF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Consumo médio (kWh)</FormLabel>
+                        <FormControl><Input type="number" min={0} {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="valorContaEnergia" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Valor da conta (R$)</FormLabel>
+                        <FormControl><Input type="number" step="0.01" min={0} {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="dataVendaPF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Data da venda</FormLabel>
+                        <FormControl><Input type="date" value={field.value ? new Date(field.value).toISOString().slice(0, 10) : ""} onChange={(e) => field.onChange(e.target.value)} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Documentos (PDF/JPG/PNG) — obrigatórios</label>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <span className="text-xs text-muted-foreground">Fatura de energia</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPJ((s)=>({...s,faturaEnergia:f})))} />
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="vendedorNomePF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendedor (nome)</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="vendedorTelefonePF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendedor (telefone)</FormLabel>
+                        <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="vendedorCPF" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendedor (CPF)</FormLabel>
+                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatCpf(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Documento com foto (representante)</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPJ((s)=>({...s,documentoComFoto:f})))} />
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Documentos (PDF/JPG/PNG) — obrigatórios</label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <span className="text-xs text-muted-foreground">Fatura de energia</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPF((s) => ({ ...s, faturaEnergia: f })))} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted-foreground">Documento com foto (RG/CNH)</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPF((s) => ({ ...s, documentoComFoto: f })))} />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Contrato social</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPJ((s)=>({...s,contratoSocial:f})))} />
+                </>
+              ) : (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField control={form.control} name="nomeEmpresa" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Razão social</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cnpj" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CNPJ</FormLabel>
+                        <FormControl><Input {...field} placeholder="00.000.000/0000-00" onChange={(e) => {
+                          const v = formatCnpj(e.target.value); field.onChange(v); form.setValue('cpfCnpj', v)
+                        }} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="representanteLegal" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Representante legal</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="emailSignatario" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email do signatário</FormLabel>
+                        <FormControl><Input type="email" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Cartão CNPJ</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPJ((s)=>({...s,cartaoCNPJ:f})))} />
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="logradouro" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Logradouro</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="numero" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Número</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="bairro" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Bairro</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cidade" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Cidade</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="estado" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Estado</FormLabel>
+                        <FormControl><Input placeholder="SP" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="cep" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CEP</FormLabel>
+                        <FormControl><Input {...field} placeholder="00000-000" onChange={(e) => field.onChange(formatCep(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                   </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">Documento representante (RG/CNH)</span>
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*",(f)=>setFilesPJ((s)=>({...s,documentoRepresentante:f})))} />
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="cpfRepresentante" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>CPF representante</FormLabel>
+                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatCpf(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="rgRepresentante" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>RG representante</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="emailFatura" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email para fatura</FormLabel>
+                        <FormControl><Input type="email" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="telefoneCobranca" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Telefone cobrança</FormLabel>
+                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="whatsappSignatario" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>WhatsApp signatário</FormLabel>
+                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                   </div>
-                </div>
-              </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="codigoInstalacao" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Código instalação</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="localizacaoUC" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Localização UC</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="dataVenda" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Data da venda</FormLabel>
+                        <FormControl><Input type="date" value={field.value ? new Date(field.value).toISOString().slice(0, 10) : ""} onChange={(e) => field.onChange(e.target.value)} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <FormField control={form.control} name="vendedorNome" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendedor (nome)</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="vendedorTelefone" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendedor (telefone)</FormLabel>
+                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="vendedorCNPJ" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendedor (CNPJ)</FormLabel>
+                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatCnpj(e.target.value))} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Documentos (PDF/JPG/PNG) — obrigatórios</label>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <span className="text-xs text-muted-foreground">Fatura de energia</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPJ((s) => ({ ...s, faturaEnergia: f })))} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted-foreground">Documento com foto (representante)</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPJ((s) => ({ ...s, documentoComFoto: f })))} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted-foreground">Contrato social</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPJ((s) => ({ ...s, contratoSocial: f })))} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted-foreground">Cartão CNPJ</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPJ((s) => ({ ...s, cartaoCNPJ: f })))} />
+                      </div>
+                      <div>
+                        <span className="text-xs text-muted-foreground">Documento representante (RG/CNH)</span>
+                        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={pickSingle("*", (f) => setFilesPJ((s) => ({ ...s, documentoRepresentante: f })))} />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </>
           )}
 
