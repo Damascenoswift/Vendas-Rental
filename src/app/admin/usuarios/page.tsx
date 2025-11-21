@@ -2,6 +2,8 @@ import { RegisterUserForm } from '@/components/admin/register-user-form'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
+import { createSupabaseServiceClient } from '@/lib/supabase-server'
+
 export default async function AdminUsersPage() {
     const supabase = await createClient()
 
@@ -13,7 +15,9 @@ export default async function AdminUsersPage() {
         redirect('/login')
     }
 
-    const { data: profile } = await supabase
+    // Use Service Client to bypass RLS when checking permissions
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: profile } = await supabaseAdmin
         .from('users')
         .select('role')
         .eq('id', user.id)
