@@ -132,7 +132,7 @@ export default function DashboardLayout({
               onClick={handleSignOut}
               disabled={isSigningOut}
             >
-              {isSigningOut ? "Saindo…" : "Sair"}
+              {isSigningOut ? "Saindo…" : "Sair do Sistema"}
             </Button>
           </div>
         </div>
