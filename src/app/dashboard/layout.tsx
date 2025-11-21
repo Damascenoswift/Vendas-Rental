@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import { ToastContainer } from "@/components/ui/toaster"
@@ -118,13 +119,20 @@ export default function DashboardLayout({
               <span className="font-medium text-foreground">{userRoleLabel}</span>
               <span className="text-muted-foreground/80">Marcas: {brandsLabel}</span>
             </div>
+
+            {profile && ['adm_mestre', 'adm_dorata'].includes(profile.role) && (
+              <Button variant="default" size="sm" asChild className="bg-blue-600 hover:bg-blue-700 text-white">
+                <Link href="/admin/usuarios">Gerenciar Usuários</Link>
+              </Button>
+            )}
+
             <Button
               variant="outline"
               size="sm"
               onClick={handleSignOut}
               disabled={isSigningOut}
             >
-              {isSigningOut ? "Saindo…" : "Encerrar sessão"}
+              {isSigningOut ? "Saindo…" : "Sair"}
             </Button>
           </div>
         </div>
