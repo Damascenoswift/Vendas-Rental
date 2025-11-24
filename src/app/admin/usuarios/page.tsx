@@ -24,7 +24,25 @@ export default async function AdminUsersPage() {
         .single()
 
     if (!profile || !['adm_mestre', 'adm_dorata'].includes(profile.role)) {
-        redirect('/')
+        // DEBUG MODE: Instead of redirecting, show why it failed
+        return (
+            <div className="container mx-auto py-10">
+                <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+                    <h2 className="text-lg font-bold">Acesso Negado (Debug)</h2>
+                    <p>Seu usuário não tem permissão para acessar esta página.</p>
+                    <div className="mt-4 rounded bg-black/10 p-4 font-mono text-xs text-foreground">
+                        <p><strong>User ID:</strong> {user.id}</p>
+                        <p><strong>Profile Found:</strong> {profile ? 'Yes' : 'No'}</p>
+                        <p><strong>Role in DB:</strong> {profile?.role ?? 'N/A'}</p>
+                        <p><strong>Expected:</strong> adm_mestre OR adm_dorata</p>
+                    </div>
+                    <p className="mt-4 text-sm text-muted-foreground">
+                        Se você vê esta tela, o banco de dados não retornou o cargo correto para seu usuário.
+                        Verifique a tabela 'users' no Supabase.
+                    </p>
+                </div>
+            </div>
+        )
     }
 
     return (
