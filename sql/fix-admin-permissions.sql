@@ -16,14 +16,9 @@ CREATE POLICY "Indicacoes própria + marca"
 ON public.indicacoes
 FOR ALL
 USING (
-  -- Se não for admin, aplica a regra de marca/dono
   (auth.jwt()->'user_metadata'->>'role') NOT IN ('adm_mestre', 'adm_dorata')
-  AND
-  auth.uid() = user_id
-  AND marca = ANY (COALESCE(
-    (auth.jwt()->'user_metadata'->>'allowed_brands')::text[],
-    ARRAY['rental']::text[]
-  ))
+  AND auth.uid() = user_id
+  AND marca::text = ANY (COALESCE((auth.jwt()->'user_metadata'->>'allowed_brands')::text[], ARRAY['rental']::text[]))
 );
 
 -- 2. Update 'users' policies (just in case)

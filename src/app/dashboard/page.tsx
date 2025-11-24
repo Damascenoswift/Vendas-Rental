@@ -20,6 +20,7 @@ import { useAuthSession } from "@/hooks/use-auth-session"
 import type { Brand } from "@/lib/auth"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
+import { QuickIndicationDialog } from "@/components/forms/quick-indication-dialog"
 
 type StatusKey = "EM_ANALISE" | "APROVADA" | "REJEITADA" | "CONCLUIDA"
 
@@ -107,7 +108,7 @@ export default function DashboardPage() {
         .order("created_at", { ascending: false })
 
       if (allowedBrands.length > 0) {
-        query = query.in("marca", allowedBrands)
+        query = query.in("marca", allowedBrands as any)
       }
 
       const { data, error } = await query
@@ -257,10 +258,11 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">
           Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
         </p>
-        <div className="pt-2">
+        <div className="pt-2 flex gap-2">
           <Link href="/indicacoes">
             <Button size="sm">Nova indicação</Button>
           </Link>
+          <QuickIndicationDialog />
         </div>
       </header>
 
@@ -314,8 +316,8 @@ export default function DashboardPage() {
             {isLoadingMetrics
               ? "Atualizando métricas..."
               : formattedUltimaIndicacao === "—"
-              ? "Assim que uma nova indicação for registrada, você verá os detalhes aqui."
-              : "Acompanhe o status em tempo real na aba de indicações."}
+                ? "Assim que uma nova indicação for registrada, você verá os detalhes aqui."
+                : "Acompanhe o status em tempo real na aba de indicações."}
           </CardContent>
         </Card>
 

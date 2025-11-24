@@ -120,9 +120,9 @@ export default function DashboardLayout({
               <span className="text-muted-foreground/80">Marcas: {brandsLabel}</span>
             </div>
 
-            {profile && ['adm_mestre', 'adm_dorata'].includes(profile.role) && (
+            {profile && profile.role === 'adm_mestre' && (
               <Button variant="default" size="sm" asChild className="bg-blue-600 hover:bg-blue-700 text-white">
-                <Link href="/admin/usuarios">Gerenciar Usuários</Link>
+                <Link href="/admin/leads">Leads Rápidos</Link>
               </Button>
             )}
 
