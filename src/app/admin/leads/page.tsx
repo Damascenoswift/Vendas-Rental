@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { redirect } from 'next/navigation'
 import {
     Table,
@@ -41,15 +42,26 @@ export default async function AdminLeadsPage() {
         )
     }
 
+    // Use Service Client to bypass RLS for fetching all leads
+    const supabaseAdmin = createSupabaseServiceClient()
+
     // Fetch leads with user info
-    const { data: leads, error } = await supabase
+    const { data: leads, error } = await supabaseAdmin
         .from('quick_leads')
         .select('*, users(email, user_metadata)')
         .order('created_at', { ascending: false })
 
     if (error) {
         console.error('Erro ao buscar leads:', error)
-        return <div>Erro ao carregar leads.</div>
+        return (
+            <div className="container mx-auto py-10">
+                <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+                    <h3 className="font-bold">Erro ao carregar leads</h3>
+                    <p className="text-sm">{error.message}</p>
+                    <p className="text-xs mt-2 text-muted-foreground">Verifique se a variável SUPABASE_SERVICE_ROLE_KEY está configurada na Vercel.</p>
+                </div>
+            </div>
+        )
     }
 
     return (
