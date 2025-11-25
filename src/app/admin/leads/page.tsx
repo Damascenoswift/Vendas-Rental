@@ -21,25 +21,21 @@ export default async function AdminLeadsPage() {
     }
 
     // Check permissions (only adm_mestre)
+    // We check both the DB profile and user_metadata to be robust
     const { data: profile } = await supabase
         .from('users')
         .select('role')
         .eq('id', user.id)
         .single()
 
-    if (!profile || profile.role !== 'adm_mestre') {
+    const role = profile?.role ?? user.user_metadata?.role
+
+    if (role !== 'adm_mestre') {
         return (
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">
                     <h2 className="text-lg font-bold">Acesso Negado</h2>
                     <p>Apenas Administradores Mestre podem acessar esta página.</p>
-                    <div className="mt-4 rounded bg-black/10 p-4 font-mono text-xs text-foreground">
-                        <p><strong>User ID:</strong> {user.id}</p>
-                        <p><strong>Email:</strong> {user.email}</p>
-                        <p><strong>Profile Found:</strong> {profile ? 'Yes' : 'No'}</p>
-                        <p><strong>Role in DB:</strong> {profile?.role ?? 'N/A'}</p>
-                        <p><strong>Role in Metadata:</strong> {user.user_metadata?.role ?? 'N/A'}</p>
-                    </div>
                 </div>
             </div>
         )
