@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label"
 import { createQuickLead } from "@/app/actions/quick-lead"
 import { useToast } from "@/hooks/use-toast"
 import { formatPhone } from "@/lib/formatters"
+import { RentalCalculator } from "@/components/calculators/rental-calculator"
 
 const schema = z.object({
     nome: z.string().min(1, "Nome é obrigatório"),
@@ -41,6 +42,7 @@ export function QuickIndicationDialog() {
         handleSubmit,
         reset,
         setValue,
+        watch,
         formState: { errors },
     } = useForm<FormValues>({
         resolver: zodResolver(schema),
@@ -48,6 +50,8 @@ export function QuickIndicationDialog() {
             marca: "rental",
         },
     })
+
+    const selectedMarca = watch("marca")
 
     const onSubmit = async (data: FormValues) => {
         setIsSubmitting(true)
@@ -94,7 +98,7 @@ export function QuickIndicationDialog() {
                     Indicação Rápida
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Indicação Rápida</DialogTitle>
                     <DialogDescription>
@@ -145,6 +149,13 @@ export function QuickIndicationDialog() {
                             {...register("observacao")}
                         />
                     </div>
+
+                    {selectedMarca === "rental" && (
+                        <div className="pt-2">
+                            <RentalCalculator />
+                        </div>
+                    )}
+
                     <DialogFooter>
                         <Button type="submit" disabled={isSubmitting}>
                             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
