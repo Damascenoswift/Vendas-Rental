@@ -10,6 +10,7 @@ export function RentalCalculator() {
     const [fatura, setFatura] = useState<number>(0)
     const [deducao, setDeducao] = useState<number>(180) // Valor padrão comum
     const [desconto, setDesconto] = useState<number>(0)
+    const [porcentagemComissao, setPorcentagemComissao] = useState<number>(20) // Padrão 20%
     const [splitPorcentagem, setSplitPorcentagem] = useState<number>(0) // 0 se não houver sócio
 
     // 2. Estados Calculados (Saídas)
@@ -31,8 +32,8 @@ export function RentalCalculator() {
 
     // 4. Efeito para calcular Comissões
     useEffect(() => {
-        // Regra de negócio: 25% sobre o valor energia
-        const total = valorEnergia * 0.25
+        // Regra de negócio: % definida pelo usuário sobre o valor energia
+        const total = valorEnergia * (porcentagemComissao / 100)
         setComissaoTotal(total)
 
         // Aplica o split se houver
@@ -42,7 +43,7 @@ export function RentalCalculator() {
         } else {
             setMinhaComissao(total)
         }
-    }, [valorEnergia, splitPorcentagem])
+    }, [valorEnergia, splitPorcentagem, porcentagemComissao])
 
     // 5. Exibição dos 30% e 70%
     const adiantamento30 = minhaComissao * 0.3
@@ -95,6 +96,17 @@ export function RentalCalculator() {
                         />
                     </div>
                     <div className="space-y-2">
+                        <Label htmlFor="comissao" className="text-xs">Sua Comissão (%)</Label>
+                        <Input
+                            id="comissao"
+                            type="number"
+                            placeholder="20"
+                            className="h-8 text-sm"
+                            value={porcentagemComissao || ""}
+                            onChange={(e) => setPorcentagemComissao(Number(e.target.value))}
+                        />
+                    </div>
+                    <div className="space-y-2 col-span-2">
                         <Label htmlFor="split" className="text-xs">Split com Sócio (%)</Label>
                         <Input
                             id="split"
