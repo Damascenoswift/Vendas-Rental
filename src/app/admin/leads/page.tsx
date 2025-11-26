@@ -48,7 +48,7 @@ export default async function AdminLeadsPage() {
     // Fetch leads with user info
     const { data: leads, error } = await supabaseAdmin
         .from('quick_leads')
-        .select('*, users(email, nome)')
+        .select('*, users(email, name)')
         .order('created_at', { ascending: false })
 
     if (error) {
@@ -88,7 +88,7 @@ export default async function AdminLeadsPage() {
                     <TableBody>
                         {leads?.map((lead) => {
                             // Extract vendedor name safely
-                            const vendedorNome = (lead.users as any)?.nome || (lead.users as any)?.email || 'Desconhecido'
+                            const vendedorNome = (lead.users as any)?.name || (lead.users as any)?.email || 'Desconhecido'
 
                             return (
                                 <TableRow key={lead.id}>
