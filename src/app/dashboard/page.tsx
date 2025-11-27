@@ -21,6 +21,7 @@ import type { Brand } from "@/lib/auth"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { QuickIndicationDialog } from "@/components/forms/quick-indication-dialog"
+import { RentalCalculator } from "@/components/calculators/rental-calculator"
 
 type StatusKey = "EM_ANALISE" | "APROVADA" | "REJEITADA" | "CONCLUIDA"
 
@@ -334,6 +335,10 @@ export default function DashboardPage() {
             <p>- Painel com metas de conversão e funil de vendas.</p>
           </CardContent>
         </Card>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-1">
+        <RentalCalculator />
       </section>
     </div>
   )

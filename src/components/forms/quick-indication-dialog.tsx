@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label"
 import { createQuickLead } from "@/app/actions/quick-lead"
 import { useToast } from "@/hooks/use-toast"
 import { formatPhone } from "@/lib/formatters"
-import { RentalCalculator } from "@/components/calculators/rental-calculator"
+
 
 const schema = z.object({
     nome: z.string().min(1, "Nome é obrigatório"),
@@ -150,11 +150,7 @@ export function QuickIndicationDialog() {
                         />
                     </div>
 
-                    {selectedMarca === "rental" && (
-                        <div className="pt-2">
-                            <RentalCalculator />
-                        </div>
-                    )}
+
 
                     <DialogFooter>
                         <Button type="submit" disabled={isSubmitting}>
