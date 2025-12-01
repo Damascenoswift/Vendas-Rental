@@ -105,8 +105,13 @@ export default function DashboardPage() {
       let query = supabase
         .from("indicacoes")
         .select("id, status, created_at, marca")
-        .eq("user_id", userId)
         .order("created_at", { ascending: false })
+
+      // Se NÃO for adm_mestre, filtra apenas as próprias indicações
+      // Se for adm_mestre, não aplica filtro de user_id (vê tudo)
+      if (profile?.role !== "adm_mestre") {
+        query = query.eq("user_id", userId)
+      }
 
       if (allowedBrands.length > 0) {
         query = query.in("marca", allowedBrands as any)
@@ -151,7 +156,7 @@ export default function DashboardPage() {
 
       setIsLoadingMetrics(false)
     },
-    [userId, allowedBrands]
+    [userId, allowedBrands, profile?.role]
   )
 
   useEffect(() => {
@@ -260,6 +265,13 @@ export default function DashboardPage() {
           Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
         </p>
         <div className="pt-2 flex gap-2">
+          {profile?.role === "adm_mestre" && (
+            <Link href="/admin/indicacoes">
+              <Button variant="outline" size="sm">
+                Painel Admin
+              </Button>
+            </Link>
+          )}
           <Link href="/indicacoes">
             <Button size="sm">Nova indicação</Button>
           </Link>

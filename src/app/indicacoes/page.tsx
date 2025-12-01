@@ -296,7 +296,7 @@ export default function IndicacoesPage() {
             <span className="sr-only">Voltar</span>
           </Button>
         </Link>
-        <div className="space-y-1">
+        <div className="space-y-1 flex-1">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">
             Minhas indicações
           </h1>
@@ -304,6 +304,13 @@ export default function IndicacoesPage() {
             Consulte rapidamente o status e detalhes das indicações enviadas.
           </p>
         </div>
+        {profile?.role === "adm_mestre" && (
+          <Link href="/admin/indicacoes">
+            <Button variant="outline" size="sm">
+              Painel Admin
+            </Button>
+          </Link>
+        )}
       </div>
 
       {userId ? (
