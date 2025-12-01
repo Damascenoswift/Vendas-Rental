@@ -39,10 +39,10 @@ const STORAGE_BUCKET = "indicacoes"
 const TipoEstruturaEnum = z.enum(["Solo", "Telhado", "Carport"])
 
 const unifiedSchema = z.object({
-  marca: z.enum(["rental", "dorata"]).default("rental"),
-  tipoPessoa: z.enum(["PF", "PJ"]).default("PF"),
+  marca: z.enum(["rental", "dorata"]),
+  tipoPessoa: z.enum(["PF", "PJ"]),
   vendedorId: z.string().min(1, "Vendedor obrigatório"),
-  status: z.enum(["EM_ANALISE", "APROVADA", "REJEITADA", "CONCLUIDA"]).default("EM_ANALISE"),
+  status: z.enum(["EM_ANALISE", "APROVADA", "REJEITADA", "CONCLUIDA"]),
 
   // Common / Rental Fields
   codigoClienteEnergia: z.string().optional(),
@@ -170,7 +170,7 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
   const initialBrand = allowedBrands[0] ?? "rental"
 
   const form = useForm<IndicacaoFormValues>({
-    resolver: zodResolver(unifiedSchema),
+    resolver: zodResolver(unifiedSchema) as any,
     defaultValues: {
       tipoPessoa: "PF",
       marca: initialBrand,
@@ -191,7 +191,7 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
       producaoDesejada: "",
       tipoTelhado: "",
       tipoEstrutura: undefined,
-    } as unknown as IndicacaoFormValues,
+    },
   })
 
   const tipoPessoa = form.watch("tipoPessoa")
@@ -252,22 +252,28 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
     const displayEmail = values.tipoPessoa === "PF" ? values.emailCliente : values.emailSignatario
     const displayPhone = values.tipoPessoa === "PF" ? values.telefoneCliente : values.telefoneCobranca
 
+    const payload = {
+      tipo: values.tipoPessoa,
+      nome: (displayName ?? "").trim(),
+      email: (displayEmail ?? "").toLowerCase().trim(),
+      telefone: onlyDigits(displayPhone ?? ""),
+      status: "EM_ANALISE" as "EM_ANALISE",
+      user_id: userId,
+      marca: values.marca,
+      documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
+    }
+
+    console.log("Submitting payload:", payload)
+
     const { data, error } = await supabase
       .from("indicacoes")
-      .insert({
-        tipo: values.tipoPessoa,
-        nome: (displayName ?? "").trim(),
-        email: (displayEmail ?? "").toLowerCase().trim(),
-        telefone: onlyDigits(displayPhone ?? ""),
-        status: "EM_ANALISE",
-        user_id: userId,
-        marca: values.marca,
-      })
+      .insert(payload)
       .select("id")
       .single()
 
     if (error || !data?.id) {
-      showToast({ variant: "error", title: "Erro ao cadastrar", description: "Não foi possível registrar a indicação." })
+      console.error("Supabase Insert Error:", error)
+      showToast({ variant: "error", title: "Erro ao cadastrar", description: "Não foi possível registrar a indicação. Verifique o console." })
       return
     }
 
@@ -304,51 +310,6 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
     }
 
     await Promise.all(uploads)
-
-    // Dispara Clicksign via Zapier (não bloqueia salva/UX)
-    try {
-      const { ClicksignService } = await import("@/lib/integrations/clicksign")
-      const payload = ClicksignService.prepararDados({
-        id: data.id,
-        tipoPessoa: values.tipoPessoa,
-        nomeCliente: values.nomeCliente,
-        emailCliente: values.emailCliente,
-        telefoneCliente: values.telefoneCliente,
-        endereco: values.endereco,
-        cidade: values.cidade,
-        estado: values.estado,
-        cep: values.cep,
-        consumoMedioKwh: (values as any).consumoMedioKwh ?? (values as any).consumoMedioPF,
-        valorContaEnergia: values.valorContaEnergia,
-        vendedorId: userId,
-        vendedorNome: (values as any).vendedorNome ?? (values as any).vendedorNomePF,
-        vendedorTelefone: (values as any).vendedorTelefone ?? (values as any).vendedorTelefonePF,
-        vendedorCPF: (values as any).vendedorCPF,
-        vendedorCNPJ: (values as any).vendedorCNPJ,
-        dataVenda: (values as any).dataVenda,
-        dataVendaPF: (values as any).dataVendaPF,
-        cpfCnpj: (values as any).cpfCnpj,
-        rg: (values as any).rg,
-        nomeEmpresa: (values as any).nomeEmpresa,
-        representanteLegal: (values as any).representanteLegal,
-        cpfRepresentante: (values as any).cpfRepresentante,
-        rgRepresentante: (values as any).rgRepresentante,
-        logradouro: (values as any).logradouro,
-        numero: (values as any).numero,
-        bairro: (values as any).bairro,
-        emailSignatario: (values as any).emailSignatario,
-        emailFatura: (values as any).emailFatura,
-        telefoneCobranca: (values as any).telefoneCobranca,
-        whatsappSignatario: (values as any).whatsappSignatario ?? (values as any).whatsappSignatarioPF,
-        codigoClienteEnergia: values.codigoClienteEnergia,
-        createdAt: new Date(),
-        status: 'EM_ANALISE',
-      })
-      // fire-and-forget (sem travar UX)
-      void ClicksignService.criarContrato(payload)
-    } catch (e) {
-      console.error('Zapier/Clicksign não disparado:', e)
-    }
 
     showToast({ variant: "success", title: "Indicação criada", description: "Documentos recebidos com sucesso." })
     if (onCreated) await onCreated()

@@ -7,7 +7,6 @@
  */
 
 export * from './clicksign'
-export * from './zapier'
 // Tipos comuns para todas as integrações
 export interface ApiResponse<T> {
   success: boolean

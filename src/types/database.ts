@@ -13,27 +13,30 @@ export interface Database {
         Row: {
           id: string
           email: string
-          role: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-          nome: string | null
-          allowed_brands: string[] | null
+          role: Database['public']['Enums']['user_role_enum']
+          allowed_brands: Database['public']['Enums']['brand_enum'][] | null
+          name: string | null
+          status: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           email: string
-          role?: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-          nome?: string | null
-          allowed_brands?: string[] | null
+          role?: Database['public']['Enums']['user_role_enum']
+          allowed_brands?: Database['public']['Enums']['brand_enum'][] | null
+          name?: string | null
+          status?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           email?: string
-          role?: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-          nome?: string | null
-          allowed_brands?: string[] | null
+          role?: Database['public']['Enums']['user_role_enum']
+          allowed_brands?: Database['public']['Enums']['brand_enum'][] | null
+          name?: string | null
+          status?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -50,7 +53,10 @@ export interface Database {
           created_at: string
           updated_at: string
           user_id: string
-          marca: 'dorata' | 'rental'
+          marca: Database['public']['Enums']['brand_enum']
+          documento: string | null
+          assinada_em: string | null
+          compensada_em: string | null
         }
         Insert: {
           id?: string
@@ -62,7 +68,10 @@ export interface Database {
           created_at?: string
           updated_at?: string
           user_id: string
-          marca: 'dorata' | 'rental'
+          marca: Database['public']['Enums']['brand_enum']
+          documento?: string | null
+          assinada_em?: string | null
+          compensada_em?: string | null
         }
         Update: {
           id?: string
@@ -74,7 +83,10 @@ export interface Database {
           created_at?: string
           updated_at?: string
           user_id?: string
-          marca?: 'dorata' | 'rental'
+          marca?: Database['public']['Enums']['brand_enum']
+          documento?: string | null
+          assinada_em?: string | null
+          compensada_em?: string | null
         }
         Relationships: [
           {
@@ -93,8 +105,8 @@ export interface Database {
       [_ in never]: never
     }
     Enums: {
-      user_role: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
-      indicacao_marca: 'dorata' | 'rental'
+      user_role_enum: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata'
+      brand_enum: 'dorata' | 'rental'
     }
     CompositeTypes: {
       [_ in never]: never

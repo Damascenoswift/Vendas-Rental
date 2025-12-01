@@ -7,7 +7,10 @@ import {
   useRef,
   useState,
 } from "react"
+import Link from "next/link"
+import { ArrowLeft } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { IndicacaoForm } from "@/components/forms/indicacao-form"
 import {
   Table,
@@ -79,7 +82,7 @@ export default function IndicacoesPage() {
   const isMounted = useRef(true)
 
   const userId = session?.user.id
-  const allowedBrands = useMemo(() => profile?.allowedBrands ?? ["rental"], [profile])
+  const allowedBrands = useMemo(() => (profile?.allowedBrands ?? ["rental"]) as Brand[], [profile])
 
   useEffect(() => {
     return () => {
@@ -281,16 +284,27 @@ export default function IndicacoesPage() {
     }
   }
 
+  // ... existing imports ...
+
+  // ... inside component ...
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-          Minhas indicações
-        </h1>
-        <p className="text-muted-foreground">
-          Consulte rapidamente o status e detalhes das indicações enviadas.
-        </p>
-      </header>
+      <div className="flex items-center gap-2">
+        <Link href="/dashboard">
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <ArrowLeft className="h-4 w-4" />
+            <span className="sr-only">Voltar</span>
+          </Button>
+        </Link>
+        <div className="space-y-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+            Minhas indicações
+          </h1>
+          <p className="text-muted-foreground">
+            Consulte rapidamente o status e detalhes das indicações enviadas.
+          </p>
+        </div>
+      </div>
 
       {userId ? (
         <IndicacaoForm
