@@ -45,9 +45,9 @@ export function RentalCalculator() {
         }
     }, [valorEnergia, splitPorcentagem, porcentagemComissao])
 
-    // 5. Exibição dos 30% e 70%
-    const adiantamento30 = minhaComissao * 0.3
-    const restante70 = minhaComissao - adiantamento30
+    // 5. Exibição dos 30% e 70% (Removido)
+    // const adiantamento30 = minhaComissao * 0.3
+    // const restante70 = minhaComissao - adiantamento30
 
     const formatCurrency = (value: number) => {
         return new Intl.NumberFormat("pt-BR", {
@@ -124,25 +124,15 @@ export function RentalCalculator() {
                         <span className="text-muted-foreground">Valor Energia:</span>
                         <span className="font-medium">{formatCurrency(valorEnergia)}</span>
                     </div>
-                    <div className="flex justify-between">
-                        <span className="text-muted-foreground">Comissão Total:</span>
-                        <span className="font-medium">{formatCurrency(comissaoTotal)}</span>
-                    </div>
                     <div className="flex justify-between text-primary font-bold pt-1 border-t mt-1">
-                        <span>Sua Parte:</span>
+                        <span>Comissão Total:</span>
                         <span>{formatCurrency(minhaComissao)}</span>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded bg-emerald-500/10 p-2 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
-                        <p className="font-semibold mb-0.5">Adiantamento (30%)</p>
-                        <p className="text-lg font-bold">{formatCurrency(adiantamento30)}</p>
-                    </div>
-                    <div className="rounded bg-blue-500/10 p-2 text-blue-700 dark:text-blue-400 border border-blue-500/20">
-                        <p className="font-semibold mb-0.5">No Fechamento (70%)</p>
-                        <p className="text-lg font-bold">{formatCurrency(restante70)}</p>
-                    </div>
+                <div className="rounded bg-emerald-500/10 p-3 text-center text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                    <p className="font-semibold mb-0.5">Comissão a Receber</p>
+                    <p className="text-2xl font-bold">{formatCurrency(minhaComissao)}</p>
                 </div>
             </CardContent>
         </Card>

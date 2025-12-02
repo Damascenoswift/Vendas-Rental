@@ -57,6 +57,7 @@ export interface Database {
           documento: string | null
           assinada_em: string | null
           compensada_em: string | null
+          valor: number | null
         }
         Insert: {
           id?: string
@@ -72,6 +73,7 @@ export interface Database {
           documento?: string | null
           assinada_em?: string | null
           compensada_em?: string | null
+          valor?: number | null
         }
         Update: {
           id?: string
@@ -87,6 +89,7 @@ export interface Database {
           documento?: string | null
           assinada_em?: string | null
           compensada_em?: string | null
+          valor?: number | null
         }
         Relationships: [
           {

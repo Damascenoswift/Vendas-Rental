@@ -14,6 +14,7 @@ import { IndicationStatusSelect } from "@/components/admin/indication-status-sel
 import { getProfile } from "@/lib/auth"
 import { IndicationFlags } from "@/components/admin/indication-flags"
 import { IndicationFillButton } from "@/components/admin/indication-fill-button"
+import { IndicationValueEdit } from "@/components/admin/indication-value-edit"
 
 export const dynamic = "force-dynamic"
 
@@ -81,6 +82,7 @@ export default async function AdminIndicacoesPage() {
                             <TableHead>Cliente</TableHead>
                             <TableHead>Vendedor</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Valor Compensado</TableHead>
                             <TableHead>Assinatura / Compensação</TableHead>
                         </TableRow>
                     </TableHeader>
@@ -119,6 +121,9 @@ export default async function AdminIndicacoesPage() {
                                         <div className="w-[180px]">
                                             <IndicationStatusSelect id={ind.id} initialStatus={ind.status} />
                                         </div>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <IndicationValueEdit id={ind.id} initialValue={ind.valor} />
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
