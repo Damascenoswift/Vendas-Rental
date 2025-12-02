@@ -2,12 +2,6 @@
 
 import { FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip"
 
 type IndicationFillButtonProps = {
     indication: {
@@ -57,18 +51,9 @@ export function IndicationFillButton({ indication }: IndicationFillButtonProps) 
     }
 
     return (
-        <TooltipProvider>
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handleFill}>
-                        <FileText className="h-4 w-4 text-blue-600" />
-                        <span className="sr-only">Preencher Formulário</span>
-                    </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <p>Preencher Formulário ({indication.tipo})</p>
-                </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
+        <Button variant="ghost" size="icon" onClick={handleFill} title={`Preencher Formulário (${indication.tipo})`}>
+            <FileText className="h-4 w-4 text-blue-600" />
+            <span className="sr-only">Preencher Formulário</span>
+        </Button>
     )
 }
