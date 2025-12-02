@@ -11,9 +11,10 @@ type IndicationFillButtonProps = {
         telefone: string
         documento: string | null
     }
+    vendedorName?: string
 }
 
-export function IndicationFillButton({ indication }: IndicationFillButtonProps) {
+export function IndicationFillButton({ indication, vendedorName }: IndicationFillButtonProps) {
     const handleFill = () => {
         // URLs dos formulários (Fluxia)
         const PF_URL = "https://app.clicksign.com/fluxia/7709258f-d77f-4cc8-bed8-17f458213bdf"
@@ -22,21 +23,28 @@ export function IndicationFillButton({ indication }: IndicationFillButtonProps) 
 
         const baseUrl = indication.tipo === "PF" ? PF_URL : PJ_URL
 
-        // Mapeamento de campos
-        // Tenta adivinhar os nomes dos campos no Fluxia. 
-        // O usuário pode precisar ajustar isso se os nomes no formulário forem diferentes.
         const params = new URLSearchParams()
 
+        // Mapeamento baseado nos nomes exatos do formulário Clicksign
         if (indication.tipo === "PF") {
-            params.append("nome_completo", indication.nome) // Tentativa comum: nome, nome_completo, name
-            params.append("email", indication.email)
-            params.append("cpf", indication.documento || "")
-            params.append("telefone", indication.telefone)
+            params.append("NOME", indication.nome)
+            params.append("E-mail do Signatário", indication.email)
+            params.append("CPF", indication.documento || "")
+            params.append("TELEFONE", indication.telefone)
+
+            if (vendedorName) {
+                params.append("Vendedor", vendedorName)
+            }
         } else {
-            params.append("razao_social", indication.nome)
-            params.append("email", indication.email)
-            params.append("cnpj", indication.documento || "")
-            params.append("telefone", indication.telefone)
+            // PJ (assumindo chaves similares ou ajustando depois)
+            params.append("NOME", indication.nome) // Razão Social?
+            params.append("E-mail do Signatário", indication.email)
+            params.append("CPF", indication.documento || "") // CNPJ?
+            params.append("TELEFONE", indication.telefone)
+
+            if (vendedorName) {
+                params.append("Vendedor", vendedorName)
+            }
         }
 
         // Limpar parâmetros vazios

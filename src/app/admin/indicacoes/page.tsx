@@ -135,6 +135,7 @@ export default async function AdminIndicacoesPage() {
                                                     telefone: ind.telefone,
                                                     documento: ind.documento,
                                                 }}
+                                                vendedorName={vendedorInfo}
                                             />
                                         </div>
                                     </TableCell>
