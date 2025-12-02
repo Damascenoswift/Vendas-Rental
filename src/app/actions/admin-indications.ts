@@ -26,7 +26,7 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
 
     const { error } = await supabaseAdmin
         .from("indicacoes")
-        .update({ status: newStatus })
+        .update({ status: newStatus as any })
         .eq("id", id)
 
     if (error) {
@@ -83,6 +83,43 @@ export async function setIndicationFlags(id: string, flags: IndicationFlagsInput
     if (error) {
         console.error("Erro ao atualizar indicadores de assinatura/compensação:", error)
         return { error: "Erro ao atualizar campos" }
+    }
+
+    revalidatePath("/admin/indicacoes")
+    return { success: true }
+}
+
+export async function deleteIndication(id: string) {
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Não autenticado" }
+    }
+
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+
+    if (role !== "adm_mestre") {
+        return { error: "Acesso negado" }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    // Delete associated storage files first (optional but good practice)
+    // For now, we'll just delete the record. Supabase might cascade or leave files.
+    // Given the complexity of storage deletion (listing files etc), we focus on the record.
+
+    const { error } = await supabaseAdmin
+        .from("indicacoes")
+        .delete()
+        .eq("id", id)
+
+    if (error) {
+        console.error("Erro ao excluir indicação:", error)
+        return { error: "Erro ao excluir indicação" }
     }
 
     revalidatePath("/admin/indicacoes")

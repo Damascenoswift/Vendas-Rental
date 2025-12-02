@@ -11,6 +11,8 @@ type IndicationStatusSelectProps = {
 
 const statusOptions = [
     { value: "EM_ANALISE", label: "Em Análise" },
+    { value: "AGUARDANDO_ASSINATURA", label: "Aguardando Assinatura" },
+    { value: "FALTANDO_DOCUMENTACAO", label: "Faltando Documentação" },
     { value: "APROVADA", label: "Aprovada" },
     { value: "REJEITADA", label: "Rejeitada" },
     { value: "CONCLUIDA", label: "Concluída" },
@@ -19,7 +21,7 @@ const statusOptions = [
 export function IndicationStatusSelect({ id, initialStatus }: IndicationStatusSelectProps) {
     const [status, setStatus] = useState(initialStatus)
     const [isPending, startTransition] = useTransition()
-    const { toast } = useToast()
+    const { showToast } = useToast()
 
     const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const newStatus = e.target.value
@@ -28,15 +30,16 @@ export function IndicationStatusSelect({ id, initialStatus }: IndicationStatusSe
         startTransition(async () => {
             const result = await updateIndicationStatus(id, newStatus)
             if (result.error) {
-                toast({
-                    variant: "destructive",
+                showToast({
+                    variant: "error",
                     title: "Erro ao atualizar status",
                     description: result.error,
                 })
                 // Revert status on error
                 setStatus(initialStatus)
             } else {
-                toast({
+                showToast({
+                    variant: "success",
                     title: "Status atualizado",
                     description: "O status da indicação foi atualizado com sucesso.",
                 })

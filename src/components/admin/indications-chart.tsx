@@ -17,6 +17,8 @@ export function IndicationsChart({ data }: IndicationsChartProps) {
 
     const chartData = [
         { name: "Em Análise", value: statusCounts["EM_ANALISE"] || 0, color: "#fbbf24" }, // Amber-400
+        { name: "Aguardando Assinatura", value: statusCounts["AGUARDANDO_ASSINATURA"] || 0, color: "#a78bfa" }, // Violet-400
+        { name: "Faltando Doc.", value: statusCounts["FALTANDO_DOCUMENTACAO"] || 0, color: "#f472b6" }, // Pink-400
         { name: "Aprovada", value: statusCounts["APROVADA"] || 0, color: "#34d399" },   // Emerald-400
         { name: "Rejeitada", value: statusCounts["REJEITADA"] || 0, color: "#f87171" },  // Red-400
         { name: "Concluída", value: statusCounts["CONCLUIDA"] || 0, color: "#60a5fa" },  // Blue-400

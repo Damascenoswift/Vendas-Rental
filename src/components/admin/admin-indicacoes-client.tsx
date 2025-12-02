@@ -17,6 +17,7 @@ import { IndicationValueEdit } from "@/components/admin/indication-value-edit"
 import { IndicationDetailsDialog } from "@/components/admin/indication-details-dialog"
 import { IndicationsChart } from "@/components/admin/indications-chart"
 import { IndicationsFilter } from "@/components/admin/indications-filter"
+import { Button } from "@/components/ui/button"
 
 interface AdminIndicacoesClientProps {
     initialIndicacoes: any[]
@@ -151,6 +152,7 @@ export function AdminIndicacoesClient({ initialIndicacoes }: AdminIndicacoesClie
                                                 }}
                                                 vendedorName={vendedorInfo}
                                             />
+                                            <DeleteIndicationButton id={ind.id} />
                                         </div>
                                     </TableCell>
                                 </TableRow>
@@ -167,5 +169,77 @@ export function AdminIndicacoesClient({ initialIndicacoes }: AdminIndicacoesClie
                 </Table>
             </div>
         </div>
+    )
+}
+
+import { Trash2 } from "lucide-react"
+import { deleteIndication } from "@/app/actions/admin-indications"
+import { useToast } from "@/hooks/use-toast"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+
+function DeleteIndicationButton({ id }: { id: string }) {
+    const { showToast } = useToast()
+    const [isDeleting, setIsDeleting] = useState(false)
+
+    const handleDelete = async () => {
+        setIsDeleting(true)
+        try {
+            const result = await deleteIndication(id)
+            if (result.error) {
+                showToast({
+                    variant: "error",
+                    title: "Erro ao excluir",
+                    description: result.error,
+                })
+            } else {
+                showToast({
+                    variant: "success",
+                    title: "Indicação excluída",
+                    description: "A indicação foi removida com sucesso.",
+                })
+            }
+        } catch (error) {
+            showToast({
+                variant: "error",
+                title: "Erro inesperado",
+                description: "Ocorreu um erro ao tentar excluir.",
+            })
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
+    return (
+        <AlertDialog>
+            <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50">
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Esta ação não pode ser desfeita. Isso excluirá permanentemente a indicação.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                        {isDeleting ? "Excluindo..." : "Excluir"}
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     )
 }
