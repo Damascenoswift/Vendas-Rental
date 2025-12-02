@@ -25,15 +25,17 @@ export function IndicationFillButton({ indication, vendedorName }: IndicationFil
 
         const params = new URLSearchParams()
 
-        // Mapeamento baseado nos nomes exatos do formulário Clicksign
+        // Mapeamento baseado nos IDs recuperados (data-testid)
         if (indication.tipo === "PF") {
-            params.append("NOME", indication.nome)
-            params.append("E-mail do Signatário", indication.email)
-            params.append("CPF", indication.documento || "")
-            params.append("TELEFONE", indication.telefone)
+            params.append("nome22F4C9F821Fad", indication.nome)
+            params.append("cpf4Abff530D5304", indication.documento || "")
+
+            // Ainda precisamos descobrir os IDs destes campos:
+            params.append("E-mail do Signatário", indication.email) // TODO: Pegar ID
+            params.append("TELEFONE", indication.telefone) // TODO: Pegar ID
 
             if (vendedorName) {
-                params.append("Vendedor", vendedorName)
+                params.append("Vendedor", vendedorName) // TODO: Pegar ID
             }
         } else {
             // PJ (assumindo chaves similares ou ajustando depois)
