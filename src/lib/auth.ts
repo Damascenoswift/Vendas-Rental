@@ -15,6 +15,9 @@ export type UserProfile = {
   role: UserRole
   companyName: string | null
   allowedBrands: Brand[]
+  name?: string
+  phone?: string
+  email?: string
 }
 
 const roleBrandsMap: Record<UserRole, Brand[]> = {
@@ -44,13 +47,16 @@ export function buildUserProfile(user: User | null): UserProfile | null {
     role,
     companyName,
     allowedBrands,
+    name: user.user_metadata?.nome,
+    phone: user.user_metadata?.telefone,
+    email: user.email,
   }
 }
 
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
   const { data, error } = await supabase
     .from('users')
-    .select('role, allowed_brands')
+    .select('role, allowed_brands, name, phone, email')
     .eq('id', userId)
     .single()
 
@@ -68,5 +74,8 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     role,
     companyName: null, // A tabela users ainda não tem company_name, mantendo null por enquanto
     allowedBrands,
+    name: data.name || undefined,
+    phone: data.phone || undefined,
+    email: data.email || undefined,
   }
 }

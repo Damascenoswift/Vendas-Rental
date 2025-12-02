@@ -126,6 +126,10 @@ export default function DashboardLayout({
               </Button>
             )}
 
+            <Button variant="outline" size="sm" asChild className="mr-2">
+              <Link href="/perfil">Meu Perfil</Link>
+            </Button>
+
             <Button
               variant="outline"
               size="sm"

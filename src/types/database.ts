@@ -16,6 +16,7 @@ export interface Database {
           role: Database['public']['Enums']['user_role_enum']
           allowed_brands: Database['public']['Enums']['brand_enum'][] | null
           name: string | null
+          phone: string | null
           status: string | null
           created_at: string
           updated_at: string
@@ -26,6 +27,7 @@ export interface Database {
           role?: Database['public']['Enums']['user_role_enum']
           allowed_brands?: Database['public']['Enums']['brand_enum'][] | null
           name?: string | null
+          phone?: string | null
           status?: string | null
           created_at?: string
           updated_at?: string
@@ -36,6 +38,7 @@ export interface Database {
           role?: Database['public']['Enums']['user_role_enum']
           allowed_brands?: Database['public']['Enums']['brand_enum'][] | null
           name?: string | null
+          phone?: string | null
           status?: string | null
           created_at?: string
           updated_at?: string
