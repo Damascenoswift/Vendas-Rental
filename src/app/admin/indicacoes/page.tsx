@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge"
 import { IndicationStatusSelect } from "@/components/admin/indication-status-select"
 import { getProfile } from "@/lib/auth"
 import { IndicationFlags } from "@/components/admin/indication-flags"
+import { IndicationFillButton } from "@/components/admin/indication-fill-button"
 
 export const dynamic = "force-dynamic"
 
@@ -120,11 +121,22 @@ export default async function AdminIndicacoesPage() {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <IndicationFlags
-                                            id={ind.id}
-                                            assinadaEm={(ind as any).assinada_em ?? null}
-                                            compensadaEm={(ind as any).compensada_em ?? null}
-                                        />
+                                        <div className="flex items-center gap-2">
+                                            <IndicationFlags
+                                                id={ind.id}
+                                                assinadaEm={(ind as any).assinada_em ?? null}
+                                                compensadaEm={(ind as any).compensada_em ?? null}
+                                            />
+                                            <IndicationFillButton
+                                                indication={{
+                                                    tipo: ind.tipo,
+                                                    nome: ind.nome,
+                                                    email: ind.email,
+                                                    telefone: ind.telefone,
+                                                    documento: ind.documento,
+                                                }}
+                                            />
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             )
