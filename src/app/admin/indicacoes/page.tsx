@@ -15,6 +15,7 @@ import { getProfile } from "@/lib/auth"
 import { IndicationFlags } from "@/components/admin/indication-flags"
 import { IndicationFillButton } from "@/components/admin/indication-fill-button"
 import { IndicationValueEdit } from "@/components/admin/indication-value-edit"
+import { IndicationDetailsDialog } from "@/components/admin/indication-details-dialog"
 
 export const dynamic = "force-dynamic"
 
@@ -127,6 +128,7 @@ export default async function AdminIndicacoesPage() {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
+                                            <IndicationDetailsDialog indicationId={ind.id} userId={ind.user_id} />
                                             <IndicationFlags
                                                 id={ind.id}
                                                 assinadaEm={(ind as any).assinada_em ?? null}
@@ -156,7 +158,7 @@ export default async function AdminIndicacoesPage() {
                         )}
                     </TableBody>
                 </Table>
-            </div>
-        </div>
+            </div >
+        </div >
     )
 }
