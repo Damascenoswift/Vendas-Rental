@@ -37,6 +37,12 @@ export function RegisterUserForm() {
             </div>
 
             <div className="space-y-2">
+                <Label htmlFor="phone">Telefone / WhatsApp</Label>
+                <Input id="phone" name="phone" placeholder="(00) 00000-0000" />
+                {state.errors?.phone && <p className="text-red-500 text-xs">{state.errors.phone[0]}</p>}
+            </div>
+
+            <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input id="email" name="email" type="email" required placeholder="joao@exemplo.com" />
                 {state.errors?.email && <p className="text-red-500 text-xs">{state.errors.email[0]}</p>}
