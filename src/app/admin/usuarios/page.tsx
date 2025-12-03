@@ -41,7 +41,7 @@ export default async function AdminUsersPage() {
     return (
         <div className="container mx-auto py-10">
             <div className="mb-8">
-                <h1 className="text-3xl font-bold">Gerenciamento de Usuários</h1>
+                <h1 className="text-3xl font-bold">Gerenciamento de Usuários <span className="text-sm font-normal text-muted-foreground">(v1.1)</span></h1>
                 <p className="text-muted-foreground">
                     Cadastre novos vendedores e supervisores ou gerencie os existentes.
                 </p>
