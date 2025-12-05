@@ -34,10 +34,15 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
     const fetchDetails = async () => {
         setIsLoading(true)
         try {
+            console.log("🔍 Fetching details for:", { userId, indicationId })
+
             // 1. Fetch Metadata
+            const path = `${userId}/${indicationId}/metadata.json`
+            console.log("📂 Metadata path:", path)
+
             const { data: metaData, error: metaError } = await supabase.storage
                 .from("indicacoes")
-                .download(`${userId}/${indicationId}/metadata.json`)
+                .download(path)
 
             if (metaError) {
                 console.error("Error fetching metadata:", metaError)
