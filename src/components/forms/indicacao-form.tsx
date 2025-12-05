@@ -287,6 +287,7 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
     )
 
     if (metadataUpload.error) {
+      console.error("Storage Upload Error (Metadata):", metadataUpload.error)
       showToast({ variant: "error", title: "Dados complementares", description: "Não foi possível salvar os detalhes." })
     }
 
@@ -295,7 +296,13 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
     const pushUpload = (name: string, f: File | null) => {
       if (!f) return
       const path = `${userId}/${data.id}/${name}`
-      uploads.push(storageClient.upload(path, f, { upsert: true, cacheControl: "3600" }))
+      const uploadPromise = storageClient.upload(path, f, { upsert: true, cacheControl: "3600" })
+
+      uploadPromise.then(({ error }) => {
+        if (error) console.error(`File Upload Error (${name}):`, error)
+      })
+
+      uploads.push(uploadPromise)
     }
 
     if (values.tipoPessoa === "PF") {
