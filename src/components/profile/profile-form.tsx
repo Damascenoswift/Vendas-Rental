@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
-import { useEffect } from "react"
+import { useState, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 
 interface ProfileFormProps {
     initialName: string
@@ -41,42 +42,95 @@ export function ProfileForm({ initialName, initialPhone, email }: ProfileFormPro
     }, [state, showToast])
 
     return (
-        <form action={formAction} className="space-y-6">
-            <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input id="email" value={email} disabled className="bg-muted" />
-                <p className="text-xs text-muted-foreground">
-                    O email não pode ser alterado.
-                </p>
-            </div>
+        <div className="space-y-8">
+            <form action={formAction} className="space-y-6">
 
+                <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" value={email} disabled className="bg-muted" />
+                    <p className="text-xs text-muted-foreground">
+                        O email não pode ser alterado.
+                    </p>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="name">Nome Completo</Label>
+                    <Input
+                        id="name"
+                        name="name"
+                        defaultValue={initialName}
+                        placeholder="Seu nome completo"
+                        required
+                        minLength={3}
+                    />
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="phone">Telefone / WhatsApp</Label>
+                    <Input
+                        id="phone"
+                        name="phone"
+                        defaultValue={initialPhone}
+                        placeholder="(00) 00000-0000"
+                        required
+                        minLength={10}
+                    />
+                </div>
+
+                <Button type="submit" disabled={isPending}>
+                    {isPending ? "Salvando..." : "Salvar Alterações"}
+                </Button>
+            </form>
+
+            <div className="border-t pt-6">
+                <h3 className="mb-4 text-lg font-medium">Alterar Senha</h3>
+                <PasswordChangeForm />
+            </div>
+        </div>
+    )
+}
+
+function PasswordChangeForm() {
+    const [password, setPassword] = useState("")
+    const [loading, setLoading] = useState(false)
+    const { showToast } = useToast()
+
+    const handlePasswordChange = async (e: React.FormEvent) => {
+        e.preventDefault()
+        if (password.length < 6) {
+            showToast({ variant: "error", title: "Erro", description: "A senha deve ter no mínimo 6 caracteres." })
+            return
+        }
+
+        setLoading(true)
+        const { error } = await supabase.auth.updateUser({ password })
+
+        if (error) {
+            showToast({ variant: "error", title: "Erro", description: "Não foi possível alterar a senha." })
+        } else {
+            showToast({ variant: "success", title: "Sucesso", description: "Senha alterada com sucesso." })
+            setPassword("")
+        }
+        setLoading(false)
+    }
+
+    return (
+        <form onSubmit={handlePasswordChange} className="space-y-4">
             <div className="space-y-2">
-                <Label htmlFor="name">Nome Completo</Label>
+                <Label htmlFor="new-password">Nova Senha</Label>
                 <Input
-                    id="name"
-                    name="name"
-                    defaultValue={initialName}
-                    placeholder="Seu nome completo"
-                    required
-                    minLength={3}
+                    id="new-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••"
+                    minLength={6}
                 />
             </div>
-
-            <div className="space-y-2">
-                <Label htmlFor="phone">Telefone / WhatsApp</Label>
-                <Input
-                    id="phone"
-                    name="phone"
-                    defaultValue={initialPhone}
-                    placeholder="(00) 00000-0000"
-                    required
-                    minLength={10}
-                />
-            </div>
-
-            <Button type="submit" disabled={isPending}>
-                {isPending ? "Salvando..." : "Salvar Alterações"}
+            <Button type="submit" variant="secondary" disabled={loading || !password}>
+                {loading ? "Atualizando..." : "Redefinir Senha"}
             </Button>
         </form>
     )
 }
+
