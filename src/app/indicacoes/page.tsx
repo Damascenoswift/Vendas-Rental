@@ -318,6 +318,7 @@ export default function IndicacoesPage() {
           allowedBrands={allowedBrands}
           onCreated={() => loadIndicacoes()}
           userId={userId}
+          userRole={profile?.role}
         />
       ) : null}
 

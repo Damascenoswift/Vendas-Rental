@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 
 import { Button } from "@/components/ui/button"
+import { Sparkles, Loader2 } from "lucide-react"
 import {
   Form,
   FormControl,
@@ -143,10 +144,11 @@ export type IndicacaoFormValues = z.infer<typeof unifiedSchema>
 export type IndicacaoFormProps = {
   userId: string
   allowedBrands: Brand[]
+  userRole?: string
   onCreated?: () => Promise<void> | void
 }
 
-export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFormProps) {
+export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated }: IndicacaoFormProps) {
   const { showToast } = useToast()
 
   const [filesPF, setFilesPF] = useState<{ faturaEnergia: File | null; documentoComFoto: File | null }>({
@@ -202,6 +204,54 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedBrands])
+
+  // =============================
+  // AI Autofill
+  // =============================
+  const [isAiLoading, setIsAiLoading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleAiSelect = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsAiLoading(true)
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      const res = await fetch("/api/ai/extract", {
+        method: "POST",
+        body: formData
+      })
+      const json = await res.json()
+
+      if (!json.success) throw new Error(json.error || "Failed to extract data")
+
+      const data = json.data
+      if (data) {
+        if (data.nome) form.setValue("nomeCliente", data.nome)
+        if (data.cpf) form.setValue("cpfCnpj", formatCpf(data.cpf))
+        if (data.rg) form.setValue("rg", data.rg)
+        if (data.endereco) form.setValue("endereco", data.endereco)
+        if (data.cidade) form.setValue("cidade", data.cidade)
+        if (data.uf) form.setValue("estado", data.uf)
+        if (data.cep) form.setValue("cep", formatCep(data.cep))
+        if (data.consumo) form.setValue("consumoMedioPF", Number(data.consumo))
+        if (data.valor) form.setValue("valorContaEnergia", Number(data.valor))
+        if (data.codigo_conta_energia) form.setValue("codigoClienteEnergia", data.codigo_conta_energia)
+
+        showToast({ variant: "success", title: "IA Finalizada", description: "Campos preenchidos automaticamente!" })
+      }
+
+    } catch (error) {
+      console.error("AI Error:", error)
+      showToast({ variant: "error", title: "Erro na IA", description: "Não conseguimos ler o documento." })
+    } finally {
+      setIsAiLoading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
 
   // =============================
   // Upload helpers
@@ -328,9 +378,31 @@ export function IndicacaoForm({ userId, allowedBrands, onCreated }: IndicacaoFor
   // =============================
   return (
     <div className="rounded-xl border bg-background p-6 shadow-sm">
-      <div className="mb-6 space-y-1">
-        <h2 className="text-xl font-semibold text-foreground">Nova indicação</h2>
-        <p className="text-sm text-muted-foreground">Preencha os dados do contato e nós cuidamos do restante.</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold text-foreground">Nova indicação</h2>
+          <p className="text-sm text-muted-foreground">Preencha os dados do contato e nós cuidamos do restante.</p>
+        </div>
+        {userRole === 'adm_mestre' && (
+          <div>
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept=".pdf,.jpg,.jpeg,.png"
+              onChange={handleAiSelect}
+            />
+            <Button
+              variant="default"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isAiLoading}
+              className="bg-purple-600 hover:bg-purple-700 text-white"
+            >
+              {isAiLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+              PREENCHER COM IA
+            </Button>
+          </div>
+        )}
       </div>
 
       <Form {...form}>
