@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Eye, FileText, Download, Loader2 } from "lucide-react"
+import { Eye, FileText, Download, Loader2, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
     Dialog,
@@ -101,6 +101,24 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
         return key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())
     }
 
+    const [isCopied, setIsCopied] = useState(false)
+
+    const handleCopy = () => {
+        if (!metadata) return
+
+        let text = ""
+        Object.entries(metadata).forEach(([key, value]) => {
+            if (typeof value === 'object' || !value) return
+            text += `*${formatLabel(key)}:*\n${value}\n\n`
+        })
+
+        navigator.clipboard.writeText(text)
+        setIsCopied(true)
+        showToast({ title: "Copiado!", description: "Dados copiados para a área de transferência." })
+
+        setTimeout(() => setIsCopied(false), 2000)
+    }
+
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
             <DialogTrigger asChild>
@@ -109,8 +127,19 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
                 </Button>
             </DialogTrigger>
             <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader>
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                     <DialogTitle>Detalhes da Indicação</DialogTitle>
+                    {metadata && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleCopy}
+                            className="gap-2"
+                        >
+                            {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            {isCopied ? "Copiado" : "Copiar Dados"}
+                        </Button>
+                    )}
                 </DialogHeader>
 
                 {isLoading ? (
