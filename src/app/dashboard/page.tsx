@@ -275,6 +275,9 @@ export default function DashboardPage() {
           <Link href="/indicacoes">
             <Button size="sm">Nova indicação</Button>
           </Link>
+          <Link href="/dashboard/orcamentos/novo">
+            <Button variant="secondary" size="sm">Solicitar Orçamento</Button>
+          </Link>
           <QuickIndicationDialog />
         </div>
       </header>

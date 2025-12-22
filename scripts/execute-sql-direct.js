@@ -22,7 +22,7 @@ async function executeSQLDirect(sqlContent) {
     console.log('---');
     console.log(sqlContent);
     console.log('---');
-    
+
     const response = await fetch(`${supabaseUrl}/rest/v1/rpc/exec`, {
       method: 'POST',
       headers: {
@@ -34,19 +34,19 @@ async function executeSQLDirect(sqlContent) {
         sql: sqlContent
       })
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.log('❌ Erro HTTP:', response.status, response.statusText);
       console.log('📊 Resposta:', errorText);
       return false;
     }
-    
+
     const result = await response.json();
     console.log('✅ SQL executado com sucesso!');
     console.log('📊 Resultado:', result);
     return true;
-    
+
   } catch (err) {
     console.log('❌ Erro inesperado:', err.message);
     return false;
@@ -56,13 +56,13 @@ async function executeSQLDirect(sqlContent) {
 // Função alternativa usando psql se disponível
 async function executeSQLWithPsql(sqlFile) {
   console.log('🔄 Tentando executar com psql...');
-  
+
   // Extrair dados da connection string
   const url = new URL(supabaseUrl.replace('https://', 'postgresql://'));
   url.username = 'postgres';
   url.password = serviceRoleKey.split('.')[1]; // Isso não vai funcionar, mas é uma tentativa
   url.port = '5432';
-  
+
   console.log('⚠️  psql não é viável sem a senha do banco');
   return false;
 }
@@ -70,28 +70,28 @@ async function executeSQLWithPsql(sqlFile) {
 // Tentar executar usando o cliente Supabase com query raw
 async function executeSQLWithSupabaseClient(sqlContent) {
   const { createClient } = require('@supabase/supabase-js');
-  
+
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false
     }
   });
-  
+
   try {
     console.log('🔄 Tentando executar SQL statement por statement...');
-    
+
     // Dividir SQL em statements individuais
     const statements = sqlContent
       .split(';')
       .map(s => s.trim())
       .filter(s => s.length > 0 && !s.startsWith('--'));
-    
+
     for (let i = 0; i < statements.length; i++) {
       const statement = statements[i] + ';';
       console.log(`📝 Executando statement ${i + 1}/${statements.length}:`);
       console.log(statement);
-      
+
       // Para ALTER TABLE, vamos tentar usar uma abordagem diferente
       if (statement.includes('ALTER TABLE')) {
         console.log('⚠️  ALTER TABLE requer execução direta no banco');
@@ -100,9 +100,9 @@ async function executeSQLWithSupabaseClient(sqlContent) {
         return false;
       }
     }
-    
+
     return true;
-    
+
   } catch (err) {
     console.log('❌ Erro:', err.message);
     return false;
@@ -124,12 +124,13 @@ if (!fs.existsSync(sqlFile)) {
 const sqlContent = fs.readFileSync(sqlFile, 'utf8');
 
 // Tentar diferentes abordagens
-executeSQLWithSupabaseClient(sqlContent).then(success => {
+// Tentar diferentes abordagens
+executeSQLDirect(sqlContent).then(success => {
   if (!success) {
     console.log('');
     console.log('🎯 SOLUÇÃO RECOMENDADA:');
     console.log('1. Vá para o dashboard do Supabase');
-    console.log('2. Clique em "SQL Editor"');  
+    console.log('2. Clique em "SQL Editor"');
     console.log('3. Clique em "New Query"');
     console.log('4. Cole o SQL do arquivo:', sqlFile);
     console.log('5. Clique em "Run"');
@@ -139,6 +140,6 @@ executeSQLWithSupabaseClient(sqlContent).then(success => {
     console.log(sqlContent);
     console.log('---');
   }
-  
+
   process.exit(success ? 0 : 1);
 });

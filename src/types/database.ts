@@ -103,6 +103,46 @@ export interface Database {
           }
         ]
       }
+      orcamentos: {
+        Row: {
+          id: string
+          created_at: string
+          user_id: string
+          cliente_nome: string
+          cliente_gasto_mensal: number | null
+          is_b_optante: boolean | null
+          conta_energia_url: string | null
+          status: 'PENDENTE' | 'VISUALIZADO' | 'RESPONDIDO'
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          user_id: string
+          cliente_nome: string
+          cliente_gasto_mensal?: number | null
+          is_b_optante?: boolean | null
+          conta_energia_url?: string | null
+          status?: 'PENDENTE' | 'VISUALIZADO' | 'RESPONDIDO'
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          user_id?: string
+          cliente_nome?: string
+          cliente_gasto_mensal?: number | null
+          is_b_optante?: boolean | null
+          conta_energia_url?: string | null
+          status?: 'PENDENTE' | 'VISUALIZADO' | 'RESPONDIDO'
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orcamentos_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
