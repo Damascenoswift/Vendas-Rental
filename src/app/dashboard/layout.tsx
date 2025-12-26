@@ -16,6 +16,9 @@ const roleLabels: Record<UserRole, string> = {
   supervisor: "Supervisor",
   adm_mestre: "Administrador mestre",
   adm_dorata: "Administrador Dorata",
+  suporte_tecnico: "Suporte Técnico",
+  suporte_limitado: "Suporte Limitado",
+  investidor: "Investidor",
 }
 
 const brandLabels: Record<Brand, string> = {
@@ -123,6 +126,12 @@ export default function DashboardLayout({
             {profile && profile.role === 'adm_mestre' && (
               <Button variant="default" size="sm" asChild className="bg-blue-600 hover:bg-blue-700 text-white">
                 <Link href="/admin/leads">Leads Rápidos</Link>
+              </Button>
+            )}
+
+            {profile && ['adm_mestre', 'suporte_tecnico', 'suporte_limitado'].includes(profile.role) && (
+              <Button variant="secondary" size="sm" asChild className="text-foreground">
+                <Link href="/admin/energia">Gestão de Energia</Link>
               </Button>
             )}
 
