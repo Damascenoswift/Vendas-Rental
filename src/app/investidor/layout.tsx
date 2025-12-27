@@ -22,15 +22,10 @@ export default async function InvestorLayout({
         .eq('id', user.id)
         .single()
 
-    // STRICT ACCESS CONTROL
-    // Only 'investidor' role can access this area.
-    // We might allow admins to view it for debugging, but let's keep it strict "investor portal" for now.
-    if (!profile || profile.role !== 'investidor') {
-        // If admin tries to access, redirect to admin
-        if (profile?.role === 'adm_mestre') {
-            redirect("/admin")
-        }
-        // Otherwise, forbidden/dashboard
+    const effectiveRole = profile?.role ?? (user.user_metadata?.role as string | undefined)
+    const canAccess = effectiveRole === 'investidor' || effectiveRole === 'adm_mestre'
+
+    if (!canAccess) {
         redirect("/dashboard")
     }
 
