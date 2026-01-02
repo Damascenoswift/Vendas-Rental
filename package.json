@@ -49,5 +49,8 @@
     "tw-animate-css": "^1.3.8",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "lightningcss-linux-x64-gnu": "1.30.2"
   }
 }
