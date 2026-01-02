@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Factory, Users, Zap, DollarSign } from "lucide-react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
 
 export const dynamic = "force-dynamic"
 
@@ -35,9 +37,14 @@ export default async function InvestorDashboardPage() {
 
     return (
         <div className="space-y-8">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-900">Visão Geral</h1>
-                <p className="text-muted-foreground">Bem-vindo ao seu portal de investimentos.</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight text-slate-900">Visão Geral</h1>
+                    <p className="text-muted-foreground">Bem-vindo ao seu portal de investimentos.</p>
+                </div>
+                <Link href="/dashboard">
+                    <Button variant="outline">Voltar ao Dashboard</Button>
+                </Link>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

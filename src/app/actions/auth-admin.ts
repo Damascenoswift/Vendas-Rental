@@ -12,7 +12,7 @@ const createUserSchema = z.object({
     password: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres'),
     name: z.string().min(1, 'Nome é obrigatório'),
     phone: z.string().optional(),
-    role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata']),
+    role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor']),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
 })
 
