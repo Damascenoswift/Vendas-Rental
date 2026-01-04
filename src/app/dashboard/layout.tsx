@@ -141,6 +141,12 @@ export default function DashboardLayout({
               </Button>
             )}
 
+            {profile && profile.role === 'adm_mestre' && (
+              <Button variant="outline" size="sm" asChild className="text-foreground">
+                <Link href="/admin/usuarios">Usuários</Link>
+              </Button>
+            )}
+
             <Button variant="outline" size="sm" asChild className="mr-2">
               <Link href="/perfil">Meu Perfil</Link>
             </Button>
