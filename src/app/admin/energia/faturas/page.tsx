@@ -33,7 +33,7 @@ export default async function FaturasPage() {
             kwh_compensado,
             status_pagamento,
             usina:usinas(nome),
-            cliente:indicacoes(nome),
+            cliente:indicacoes(nome)
 
         `)
         .order("mes_ano", { ascending: false })

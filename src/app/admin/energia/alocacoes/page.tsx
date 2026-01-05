@@ -24,7 +24,7 @@ export default async function AlocacoesPage() {
             status,
             created_at,
             usina:usinas(nome),
-            cliente:indicacoes(nome),
+            cliente:indicacoes(nome)
 
         `)
         .order("created_at", { ascending: false })
