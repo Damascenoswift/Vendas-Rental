@@ -147,6 +147,12 @@ export default function DashboardLayout({
               </Button>
             )}
 
+            {profile && ['adm_mestre', 'adm_dorata'].includes(profile.role) && (
+              <Button variant="outline" size="sm" asChild className="text-foreground">
+                <Link href="/admin/financeiro">Financeiro</Link>
+              </Button>
+            )}
+
             <Button variant="outline" size="sm" asChild className="mr-2">
               <Link href="/perfil">Meu Perfil</Link>
             </Button>

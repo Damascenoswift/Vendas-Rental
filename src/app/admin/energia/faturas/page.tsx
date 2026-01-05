@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { UserBadge } from "@/components/ui/user-badge"
 
 export const dynamic = "force-dynamic"
 
@@ -32,7 +33,8 @@ export default async function FaturasPage() {
             kwh_compensado,
             status_pagamento,
             usina:usinas(nome),
-            cliente:indicacoes(nome)
+            cliente:indicacoes(nome),
+            creator:users!created_by(id, name, email)
         `)
         .order("mes_ano", { ascending: false })
 
@@ -67,12 +69,13 @@ export default async function FaturasPage() {
                             <TableHead>Valor</TableHead>
                             <TableHead>Compensação</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead className="w-[50px]">Auditoria</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {list.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                     Nenhuma fatura registrada.
                                 </TableCell>
                             </TableRow>
@@ -101,6 +104,14 @@ export default async function FaturasPage() {
                                     >
                                         {item.status_pagamento}
                                     </Badge>
+                                </TableCell>
+                                <TableCell>
+                                    {item.creator && (
+                                        <UserBadge
+                                            name={item.creator.name}
+                                            email={item.creator.email}
+                                        />
+                                    )}
                                 </TableCell>
                             </TableRow>
                         ))}

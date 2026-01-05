@@ -22,8 +22,10 @@ export default async function AlocacoesPage() {
             quantidade_kwh_alocado,
             data_inicio,
             status,
+            created_at,
             usina:usinas(nome),
-            cliente:indicacoes(nome)
+            cliente:indicacoes(nome),
+            creator:users!created_by(id, name, email)
         `)
         .order("created_at", { ascending: false })
 

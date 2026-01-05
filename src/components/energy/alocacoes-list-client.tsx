@@ -1,10 +1,6 @@
 "use client"
 
-import Link from "next/link"
-import { format } from "date-fns"
-import { ptBR } from "date-fns/locale"
-import { Users, Plus, Trash2 } from "lucide-react"
-
+import { useState } from "react"
 import {
     Table,
     TableBody,
@@ -13,17 +9,28 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
+import { MoreHorizontal, Plus } from "lucide-react"
+import Link from "next/link"
+import { UserBadge } from "@/components/ui/user-badge"
 
 interface Alocacao {
     id: string
-    usina: { nome: string } | null
-    cliente: { nome: string } | null
-    percentual_alocado: number | null
-    quantidade_kwh_alocado: number | null
+    percentual_alocado?: number
+    quantidade_kwh_alocado?: number
     data_inicio: string
     status: string
+    usina: { nome: string } | null
+    cliente: { nome: string } | null
+    created_at?: string
+    creator?: { id: string; name: string; email: string } | null
 }
 
 interface AlocacoesListClientProps {
@@ -31,59 +38,112 @@ interface AlocacoesListClientProps {
 }
 
 export function AlocacoesListClient({ initialAlocacoes }: AlocacoesListClientProps) {
-    // In a real app we might add delete functionality here using server actions or client-side supabase calls
+    const [alocacoes] = useState(initialAlocacoes)
+
     return (
         <div className="space-y-4">
-            <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold flex items-center gap-2">
-                    <Users className="h-5 w-5" />
-                    Alocações de Clientes
-                </h2>
-                <Link href="/admin/energia/alocacoes/novo">
-                    <Button size="sm">
-                        <Plus className="mr-2 h-4 w-4" />
-                        Nova Alocação
-                    </Button>
-                </Link>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold tracking-tight">Alocações</h1>
+                    <p className="text-muted-foreground">
+                        Gerencie a distribuição de energia entre usinas e clientes.
+                    </p>
+                </div>
+                <Button asChild>
+                    <Link href="/admin/energia/alocacoes/novo">
+                        <Plus className="mr-2 h-4 w-4" /> Nova Alocação
+                    </Link>
+                </Button>
             </div>
 
-            <div className="rounded-md border bg-background">
+            <div className="rounded-md border bg-white">
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Cliente</TableHead>
                             <TableHead>Usina</TableHead>
+                            <TableHead>Cliente</TableHead>
                             <TableHead>Alocação</TableHead>
                             <TableHead>Início</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead className="w-[100px]">Auditoria</TableHead>
+                            <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {initialAlocacoes.length === 0 ? (
+                        {alocacoes.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                                    Nenhuma alocação registrada.
+                                <TableCell colSpan={7} className="h-24 text-center">
+                                    Nenhuma alocação encontrada.
                                 </TableCell>
                             </TableRow>
-                        ) : initialAlocacoes.map((alocacao) => (
-                            <TableRow key={alocacao.id}>
-                                <TableCell className="font-medium">{alocacao.cliente?.nome || 'Cliente Removido'}</TableCell>
-                                <TableCell>{alocacao.usina?.nome || 'Usina Removida'}</TableCell>
-                                <TableCell>
-                                    {alocacao.percentual_alocado ? `${alocacao.percentual_alocado}%` :
-                                        alocacao.quantidade_kwh_alocado ? `${alocacao.quantidade_kwh_alocado} kWh` : '-'}
-                                </TableCell>
-                                <TableCell>{format(new Date(alocacao.data_inicio), 'dd/MM/yyyy')}</TableCell>
-                                <TableCell>
-                                    <Badge
-                                        variant={alocacao.status === 'ATIVO' ? 'default' : 'secondary'}
-                                        className={alocacao.status === 'ATIVO' ? 'bg-green-600' : ''}
-                                    >
-                                        {alocacao.status}
-                                    </Badge>
-                                </TableCell>
-                            </TableRow>
-                        ))}
+                        ) : (
+                            alocacoes.map((alocacao) => (
+                                <TableRow key={alocacao.id}>
+                                    <TableCell className="font-medium">
+                                        {alocacao.usina?.nome || "—"}
+                                    </TableCell>
+                                    <TableCell>{alocacao.cliente?.nome || "—"}</TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col">
+                                            <span>
+                                                {alocacao.percentual_alocado
+                                                    ? `${alocacao.percentual_alocado}%`
+                                                    : "—"}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {alocacao.quantidade_kwh_alocado} kWh
+                                            </span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        {new Date(alocacao.data_inicio).toLocaleDateString("pt-BR")}
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge
+                                            variant={
+                                                alocacao.status === "ATIVO"
+                                                    ? "success" // Assuming you have a success variant or similar
+                                                    : "secondary"
+                                            }
+                                            className={
+                                                alocacao.status === "ATIVO"
+                                                    ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                                                    : ""
+                                            }
+                                        >
+                                            {alocacao.status}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2">
+                                            {alocacao.creator && (
+                                                <UserBadge
+                                                    name={alocacao.creator.name}
+                                                    email={alocacao.creator.email}
+                                                />
+                                            )}
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="ghost" className="h-8 w-8 p-0">
+                                                    <span className="sr-only">Menu</span>
+                                                    <MoreHorizontal className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem>Editar</DropdownMenuItem>
+                                                <DropdownMenuItem className="text-red-600">
+                                                    Encerrar Contrato
+                                                </DropdownMenuItem>
+                                                {/* Add more actions */}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        )}
                     </TableBody>
                 </Table>
             </div>
