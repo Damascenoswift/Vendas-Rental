@@ -43,7 +43,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<AlocacaoFormValues>({
-        resolver: zodResolver(alocacaoSchema),
+        resolver: zodResolver(alocacaoSchema) as any,
         defaultValues: {
             tipo_alocacao: "percentual",
             data_inicio: new Date().toISOString().split("T")[0],
@@ -90,10 +90,10 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="cliente_id"
                         render={({ field }) => (
                             <FormItem>
@@ -118,7 +118,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="usina_id"
                         render={({ field }) => (
                             <FormItem>
@@ -143,7 +143,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="tipo_alocacao"
                         render={({ field }) => (
                             <FormItem>
@@ -165,7 +165,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="valor"
                         render={({ field }) => (
                             <FormItem>
@@ -181,7 +181,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="data_inicio"
                         render={({ field }) => (
                             <FormItem>

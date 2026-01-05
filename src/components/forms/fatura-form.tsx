@@ -45,7 +45,7 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<FaturaFormValues>({
-        resolver: zodResolver(faturaSchema),
+        resolver: zodResolver(faturaSchema) as any,
         defaultValues: {
             valor_fatura: 0,
             kwh_compensado: 0,
@@ -88,10 +88,10 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="cliente_id"
                         render={({ field }) => (
                             <FormItem>
@@ -116,7 +116,7 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="usina_id"
                         render={({ field }) => (
                             <FormItem>
@@ -141,7 +141,7 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="mes"
                         render={({ field }) => (
                             <FormItem>
@@ -155,7 +155,7 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="status_pagamento"
                         render={({ field }) => (
                             <FormItem>
@@ -179,7 +179,7 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="valor_fatura"
                         render={({ field }) => (
                             <FormItem>
@@ -193,7 +193,7 @@ export function FaturaForm({ usinas, clientes }: FaturaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="kwh_compensado"
                         render={({ field }) => (
                             <FormItem>

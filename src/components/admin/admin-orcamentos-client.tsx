@@ -84,7 +84,7 @@ export function AdminOrcamentosClient({ initialOrcamentos }: AdminOrcamentosClie
                                 Nenhum orçamento encontrado.
                             </TableCell>
                         </TableRow>
-                    ) : orbamentos.map((orcamento) => (
+                    ) : orcamentos.map((orcamento) => (
                         <TableRow key={orcamento.id}>
                             <TableCell className="text-muted-foreground">
                                 {format(new Date(orcamento.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}

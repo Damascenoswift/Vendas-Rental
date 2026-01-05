@@ -48,7 +48,7 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const form = useForm<FormValues>({
-        resolver: zodResolver(schema),
+        resolver: zodResolver(schema) as any,
         defaultValues: {
             cliente_nome: "",
             cliente_gasto_mensal: undefined, // undefined shows as empty in input
@@ -143,10 +143,10 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
             </div>
 
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="cliente_nome"
                         render={({ field }) => (
                             <FormItem>
@@ -161,7 +161,7 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
 
                     <div className="grid gap-4 md:grid-cols-2">
                         <FormField
-                            control={form.control}
+                            control={form.control as any}
                             name="cliente_gasto_mensal"
                             render={({ field }) => (
                                 <FormItem>
@@ -181,7 +181,7 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
                         />
 
                         <FormField
-                            control={form.control}
+                            control={form.control as any}
                             name="is_b_optante"
                             render={({ field }) => (
                                 <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm mt-8 md:mt-0 lg:mt-0 xl:mt-0 2xl:mt-0 self-end h-10 items-center">

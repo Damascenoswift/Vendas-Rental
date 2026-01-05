@@ -47,9 +47,9 @@ export default async function AdminLeadsPage() {
 
     // Fetch leads with user info
     const { data: leads, error } = await supabaseAdmin
-        .from('quick_leads')
+        .from('quick_leads' as any)
         .select('*, users(email, name)')
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false }) as any
 
     if (error) {
         console.error('Erro ao buscar leads:', error)

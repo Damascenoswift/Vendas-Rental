@@ -40,7 +40,7 @@ export function ProducaoForm({ usinas }: ProducaoFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<ProducaoFormValues>({
-        resolver: zodResolver(producaoSchema),
+        resolver: zodResolver(producaoSchema) as any,
         defaultValues: {
             kwh_gerado: 0,
             mes: new Date().toISOString().slice(0, 7) // YYYY-MM
@@ -86,10 +86,10 @@ export function ProducaoForm({ usinas }: ProducaoFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="usina_id"
                         render={({ field }) => (
                             <FormItem>
@@ -114,7 +114,7 @@ export function ProducaoForm({ usinas }: ProducaoFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="mes"
                         render={({ field }) => (
                             <FormItem>
@@ -128,7 +128,7 @@ export function ProducaoForm({ usinas }: ProducaoFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="kwh_gerado"
                         render={({ field }) => (
                             <FormItem>

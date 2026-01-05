@@ -44,7 +44,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<UsinaFormValues>({
-        resolver: zodResolver(usinaSchema),
+        resolver: zodResolver(usinaSchema) as any,
         defaultValues: {
             nome: initialData?.nome || "",
             capacidade_total: initialData?.capacidade_total || 0,
@@ -103,10 +103,10 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="nome"
                         render={({ field }) => (
                             <FormItem>
@@ -120,7 +120,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="capacidade_total"
                         render={({ field }) => (
                             <FormItem>
@@ -134,7 +134,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="tipo"
                         render={({ field }) => (
                             <FormItem>
@@ -157,7 +157,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
 
                     {tipo === 'parceiro' && (
                         <FormField
-                            control={form.control}
+                            control={form.control as any}
                             name="investidor_user_id"
                             render={({ field }) => (
                                 <FormItem>
@@ -186,7 +186,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     )}
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="status"
                         render={({ field }) => (
                             <FormItem>
@@ -209,7 +209,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control}
+                        control={form.control as any}
                         name="modelo_negocio"
                         render={({ field }) => (
                             <FormItem>
