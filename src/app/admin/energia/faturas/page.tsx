@@ -34,7 +34,7 @@ export default async function FaturasPage() {
             status_pagamento,
             usina:usinas(nome),
             cliente:indicacoes(nome),
-            // creator:users!created_by(id, name, email)
+
         `)
         .order("mes_ano", { ascending: false })
 
