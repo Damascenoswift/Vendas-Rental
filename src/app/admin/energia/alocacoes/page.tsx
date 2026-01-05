@@ -25,7 +25,7 @@ export default async function AlocacoesPage() {
             created_at,
             usina:usinas(nome),
             cliente:indicacoes(nome),
-            creator:users!created_by(id, name, email)
+            // creator:users!created_by(id, name, email)
         `)
         .order("created_at", { ascending: false })
 
