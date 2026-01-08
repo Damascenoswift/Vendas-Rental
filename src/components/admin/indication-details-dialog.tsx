@@ -13,6 +13,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
+import { LeadInteractions } from "./interactions/lead-interactions"
+import { DocChecklist } from "./interactions/doc-checklist"
 
 interface IndicationDetailsDialogProps {
     indicationId: string
@@ -34,20 +36,14 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
     const fetchDetails = async () => {
         setIsLoading(true)
         try {
-            console.log("🔍 Fetching details for:", { userId, indicationId })
-
             // 1. Fetch Metadata
             const path = `${userId}/${indicationId}/metadata.json`
-            console.log("📂 Metadata path:", path)
 
             const { data: metaData, error: metaError } = await supabase.storage
                 .from("indicacoes")
                 .download(path)
 
-            if (metaError) {
-                console.error("Error fetching metadata:", metaError)
-                // Don't throw, maybe only files exist
-            } else if (metaData) {
+            if (metaData) {
                 const text = await metaData.text()
                 setMetadata(JSON.parse(text))
             }
@@ -56,8 +52,6 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
             const { data: fileList, error: listError } = await supabase.storage
                 .from("indicacoes")
                 .list(`${userId}/${indicationId}`)
-
-            if (listError) throw listError
 
             if (fileList) {
                 // Filter out metadata.json and map to signed URLs
@@ -97,7 +91,6 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
     }
 
     const formatLabel = (key: string) => {
-        // Simple formatter: camelCase to Title Case
         return key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())
     }
 
@@ -105,17 +98,14 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
 
     const handleCopy = () => {
         if (!metadata) return
-
         let text = ""
         Object.entries(metadata).forEach(([key, value]) => {
             if (typeof value === 'object' || !value) return
             text += `*${formatLabel(key)}:*\n${value}\n\n`
         })
-
         navigator.clipboard.writeText(text)
         setIsCopied(true)
-        showToast({ title: "Copiado!", description: "Dados copiados para a área de transferência." })
-
+        showToast({ title: "Copiado!", description: "Dados copiados." })
         setTimeout(() => setIsCopied(false), 2000)
     }
 
@@ -126,15 +116,15 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
                     <Eye className="h-4 w-4" />
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-                <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
+                <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2 border-b">
                     <DialogTitle>Detalhes da Indicação</DialogTitle>
                     {metadata && (
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={handleCopy}
-                            className="gap-2"
+                            className="gap-2 mr-6" // margem para não colar no X
                         >
                             {isCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                             {isCopied ? "Copiado" : "Copiar Dados"}
@@ -147,65 +137,74 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
                         <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     </div>
                 ) : (
-                    <Tabs defaultValue="dados" className="w-full">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="dados">Dados do Formulário</TabsTrigger>
-                            <TabsTrigger value="arquivos">Arquivos Anexados ({files.length})</TabsTrigger>
-                        </TabsList>
+                    <div className="flex-1 py-4">
+                        <Tabs defaultValue="dados" className="w-full">
+                            <TabsList className="grid w-full grid-cols-3">
+                                <TabsTrigger value="dados">Dados & Docs</TabsTrigger>
+                                <TabsTrigger value="arquivos">Arquivos ({files.length})</TabsTrigger>
+                                <TabsTrigger value="atividades">Atividades & Chat</TabsTrigger>
+                            </TabsList>
 
-                        <TabsContent value="dados" className="mt-4">
-                            {metadata ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {Object.entries(metadata).map(([key, value]) => {
-                                        if (typeof value === 'object' || !value) return null
-                                        return (
-                                            <div key={key} className="space-y-1 border-b pb-2">
-                                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                                                    {formatLabel(key)}
-                                                </span>
-                                                <p className="text-sm font-medium break-words">
-                                                    {String(value)}
-                                                </p>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    Nenhum dado adicional encontrado.
-                                </div>
-                            )}
-                        </TabsContent>
+                            <TabsContent value="dados" className="space-y-4 mt-4">
+                                <DocChecklist indicacaoId={indicationId} />
 
-                        <TabsContent value="arquivos" className="mt-4">
-                            {files.length > 0 ? (
-                                <div className="grid gap-2">
-                                    {files.map((file, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                                            <div className="flex items-center gap-3">
-                                                <FileText className="h-5 w-5 text-blue-500" />
-                                                <span className="text-sm font-medium">{file.name}</span>
+                                {metadata ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-md">
+                                        {Object.entries(metadata).map(([key, value]) => {
+                                            if (typeof value === 'object' || !value) return null
+                                            return (
+                                                <div key={key} className="space-y-1 border-b pb-2">
+                                                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                        {formatLabel(key)}
+                                                    </span>
+                                                    <p className="text-sm font-medium break-words">
+                                                        {String(value)}
+                                                    </p>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        Nenhum dado adicional encontrado.
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            <TabsContent value="arquivos" className="mt-4">
+                                {files.length > 0 ? (
+                                    <div className="grid gap-2">
+                                        {files.map((file, idx) => (
+                                            <div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                                                <div className="flex items-center gap-3">
+                                                    <FileText className="h-5 w-5 text-blue-500" />
+                                                    <span className="text-sm font-medium">{file.name}</span>
+                                                </div>
+                                                {file.url ? (
+                                                    <Button size="sm" variant="outline" asChild>
+                                                        <a href={file.url} target="_blank" rel="noopener noreferrer" className="gap-2">
+                                                            <Download className="h-4 w-4" />
+                                                            Baixar
+                                                        </a>
+                                                    </Button>
+                                                ) : (
+                                                    <span className="text-xs text-red-500">Erro no link</span>
+                                                )}
                                             </div>
-                                            {file.url ? (
-                                                <Button size="sm" variant="outline" asChild>
-                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="gap-2">
-                                                        <Download className="h-4 w-4" />
-                                                        Baixar
-                                                    </a>
-                                                </Button>
-                                            ) : (
-                                                <span className="text-xs text-red-500">Erro no link</span>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    Nenhum arquivo anexado.
-                                </div>
-                            )}
-                        </TabsContent>
-                    </Tabs>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        Nenhum arquivo anexado.
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            <TabsContent value="atividades" className="mt-4 h-full">
+                                <LeadInteractions indicacaoId={indicationId} />
+                            </TabsContent>
+                        </Tabs>
+                    </div>
                 )}
             </DialogContent>
         </Dialog>
