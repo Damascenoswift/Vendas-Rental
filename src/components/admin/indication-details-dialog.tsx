@@ -14,7 +14,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 import { LeadInteractions } from "./interactions/lead-interactions"
-import { DocChecklist } from "./interactions/doc-checklist"
+import { EnergisaActions } from "./interactions/energisa-actions"
+
+
+
 
 interface IndicationDetailsDialogProps {
     indicationId: string

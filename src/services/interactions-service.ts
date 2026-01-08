@@ -106,3 +106,44 @@ export async function updateDocValidationStatus(
     revalidatePath(`/admin/leads`)
     return { success: true }
 }
+
+export async function updateStatusWithComment(
+    indicacaoId: string,
+    newStatus: string,
+    comment?: string
+) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) return { error: "Unauthorized" }
+
+    // 1. Update status
+    const { error: updateError } = await supabase
+        .from('indicacoes')
+        .update({ status: newStatus })
+        .eq('id', indicacaoId)
+
+    if (updateError) {
+        return { error: updateError.message }
+    }
+
+    // 2. Add interaction (System log for status change)
+    await addInteraction(
+        indicacaoId,
+        `Status alterado para: ${newStatus}`,
+        'STATUS_CHANGE',
+        { new_status: newStatus }
+    )
+
+    // 3. Add optional user comment
+    if (comment && comment.trim()) {
+        await addInteraction(
+            indicacaoId,
+            comment,
+            'COMMENT'
+        )
+    }
+
+    revalidatePath(`/admin/leads`)
+    return { success: true }
+}
