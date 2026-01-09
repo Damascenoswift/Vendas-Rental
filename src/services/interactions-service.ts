@@ -147,3 +147,40 @@ export async function updateStatusWithComment(
     revalidatePath(`/admin/leads`)
     return { success: true }
 }
+
+export interface EnergisaLog {
+    id: string
+    action_type: string
+    notes: string
+    created_at: string
+    user: { name: string }
+}
+
+export async function getEnergisaLogs(indicacaoId: string) {
+    const supabase = await createClient()
+    const { data } = await supabase
+        .from('energisa_logs')
+        .select('*, user:users(name)')
+        .eq('indicacao_id', indicacaoId)
+        .order('created_at', { ascending: false })
+
+    return data as any as EnergisaLog[] || []
+}
+
+export async function addEnergisaLog(indicacaoId: string, actionType: string, notes: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
+
+    const { error } = await supabase
+        .from('energisa_logs')
+        .insert({
+            indicacao_id: indicacaoId,
+            user_id: user.id,
+            action_type: actionType,
+            notes: notes
+        })
+
+    if (error) return { error: error.message }
+    return { success: true }
+}

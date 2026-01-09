@@ -12,7 +12,8 @@ import {
     Settings,
     LogOut,
     Building2,
-    PieChart
+    PieChart,
+    CheckSquare
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -60,6 +61,17 @@ export function Sidebar({ className }: SidebarProps) {
 
                     <div className="space-y-1">
                         <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
+
+                        {role === 'adm_mestre' && (
+                            <SidebarMenuItem>
+                                <SidebarMenuButton asChild isActive={pathname === "/admin/tarefas"} tooltip="Tarefas">
+                                    <Link href="/admin/tarefas">
+                                        <CheckSquare className="h-4 w-4" />
+                                        <span>Tarefas</span>
+                                    </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        )}
 
                         {role === 'adm_mestre' && (
                             <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />

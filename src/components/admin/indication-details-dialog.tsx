@@ -142,83 +142,82 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
                     </div>
                 ) : (
                     <div className="flex-1 py-4">
-                        import {DocChecklist} from "./interactions/doc-checklist"
+                        <Tabs defaultValue="dados" className="w-full">
 
-                        // ... imports ...
 
-                        <TabsList className="grid w-full grid-cols-4">
-                            <TabsTrigger value="dados">Dados & Docs</TabsTrigger>
-                            <TabsTrigger value="arquivos">Arquivos ({files.length})</TabsTrigger>
-                            <TabsTrigger value="energisa">Energisa</TabsTrigger>
-                            <TabsTrigger value="atividades">Atividades & Chat</TabsTrigger>
-                        </TabsList>
+                            <TabsList className="grid w-full grid-cols-4">
+                                <TabsTrigger value="dados">Dados & Docs</TabsTrigger>
+                                <TabsTrigger value="arquivos">Arquivos ({files.length})</TabsTrigger>
+                                <TabsTrigger value="energisa">Energisa</TabsTrigger>
+                                <TabsTrigger value="atividades">Atividades & Chat</TabsTrigger>
+                            </TabsList>
 
-                        <TabsContent value="dados" className="space-y-4 mt-4">
-                            <DocChecklist indicacaoId={indicationId} />
-                            {/* ... metadata details ... */}
-                            {metadata ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-md">
-                                    {Object.entries(metadata).map(([key, value]) => {
-                                        if (typeof value === 'object' || !value) return null
-                                        return (
-                                            <div key={key} className="space-y-1 border-b pb-2">
-                                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                                                    {formatLabel(key)}
-                                                </span>
-                                                <p className="text-sm font-medium break-words">
-                                                    {String(value)}
-                                                </p>
+                            <TabsContent value="dados" className="space-y-4 mt-4">
+                                <DocChecklist indicacaoId={indicationId} />
+                                {/* ... metadata details ... */}
+                                {metadata ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-md">
+                                        {Object.entries(metadata).map(([key, value]) => {
+                                            if (typeof value === 'object' || !value) return null
+                                            return (
+                                                <div key={key} className="space-y-1 border-b pb-2">
+                                                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                        {formatLabel(key)}
+                                                    </span>
+                                                    <p className="text-sm font-medium break-words">
+                                                        {String(value)}
+                                                    </p>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        Nenhum dado adicional encontrado.
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            <TabsContent value="arquivos" className="mt-4">
+                                {files.length > 0 ? (
+                                    <div className="grid gap-2">
+                                        {files.map((file, idx) => (
+                                            <div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                                                <div className="flex items-center gap-3">
+                                                    <FileText className="h-5 w-5 text-blue-500" />
+                                                    <span className="text-sm font-medium">{file.name}</span>
+                                                </div>
+                                                {file.url ? (
+                                                    <Button size="sm" variant="outline" asChild>
+                                                        <a href={file.url} target="_blank" rel="noopener noreferrer" className="gap-2">
+                                                            <Download className="h-4 w-4" />
+                                                            Baixar
+                                                        </a>
+                                                    </Button>
+                                                ) : (
+                                                    <span className="text-xs text-red-500">Erro no link</span>
+                                                )}
                                             </div>
-                                        )
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    Nenhum dado adicional encontrado.
-                                </div>
-                            )}
-                        </TabsContent>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        Nenhum arquivo anexado.
+                                    </div>
+                                )}
+                            </TabsContent>
 
-                        <TabsContent value="arquivos" className="mt-4">
-                            {files.length > 0 ? (
-                                <div className="grid gap-2">
-                                    {files.map((file, idx) => (
-                                        <div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                                            <div className="flex items-center gap-3">
-                                                <FileText className="h-5 w-5 text-blue-500" />
-                                                <span className="text-sm font-medium">{file.name}</span>
-                                            </div>
-                                            {file.url ? (
-                                                <Button size="sm" variant="outline" asChild>
-                                                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="gap-2">
-                                                        <Download className="h-4 w-4" />
-                                                        Baixar
-                                                    </a>
-                                                </Button>
-                                            ) : (
-                                                <span className="text-xs text-red-500">Erro no link</span>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    Nenhum arquivo anexado.
-                                </div>
-                            )}
-                        </TabsContent>
+                            <TabsContent value="energisa" className="mt-4 h-full">
+                                <EnergisaActions indicacaoId={indicationId} />
+                            </TabsContent>
 
-                        <TabsContent value="energisa" className="mt-4 h-full">
-                            <EnergisaActions indicacaoId={indicationId} />
-                        </TabsContent>
-
-                        <TabsContent value="atividades" className="mt-4 h-full">
-                            <LeadInteractions indicacaoId={indicationId} />
-                        </TabsContent>
-                    </Tabs>
+                            <TabsContent value="atividades" className="mt-4 h-full">
+                                <LeadInteractions indicacaoId={indicationId} />
+                            </TabsContent>
+                        </Tabs>
                     </div>
                 )}
-        </DialogContent>
+            </DialogContent>
         </Dialog >
     )
 }
