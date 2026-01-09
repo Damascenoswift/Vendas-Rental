@@ -360,9 +360,10 @@ export default function IndicacoesPage() {
                   </TableCell>
                   <TableCell>
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${statusConfig[indicacao.status].className}`}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${(statusConfig[indicacao.status] ?? statusConfig.EM_ANALISE).className
+                        }`}
                     >
-                      {statusConfig[indicacao.status].label}
+                      {(statusConfig[indicacao.status] ?? statusConfig.EM_ANALISE).label}
                     </span>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
