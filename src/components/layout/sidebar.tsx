@@ -63,14 +63,7 @@ export function Sidebar({ className }: SidebarProps) {
                         <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
 
                         {role === 'adm_mestre' && (
-                            <SidebarMenuItem>
-                                <SidebarMenuButton asChild isActive={pathname === "/admin/tarefas"} tooltip="Tarefas">
-                                    <Link href="/admin/tarefas">
-                                        <CheckSquare className="h-4 w-4" />
-                                        <span>Tarefas</span>
-                                    </Link>
-                                </SidebarMenuButton>
-                            </SidebarMenuItem>
+                            <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                         )}
 
                         {role === 'adm_mestre' && (

@@ -1,8 +1,9 @@
 import { Suspense } from "react"
 import { getTasks } from "@/services/task-service"
 import { KanbanBoard } from "@/components/admin/tasks/kanban-board"
+import { TaskDialog } from "@/components/admin/tasks/task-dialog"
 import { Button } from "@/components/ui/button"
-import { Plus, LayoutTemplate, Filter } from "lucide-react"
+import { Filter } from "lucide-react"
 
 export default async function TasksPage() {
     const tasks = await getTasks({ showAll: true })
@@ -18,10 +19,6 @@ export default async function TasksPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    import {TaskDialog} from "@/components/admin/tasks/task-dialog"
-
-                    // ... inside component ...
-
                     <Button variant="outline" size="sm" className="gap-2">
                         <Filter className="h-4 w-4" />
                         Filtros
