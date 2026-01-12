@@ -102,8 +102,9 @@ export function LeadSelect({ value, onChange }: LeadSelectProps) {
                             {leads.map((lead) => (
                                 <CommandItem
                                     key={lead.id}
-                                    value={lead.id} // Note: Command uses value for filtering usually, but we disabled internal filtering
+                                    value={`${lead.nome} ${lead.id}`} // Ensure unique value for cmdk
                                     onSelect={() => {
+                                        console.log("Selected lead:", lead)
                                         onChange(lead.id)
                                         setSelectedLead(lead)
                                         setOpen(false)

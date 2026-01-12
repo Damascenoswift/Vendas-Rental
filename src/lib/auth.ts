@@ -19,6 +19,7 @@ export type UserProfile = {
   id: string
   role: UserRole
   companyName: string | null
+  department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
   phone?: string

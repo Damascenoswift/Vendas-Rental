@@ -20,6 +20,7 @@ export interface Database {
           status: string | null
           created_at: string
           updated_at: string
+          department: Database['public']['Enums']['department_enum'] | null
         }
         Insert: {
           id?: string
@@ -31,6 +32,7 @@ export interface Database {
           status?: string | null
           created_at?: string
           updated_at?: string
+          department?: Database['public']['Enums']['department_enum'] | null
         }
         Update: {
           id?: string
@@ -42,6 +44,7 @@ export interface Database {
           status?: string | null
           created_at?: string
           updated_at?: string
+          department?: Database['public']['Enums']['department_enum'] | null
         }
         Relationships: []
       }
@@ -328,6 +331,7 @@ export interface Database {
     Enums: {
       user_role_enum: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata' | 'suporte_tecnico' | 'suporte_limitado' | 'investidor' | 'funcionario_n1' | 'funcionario_n2'
       brand_enum: 'dorata' | 'rental'
+      department_enum: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
     }
     CompositeTypes: {
       [_ in never]: never

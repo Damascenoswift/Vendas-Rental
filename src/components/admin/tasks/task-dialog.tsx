@@ -32,22 +32,25 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
+    SelectGroup,
+    SelectLabel
 } from "@/components/ui/select"
 import { createTask, TaskPriority, Department } from "@/services/task-service"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
+import { getProfile } from "@/lib/auth"
 
 const taskSchema = z.object({
     title: z.string().min(3, "Título deve ter pelo menos 3 caracteres"),
     description: z.string().optional(),
     priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
-    department: z.enum(["VENDAS", "CADASTRO", "ENERGIA", "JURIDICO", "FINANCEIRO", "OUTRO"]),
+    department: z.enum(["vendas", "cadastro", "energia", "juridico", "financeiro", "ti", "diretoria", "outro"]),
     due_date: z.string().optional(), // YYYY-MM-DD
     assignee_id: z.string().optional(),
     indicacao_id: z.string().optional(), // Linked lead
     status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
-    brand: z.enum(["rental", "dorata"]).default("rental"),
+    brand: z.enum(["rental", "dorata"]),
 })
 
 type TaskFormValues = z.infer<typeof taskSchema>
@@ -55,7 +58,7 @@ type TaskFormValues = z.infer<typeof taskSchema>
 export function TaskDialog() {
     const [open, setOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
-    const [users, setUsers] = useState<{ id: string, name: string }[]>([])
+    const [users, setUsers] = useState<{ id: string, name: string, department: string | null }[]>([])
 
     const { showToast } = useToast()
 
@@ -63,7 +66,7 @@ export function TaskDialog() {
         resolver: zodResolver(taskSchema),
         defaultValues: {
             priority: "MEDIUM",
-            department: "OUTRO",
+            department: "outro",
             status: "TODO",
             brand: "rental",
             description: "",
@@ -78,7 +81,24 @@ export function TaskDialog() {
     }, [open])
 
     async function fetchUsers() {
-        // ... (keep)
+        const { data, error } = await supabase
+            .from('users')
+            .select('id, name, department')
+            .order('name')
+
+        if (error) {
+            console.error("Error fetching users:", error)
+            return
+        }
+
+        if (data) {
+            // Map null department to 'outro' or handle display logic
+            setUsers(data.map(u => ({
+                id: u.id,
+                name: u.name || "Sem Nome",
+                department: u.department
+            })))
+        }
     }
 
     async function onSubmit(data: TaskFormValues) {
@@ -201,12 +221,14 @@ export function TaskDialog() {
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                <SelectItem value="VENDAS">Vendas</SelectItem>
-                                                <SelectItem value="CADASTRO">Cadastro</SelectItem>
-                                                <SelectItem value="ENERGIA">Energia</SelectItem>
-                                                <SelectItem value="JURIDICO">Jurídico</SelectItem>
-                                                <SelectItem value="FINANCEIRO">Financeiro</SelectItem>
-                                                <SelectItem value="OUTRO">Outro</SelectItem>
+                                                <SelectItem value="vendas">Vendas</SelectItem>
+                                                <SelectItem value="cadastro">Cadastro</SelectItem>
+                                                <SelectItem value="energia">Energia</SelectItem>
+                                                <SelectItem value="juridico">Jurídico</SelectItem>
+                                                <SelectItem value="financeiro">Financeiro</SelectItem>
+                                                <SelectItem value="ti">TI</SelectItem>
+                                                <SelectItem value="diretoria">Diretoria</SelectItem>
+                                                <SelectItem value="outro">Outro</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -253,8 +275,20 @@ export function TaskDialog() {
                                                 </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                                {users.map(u => (
-                                                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                                                {Object.entries(
+                                                    users.reduce((acc, user) => {
+                                                        const dept = user.department ? user.department.toUpperCase() : "OUTROS"
+                                                        if (!acc[dept]) acc[dept] = []
+                                                        acc[dept].push(user)
+                                                        return acc
+                                                    }, {} as Record<string, typeof users>)
+                                                ).map(([dept, deptUsers]) => (
+                                                    <SelectGroup key={dept}>
+                                                        <SelectLabel>{dept}</SelectLabel>
+                                                        {deptUsers.map(u => (
+                                                            <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                                                        ))}
+                                                    </SelectGroup>
                                                 ))}
                                             </SelectContent>
                                         </Select>

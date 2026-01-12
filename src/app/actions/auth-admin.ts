@@ -13,6 +13,7 @@ const createUserSchema = z.object({
     name: z.string().min(1, 'Nome é obrigatório'),
     phone: z.string().optional(),
     role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor', 'funcionario_n1', 'funcionario_n2']),
+    department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
 })
 
@@ -55,6 +56,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         name: formData.get('name'),
         phone: formData.get('phone'),
         role: formData.get('role'),
+        department: formData.get('department'),
         brands: formData.getAll('brands'),
     }
 
@@ -68,7 +70,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { email, password, name, phone, role, brands } = validated.data
+    const { email, password, name, phone, role, brands, department } = validated.data
 
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -95,11 +97,14 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
     const { error: updateError } = await supabaseAdmin
         .from('users')
         .update({
-            role: role as UserRole,
-            allowed_brands: brands as Brand[],
+            role: role,
+            department: department || 'outro',
+            allowed_brands: brands,
+            status: 'active',
             name: name,
-            phone: phone,
+            phone: phone
         })
+
         .eq('id', newUser.user.id)
 
     if (updateError) {

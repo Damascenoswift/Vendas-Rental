@@ -60,17 +60,39 @@ export function RegisterUserForm() {
                     id="role"
                     name="role"
                     required
-                    defaultValue="vendedor_externo"
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    className="w-full rounded-md border p-2"
+                    defaultValue=""
                 >
+                    <option value="" disabled>Selecione um cargo</option>
                     <option value="vendedor_externo">Vendedor Externo</option>
                     <option value="vendedor_interno">Vendedor Interno</option>
                     <option value="supervisor">Supervisor</option>
+                    <option value="suporte_tecnico">Suporte Técnico</option>
+                    <option value="suporte_limitado">Suporte Limitado</option>
                     <option value="adm_mestre">Admin Mestre</option>
                     <option value="adm_dorata">Admin Dorata</option>
                     <option value="investidor">Investidor</option>
                     <option value="funcionario_n1">Funcionário Nível 1</option>
                     <option value="funcionario_n2">Funcionário Nível 2</option>
+                </select>
+            </div>
+
+            <div>
+                <label className="mb-2 block text-sm font-medium">Setor / Departamento</label>
+                <select
+                    name="department"
+                    className="w-full rounded-md border p-2"
+                    defaultValue=""
+                >
+                    <option value="" disabled>Selecione um setor (opcional)</option>
+                    <option value="vendas">Vendas</option>
+                    <option value="cadastro">Cadastro</option>
+                    <option value="energia">Energia</option>
+                    <option value="juridico">Jurídico</option>
+                    <option value="financeiro">Financeiro</option>
+                    <option value="ti">TI</option>
+                    <option value="diretoria">Diretoria</option>
+                    <option value="outro">Outro</option>
                 </select>
                 {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
             </div>
