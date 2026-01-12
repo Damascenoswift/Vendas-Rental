@@ -69,6 +69,8 @@ export function RegisterUserForm() {
                     <option value="adm_mestre">Admin Mestre</option>
                     <option value="adm_dorata">Admin Dorata</option>
                     <option value="investidor">Investidor</option>
+                    <option value="funcionario_n1">Funcionário Nível 1</option>
+                    <option value="funcionario_n2">Funcionário Nível 2</option>
                 </select>
                 {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
             </div>

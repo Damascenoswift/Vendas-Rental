@@ -10,6 +10,8 @@ export type UserRole =
   | 'suporte_tecnico'
   | 'suporte_limitado'
   | 'investidor'
+  | 'funcionario_n1'
+  | 'funcionario_n2'
 
 export type Brand = 'rental' | 'dorata'
 
@@ -32,6 +34,8 @@ const roleBrandsMap: Record<UserRole, Brand[]> = {
   suporte_tecnico: ['rental', 'dorata'],
   suporte_limitado: ['rental', 'dorata'],
   investidor: ['rental'],
+  funcionario_n1: ['rental', 'dorata'],
+  funcionario_n2: ['rental', 'dorata'],
 }
 
 export function getAllowedBrands(role: UserRole): Brand[] {

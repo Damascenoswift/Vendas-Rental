@@ -320,7 +320,7 @@ export interface Database {
       [_ in never]: never
     }
     Enums: {
-      user_role_enum: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata' | 'suporte_tecnico' | 'suporte_limitado' | 'investidor'
+      user_role_enum: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata' | 'suporte_tecnico' | 'suporte_limitado' | 'investidor' | 'funcionario_n1' | 'funcionario_n2'
       brand_enum: 'dorata' | 'rental'
     }
     CompositeTypes: {
