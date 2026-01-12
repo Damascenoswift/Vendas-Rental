@@ -24,6 +24,8 @@ interface Lead {
     id: string
     nome: string
     documento: string | null
+    unidade_consumidora: string | null
+    codigo_cliente: string | null
 }
 
 interface LeadSelectProps {
@@ -43,7 +45,7 @@ export function LeadSelect({ value, onChange }: LeadSelectProps) {
         if (value && !selectedLead) {
             supabase
                 .from('indicacoes')
-                .select('id, nome, documento')
+                .select('id, nome, documento, unidade_consumidora, codigo_cliente')
                 .eq('id', value)
                 .single()
                 .then(({ data }) => {
@@ -57,7 +59,7 @@ export function LeadSelect({ value, onChange }: LeadSelectProps) {
         async function fetchLeads() {
             let query = supabase
                 .from('indicacoes')
-                .select('id, nome, documento')
+                .select('id, nome, documento, unidade_consumidora, codigo_cliente')
                 .limit(20)
 
             if (debouncedSearch) {
@@ -115,11 +117,11 @@ export function LeadSelect({ value, onChange }: LeadSelectProps) {
                                     />
                                     <div className="flex flex-col">
                                         <span>{lead.nome}</span>
-                                        {lead.documento && (
-                                            <span className="text-xs text-muted-foreground">
-                                                Doc: {lead.documento}
-                                            </span>
-                                        )}
+                                        <span className="text-xs text-muted-foreground">
+                                            Doc: {lead.documento || 'N/A'}
+                                            {lead.unidade_consumidora && ` • UC: ${lead.unidade_consumidora}`}
+                                            {lead.codigo_cliente && ` • Cód: ${lead.codigo_cliente}`}
+                                        </span>
                                     </div>
                                 </CommandItem>
                             ))}

@@ -311,6 +311,8 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated }: In
       user_id: userId,
       marca: values.marca,
       documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
+      unidade_consumidora: values.tipoPessoa === "PF" ? null : values.localizacaoUC,
+      codigo_cliente: values.tipoPessoa === "PF" ? values.codigoClienteEnergia : values.codigoInstalacao,
     }
 
     console.log("Submitting payload:", payload)

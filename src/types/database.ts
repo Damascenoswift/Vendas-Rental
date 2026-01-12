@@ -61,6 +61,8 @@ export interface Database {
           assinada_em: string | null
           compensada_em: string | null
           valor: number | null
+          unidade_consumidora: string | null
+          codigo_cliente: string | null
         }
         Insert: {
           id?: string
@@ -77,6 +79,8 @@ export interface Database {
           assinada_em?: string | null
           compensada_em?: string | null
           valor?: number | null
+          unidade_consumidora?: string | null
+          codigo_cliente?: string | null
         }
         Update: {
           id?: string
@@ -93,6 +97,8 @@ export interface Database {
           assinada_em?: string | null
           compensada_em?: string | null
           valor?: number | null
+          unidade_consumidora?: string | null
+          codigo_cliente?: string | null
         }
         Relationships: [
           {
