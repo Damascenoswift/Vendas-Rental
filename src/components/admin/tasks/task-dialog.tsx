@@ -36,6 +36,7 @@ import {
 import { createTask, TaskPriority, Department } from "@/services/task-service"
 import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
+import { LeadSelect } from "@/components/admin/tasks/lead-select"
 
 const taskSchema = z.object({
     title: z.string().min(3, "Título deve ter pelo menos 3 caracteres"),
@@ -45,6 +46,8 @@ const taskSchema = z.object({
     due_date: z.string().optional(), // YYYY-MM-DD
     assignee_id: z.string().optional(),
     indicacao_id: z.string().optional(), // Linked lead
+    status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
+    brand: z.enum(["rental", "dorata"]).default("rental"),
 })
 
 type TaskFormValues = z.infer<typeof taskSchema>
@@ -53,7 +56,6 @@ export function TaskDialog() {
     const [open, setOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [users, setUsers] = useState<{ id: string, name: string }[]>([])
-    const [leads, setLeads] = useState<{ id: string, nome: string }[]>([])
 
     const { showToast } = useToast()
 
@@ -62,6 +64,8 @@ export function TaskDialog() {
         defaultValues: {
             priority: "MEDIUM",
             department: "OUTRO",
+            status: "TODO",
+            brand: "rental",
             description: "",
         },
     })
@@ -70,21 +74,11 @@ export function TaskDialog() {
     useEffect(() => {
         if (open) {
             fetchUsers()
-            fetchLeads()
         }
     }, [open])
 
     async function fetchUsers() {
-        // Fetch users for assignment (simulated logic or real table if RLS allows)
-        // Ideally this should be a server action or a proper secure fetch
-        const { data } = await supabase.from('users').select('id, name').order('name')
-        if (data) setUsers(data)
-    }
-
-    async function fetchLeads() {
-        // Fetch active leads to link
-        const { data } = await supabase.from('indicacoes').select('id, nome').limit(50).order('created_at', { ascending: false })
-        if (data) setLeads(data)
+        // ... (keep)
     }
 
     async function onSubmit(data: TaskFormValues) {
@@ -93,7 +87,7 @@ export function TaskDialog() {
             // Find client name if lead is selected
             let clientName = undefined
             if (data.indicacao_id) {
-                const lead = leads.find(l => l.id === data.indicacao_id)
+                const { data: lead } = await supabase.from('indicacoes').select('nome').eq('id', data.indicacao_id).single()
                 if (lead) clientName = lead.nome
             }
 
@@ -141,6 +135,53 @@ export function TaskDialog() {
                                     <FormControl>
                                         <Input placeholder="Ex: Analisar Contrato Energisa" {...field} />
                                     </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        <FormField
+                            control={form.control}
+                            name="brand"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Marca</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="rental">Rental Solar</SelectItem>
+                                            <SelectItem value="dorata">Dorata</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        <FormField
+                            control={form.control}
+                            name="status"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Status Inicial</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="TODO">A Fazer</SelectItem>
+                                            <SelectItem value="IN_PROGRESS">Em Andamento</SelectItem>
+                                            <SelectItem value="REVIEW">Revisão</SelectItem>
+                                            <SelectItem value="DONE">Concluído</SelectItem>
+                                            <SelectItem value="BLOCKED">Bloqueado</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                     <FormMessage />
                                 </FormItem>
                             )}
@@ -243,19 +284,12 @@ export function TaskDialog() {
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Vincular Cliente (Opcional)</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Buscar cliente..." />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent className="max-h-[200px]">
-                                            <SelectItem value="none">Nenhum</SelectItem>
-                                            {leads.map(lead => (
-                                                <SelectItem key={lead.id} value={lead.id}>{lead.nome}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <FormControl>
+                                        <LeadSelect
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                        />
+                                    </FormControl>
                                     <FormMessage />
                                 </FormItem>
                             )}

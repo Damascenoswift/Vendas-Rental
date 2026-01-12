@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 export type Department = 'VENDAS' | 'CADASTRO' | 'ENERGIA' | 'JURIDICO' | 'FINANCEIRO' | 'OUTRO'
+export type Brand = 'rental' | 'dorata'
 
 export interface Task {
     id: string
@@ -20,6 +21,7 @@ export interface Task {
     client_name: string | null
     department: Department | null
     created_at: string
+    brand: Brand
     assignee?: {
         name: string
         email: string
@@ -32,7 +34,8 @@ export interface Task {
 export async function getTasks(filters?: {
     department?: Department,
     assigneeId?: string,
-    showAll?: boolean
+    showAll?: boolean,
+    brand?: Brand
 }) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -54,6 +57,10 @@ export async function getTasks(filters?: {
 
     if (filters?.assigneeId) {
         query = query.eq('assignee_id', filters.assigneeId)
+    }
+
+    if (filters?.brand) {
+        query = query.eq('brand', filters.brand)
     }
 
     const { data, error } = await query
@@ -80,6 +87,8 @@ export async function createTask(data: {
     department?: Department
     indicacao_id?: string
     client_name?: string
+    status?: TaskStatus
+    brand?: Brand
 }) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
