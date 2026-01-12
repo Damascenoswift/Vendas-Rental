@@ -146,9 +146,10 @@ export type IndicacaoFormProps = {
   allowedBrands: Brand[]
   userRole?: string
   onCreated?: () => Promise<void> | void
+  isInternalRegistration?: boolean
 }
 
-export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated }: IndicacaoFormProps) {
+export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isInternalRegistration = false }: IndicacaoFormProps) {
   const { showToast } = useToast()
 
   const [filesPF, setFilesPF] = useState<{ faturaEnergia: File | null; documentoComFoto: File | null }>({
@@ -283,7 +284,8 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated }: In
   // =============================
   const onSubmit = async (values: IndicacaoFormValues) => {
     // Checagem de documentos obrigatórios (APENAS RENTAL)
-    if (values.marca === 'rental') {
+    // Se isInternalRegistration for true, ignoramos essa validação
+    if (values.marca === 'rental' && !isInternalRegistration) {
       if (values.tipoPessoa === "PF") {
         if (!filesPF.faturaEnergia || !filesPF.documentoComFoto) {
           showToast({ variant: "error", title: "Documentos obrigatórios", description: "Fatura e documento com foto são obrigatórios." })
@@ -713,7 +715,9 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated }: In
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Documentos (PDF/JPG/PNG) — obrigatórios</label>
+                    <label className="text-sm font-medium text-foreground">
+                      Documentos (PDF/JPG/PNG) {isInternalRegistration ? "— opcional (Admin)" : "— obrigatórios"}
+                    </label>
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
                         <span className="text-xs text-muted-foreground">Fatura de energia</span>
@@ -893,7 +897,9 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated }: In
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Documentos (PDF/JPG/PNG) — obrigatórios</label>
+                    <label className="text-sm font-medium text-foreground">
+                      Documentos (PDF/JPG/PNG) {isInternalRegistration ? "— opcional (Admin)" : "— obrigatórios"}
+                    </label>
                     <div className="grid gap-3 md:grid-cols-2">
                       <div>
                         <span className="text-xs text-muted-foreground">Fatura de energia</span>

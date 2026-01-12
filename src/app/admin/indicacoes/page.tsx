@@ -3,6 +3,9 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
 import { AdminIndicacoesClient } from "@/components/admin/admin-indicacoes-client"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { Plus } from "lucide-react"
 
 export const dynamic = "force-dynamic"
 
@@ -51,11 +54,19 @@ export default async function AdminIndicacoesPage() {
 
     return (
         <div className="container mx-auto py-10">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold">Gerenciar Indicações</h1>
-                <p className="text-muted-foreground">
-                    Visualize e atualize o status de todas as indicações.
-                </p>
+            <div className="mb-8 flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold">Gerenciar Indicações</h1>
+                    <p className="text-muted-foreground">
+                        Visualize e atualize o status de todas as indicações.
+                    </p>
+                </div>
+                <Button asChild>
+                    <Link href="/admin/indicacoes/novo">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Nova Indicação
+                    </Link>
+                </Button>
             </div>
 
             <AdminIndicacoesClient initialIndicacoes={indicacoes || []} />
