@@ -68,7 +68,7 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
                         )}
 
-                        {role === 'adm_mestre' && (
+                        {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'vendedor_interno', 'vendedor_externo', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                         )}
 
