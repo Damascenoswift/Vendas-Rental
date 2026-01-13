@@ -19,11 +19,14 @@ import { IndicationsChart } from "@/components/admin/indications-chart"
 import { IndicationsFilter } from "@/components/admin/indications-filter"
 import { Button } from "@/components/ui/button"
 
+import type { UserRole } from "@/lib/auth"
+
 interface AdminIndicacoesClientProps {
     initialIndicacoes: any[]
+    role?: UserRole
 }
 
-export function AdminIndicacoesClient({ initialIndicacoes }: AdminIndicacoesClientProps) {
+export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicacoesClientProps) {
     const [indicacoes, setIndicacoes] = useState(initialIndicacoes)
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
@@ -152,7 +155,9 @@ export function AdminIndicacoesClient({ initialIndicacoes }: AdminIndicacoesClie
                                                 }}
                                                 vendedorName={vendedorInfo}
                                             />
-                                            <DeleteIndicationButton id={ind.id} />
+                                            {role === 'adm_mestre' && (
+                                                <DeleteIndicationButton id={ind.id} />
+                                            )}
                                         </div>
                                     </TableCell>
                                 </TableRow>

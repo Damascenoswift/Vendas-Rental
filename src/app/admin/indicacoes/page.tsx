@@ -22,12 +22,13 @@ export default async function AdminIndicacoesPage() {
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
 
-    if (role !== "adm_mestre") {
+    const allowedRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1']
+    if (!role || !allowedRoles.includes(role)) {
         return (
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">
                     <h2 className="text-lg font-bold">Acesso Negado</h2>
-                    <p>Apenas Administradores Mestre podem acessar esta página.</p>
+                    <p>Você não tem permissão para acessar esta página.</p>
                 </div>
             </div>
         )
@@ -69,7 +70,7 @@ export default async function AdminIndicacoesPage() {
                 </Button>
             </div>
 
-            <AdminIndicacoesClient initialIndicacoes={indicacoes || []} />
+            <AdminIndicacoesClient initialIndicacoes={indicacoes || []} role={role} />
         </div>
     )
 }
