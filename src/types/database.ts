@@ -333,6 +333,11 @@ export interface Database {
           model: string | null
           specs: Json | null
           active: boolean | null
+          power: number | null
+          technology: string | null
+          stock_total: number | null
+          stock_reserved: number | null
+          stock_withdrawn: number | null
           created_at: string
           updated_at: string
         }
@@ -347,6 +352,11 @@ export interface Database {
           model?: string | null
           specs?: Json | null
           active?: boolean | null
+          power?: number | null
+          technology?: string | null
+          stock_total?: number | null
+          stock_reserved?: number | null
+          stock_withdrawn?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -361,6 +371,11 @@ export interface Database {
           model?: string | null
           specs?: Json | null
           active?: boolean | null
+          power?: number | null
+          technology?: string | null
+          stock_total?: number | null
+          stock_reserved?: number | null
+          stock_withdrawn?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -452,6 +467,46 @@ export interface Database {
           },
           {
             foreignKeyName: "proposal_items_product_id_fkey"
+            columns: ["product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      stock_movements: {
+        Row: {
+          id: string
+          product_id: string | null
+          type: Database['public']['Enums']['stock_movement_type']
+          quantity: number
+          reference_id: string | null
+          entity_name: string | null
+          date: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          product_id?: string | null
+          type: Database['public']['Enums']['stock_movement_type']
+          quantity: number
+          reference_id?: string | null
+          entity_name?: string | null
+          date?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          product_id?: string | null
+          type?: Database['public']['Enums']['stock_movement_type']
+          quantity?: number
+          reference_id?: string | null
+          entity_name?: string | null
+          date?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_product_id_fkey"
             columns: ["product_id"]
             referencedRelation: "products"
             referencedColumns: ["id"]
@@ -576,6 +631,7 @@ export interface Database {
       department_enum: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
       product_type_enum: 'module' | 'inverter' | 'structure' | 'cable' | 'transformer' | 'other'
       proposal_status_enum: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
+      stock_movement_type: 'IN' | 'OUT' | 'RESERVE' | 'RELEASE'
     }
     CompositeTypes: {
       [_ in never]: never
