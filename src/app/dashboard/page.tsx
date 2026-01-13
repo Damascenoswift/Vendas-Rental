@@ -107,9 +107,9 @@ export default function DashboardPage() {
         .select("id, status, created_at, marca")
         .order("created_at", { ascending: false })
 
-      // Se NÃO for adm_mestre, filtra apenas as próprias indicações
-      // Se for adm_mestre, não aplica filtro de user_id (vê tudo)
-      if (profile?.role !== "adm_mestre") {
+      // Se NÃO for adm_mestre nem funcionario_n1, filtra apenas as próprias indicações
+      // Se for adm_mestre ou funcionario_n1, não aplica filtro de user_id (vê tudo)
+      if (!['adm_mestre', 'funcionario_n1'].includes(profile?.role ?? '')) {
         query = query.eq("user_id", userId)
       }
 
