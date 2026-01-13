@@ -1,6 +1,9 @@
-import { getProduct } from "@/services/product-service"
+
+import { getProduct, getStockMovements } from "@/services/product-service"
 import { ProductForm } from "@/components/admin/inventory/product-form"
+import { StockMovements } from "@/components/admin/inventory/stock-movements"
 import { notFound } from "next/navigation"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface EditProductPageProps {
     params: {
@@ -9,23 +12,13 @@ interface EditProductPageProps {
 }
 
 export default async function EditProductPage({ params }: EditProductPageProps) {
-    // In Next.js 15+, params is a Promise, so we need to await it if the project was upgraded, 
-    // but typically in 14 it's not. However, the error message 'Dynamic server usage' might appear if not handled.
-    // Given the project version, let's treat it as typical. 
-    // Wait, recent Next.js versions might require awaiting params. Let's assume standard behavior for now.
-
-    // Actually, in the latest Next.js versions (15 canary or RC), params are async. 
-    // But checking package.json, it says "next": "15.5.9" (Wait, 15.5.9? Next 15 isn't that high yet? 
-    // Maybe it's 14.x or 15 RC. Let's assume standard 14/15 async params pattern to be safe).
-
-    // Actually, looking at package.json output earlier: "next": "15.5.9" - that version number looks odd if it's official.
-    // It might be a nightly or custom build? Or maybe I misread "15.0.0-canary..."? 
-    // Ah, previous output: "next": "15.5.9". This might be a very recent version.
-    // In Next 15, params IS a promise.
-
+    // Next 15 requires awaiting params
     const { id } = await params
 
-    const product = await getProduct(id)
+    const [product, movements] = await Promise.all([
+        getProduct(id),
+        getStockMovements(id)
+    ])
 
     if (!product) {
         notFound()
@@ -34,11 +27,44 @@ export default async function EditProductPage({ params }: EditProductPageProps) 
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Editar Produto</h2>
+                <h2 className="text-3xl font-bold tracking-tight">Gerenciar Produto</h2>
             </div>
-            <div className="hidden h-full flex-1 flex-col space-y-8 md:flex">
-                <ProductForm initialData={product} />
-            </div>
+
+            <Tabs defaultValue="details" className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="details">Detalhes</TabsTrigger>
+                    <TabsTrigger value="stock">Movimentações de Estoque</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="details">
+                    <div className="flex-col space-y-8 md:flex">
+                        <ProductForm initialData={product} />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="stock">
+                    <div className="bg-white p-6 rounded-md border shadow-sm">
+                        <div className="mb-6 grid grid-cols-3 gap-4">
+                            <div className="rounded-lg border p-3">
+                                <div className="text-sm font-medium text-muted-foreground">Estoque Total</div>
+                                <div className="text-2xl font-bold">{product.stock_total || 0}</div>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                                <div className="text-sm font-medium text-muted-foreground">Reservado</div>
+                                <div className="text-2xl font-bold text-orange-600">{product.stock_reserved || 0}</div>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                                <div className="text-sm font-medium text-muted-foreground">Disponível</div>
+                                <div className="text-2xl font-bold text-green-600">
+                                    {(product.stock_total || 0) - (product.stock_reserved || 0)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <StockMovements productId={id} movements={movements} />
+                    </div>
+                </TabsContent>
+            </Tabs>
         </div>
     )
 }

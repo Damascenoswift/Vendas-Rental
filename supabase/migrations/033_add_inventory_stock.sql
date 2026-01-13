@@ -13,7 +13,7 @@ EXCEPTION
 END $$;
 
 -- Create stock_movements table
-CREATE TABLE stock_movements (
+CREATE TABLE IF NOT EXISTS stock_movements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID REFERENCES products(id),
     type stock_movement_type NOT NULL,
@@ -27,10 +27,12 @@ CREATE TABLE stock_movements (
 -- RLS for stock_movements
 ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Enable read access for authenticated users" ON stock_movements;
 CREATE POLICY "Enable read access for authenticated users" ON stock_movements
     FOR SELECT
     USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Enable write access for admins" ON stock_movements;
 CREATE POLICY "Enable write access for admins" ON stock_movements
     FOR ALL
     USING (

@@ -1,6 +1,6 @@
 
 -- Create consumer_units table for Excel Import
-CREATE TABLE consumer_units (
+CREATE TABLE IF NOT EXISTS consumer_units (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     external_id TEXT, -- ID from Excel
     status TEXT DEFAULT 'Ativo',
@@ -45,10 +45,12 @@ CREATE TABLE consumer_units (
 -- RLS
 ALTER TABLE consumer_units ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Enable read access for authenticated users" ON consumer_units;
 CREATE POLICY "Enable read access for authenticated users" ON consumer_units
     FOR SELECT
     USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Enable write access for admins" ON consumer_units;
 CREATE POLICY "Enable write access for admins" ON consumer_units
     FOR ALL
     USING (

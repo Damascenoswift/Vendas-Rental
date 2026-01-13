@@ -379,6 +379,42 @@ export interface Database {
           created_at?: string
           updated_at?: string
         }
+        relationships: []
+      }
+      pricing_rules: {
+        Row: {
+          id: string
+          name: string
+          key: string
+          value: number
+          unit: string | null
+          description: string | null
+          active: boolean | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          key: string
+          value?: number
+          unit?: string | null
+          description?: string | null
+          active?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          key?: string
+          value?: number
+          unit?: string | null
+          description?: string | null
+          active?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
         Relationships: []
       }
       proposals: {
@@ -388,6 +424,11 @@ export interface Database {
           seller_id: string | null
           status: Database['public']['Enums']['proposal_status_enum'] | null
           total_value: number | null
+          labor_cost: number | null
+          equipment_cost: number | null
+          additional_cost: number | null
+          profit_margin: number | null
+          total_power: number | null
           valid_until: string | null
           notes: string | null
           created_at: string
@@ -399,6 +440,11 @@ export interface Database {
           seller_id?: string | null
           status?: Database['public']['Enums']['proposal_status_enum'] | null
           total_value?: number | null
+          labor_cost?: number | null
+          equipment_cost?: number | null
+          additional_cost?: number | null
+          profit_margin?: number | null
+          total_power?: number | null
           valid_until?: string | null
           notes?: string | null
           created_at?: string
@@ -410,6 +456,11 @@ export interface Database {
           seller_id?: string | null
           status?: Database['public']['Enums']['proposal_status_enum'] | null
           total_value?: number | null
+          labor_cost?: number | null
+          equipment_cost?: number | null
+          additional_cost?: number | null
+          profit_margin?: number | null
+          total_power?: number | null
           valid_until?: string | null
           notes?: string | null
           created_at?: string

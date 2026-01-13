@@ -13,7 +13,9 @@ import {
     LogOut,
     Building2,
     PieChart,
-    CheckSquare
+    CheckSquare,
+    CircleDollarSign,
+    Calculator
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -66,11 +68,11 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                         )}
 
-                        {role === 'adm_mestre' && (
+                        {['adm_mestre', 'funcionario_n1'].includes(role) && (
                             <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />
                         )}
 
-                        {role === 'adm_mestre' && (
+                        {['adm_mestre', 'funcionario_n1'].includes(role) && (
                             <NavItem href="/investidor" label="Portal Investidor" icon={PieChart} />
                         )}
                     </div>
@@ -81,11 +83,11 @@ export function Sidebar({ className }: SidebarProps) {
                         Gestão
                     </h2>
                     <div className="space-y-1">
-                        {['adm_mestre', 'suporte_tecnico', 'suporte_limitado'].includes(role) && (
+                        {['adm_mestre', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1'].includes(role) && (
                             <NavItem href="/admin/energia" label="Energia" icon={Zap} />
                         )}
 
-                        {['adm_mestre', 'adm_dorata'].includes(role) && (
+                        {['adm_mestre', 'adm_dorata', 'funcionario_n1'].includes(role) && (
                             <NavItem href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 
@@ -95,17 +97,27 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 </div>
 
-                {['adm_mestre', 'adm_dorata'].includes(role) && (
+                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'funcionario_n1'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                             Dorata Solar
                         </h2>
                         <div className="space-y-1">
-                            <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
-                            <NavItem href="/admin/importacao" label="Importação" icon={FileText} />
+                            {['adm_mestre', 'adm_dorata', 'funcionario_n1'].includes(role) && (
+                                <>
+                                    <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
+                                    <NavItem href="/admin/importacao" label="Importação" icon={FileText} />
+                                </>
+                            )}
+
+                            <NavItem href="/admin/orcamentos" label="Orçamentos" icon={Calculator} />
+
+                            {['adm_mestre', 'adm_dorata', 'funcionario_n1'].includes(role) && (
+                                <NavItem href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />
+                            )}
                         </div>
                     </div>
-                )} // End of Dorata Section
+                )}
 
                 <div className="px-3 py-2">
                     <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">

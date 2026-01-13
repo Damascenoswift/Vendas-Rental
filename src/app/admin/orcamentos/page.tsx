@@ -1,65 +1,80 @@
+
 import { createClient } from "@/lib/supabase/server"
-import { createSupabaseServiceClient } from "@/lib/supabase-server"
-import { redirect } from "next/navigation"
-import { getProfile } from "@/lib/auth"
-import { AdminOrcamentosClient } from "@/components/admin/admin-orcamentos-client"
+import { Button } from "@/components/ui/button"
+import Link from "next/link"
+import { Plus } from "lucide-react"
+import { format } from "date-fns"
+import { ptBR } from "date-fns/locale"
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table"
 
-export const dynamic = "force-dynamic"
-
-export default async function AdminOrcamentosPage() {
+export default async function ProposalsPage() {
     const supabase = await createClient()
-    const {
-        data: { user },
-    } = await supabase.auth.getUser()
 
-    if (!user) {
-        redirect("/login")
-    }
-
-    const profile = await getProfile(supabase, user.id)
-    const role = profile?.role
-
-    if (role !== "adm_mestre") {
-        return (
-            <div className="container mx-auto py-10">
-                <div className="rounded-md bg-destructive/10 p-4 text-destructive">
-                    <h2 className="text-lg font-bold">Acesso Negado</h2>
-                    <p>Apenas Administradores Mestre podem acessar esta página.</p>
-                </div>
-            </div>
-        )
-    }
-
-    // Use Service Role to bypass potential RLS issues or just Ensure Admins can see
-    const supabaseAdmin = createSupabaseServiceClient()
-
-    const { data: orcamentos, error } = await supabaseAdmin
-        .from("orcamentos")
-        .select("*, users(email, name)")
-        .order("created_at", { ascending: false })
-
-    if (error) {
-        console.error("Erro ao buscar orçamentos:", error)
-        return (
-            <div className="container mx-auto py-10">
-                <div className="rounded-md bg-destructive/10 p-4 text-destructive">
-                    <h3 className="font-bold">Erro ao carregar orçamentos</h3>
-                    <p className="text-sm">{error.message}</p>
-                </div>
-            </div>
-        )
-    }
+    // Fetch proposals with seller info
+    // For MVP just fetch raw
+    const { data: proposals } = await supabase
+        .from('proposals')
+        .select(`
+            *,
+            seller:users(name)
+        `)
+        .order('created_at', { ascending: false })
 
     return (
-        <div className="container mx-auto py-10">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold">Orçamentos Solicitados</h1>
-                <p className="text-muted-foreground">
-                    Visualize os orçamentos solicitados pelos vendedores.
-                </p>
+        <div className="flex-1 space-y-4 p-8 pt-6">
+            <div className="flex items-center justify-between space-y-2">
+                <h2 className="text-3xl font-bold tracking-tight">Orçamentos</h2>
+                <div className="flex items-center space-x-2">
+                    <Link href="/admin/orcamentos/novo">
+                        <Button>
+                            <Plus className="mr-2 h-4 w-4" />
+                            Novo Orçamento
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
-            <AdminOrcamentosClient initialOrcamentos={orcamentos || []} />
+            <div className="rounded-md border">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Data</TableHead>
+                            <TableHead>Vendedor</TableHead>
+                            <TableHead>Validade</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Valor Total</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {!proposals || proposals.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
+                                    Nenhum orçamento encontrado.
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            proposals.map((proposal) => (
+                                <TableRow key={proposal.id}>
+                                    <TableCell>{format(new Date(proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
+                                    <TableCell>{proposal.seller?.name || 'Sistema'}</TableCell>
+                                    <TableCell>{proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}</TableCell>
+                                    <TableCell className="capitalize">{proposal.status}</TableCell>
+                                    <TableCell className="text-right font-medium">
+                                        {proposal.total_value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    </TableCell>
+                                </TableRow>
+                            ))
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
         </div>
     )
 }

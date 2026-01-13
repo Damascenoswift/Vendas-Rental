@@ -9,6 +9,10 @@ export type ProductInsert = Database['public']['Tables']['products']['Insert']
 export type ProductUpdate = Database['public']['Tables']['products']['Update']
 export type ProductType = Database['public']['Enums']['product_type_enum']
 
+export type StockMovement = Database['public']['Tables']['stock_movements']['Row']
+export type StockMovementInsert = Database['public']['Tables']['stock_movements']['Insert']
+export type StockMovementType = Database['public']['Enums']['stock_movement_type']
+
 export async function getProducts(filters?: { active?: boolean, type?: ProductType }) {
     const supabase = await createClient()
 
@@ -106,4 +110,66 @@ export async function deleteProduct(id: string) {
     }
 
     revalidatePath('/admin/estoque')
+}
+
+export async function getStockMovements(productId: string) {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+        .from('stock_movements')
+        .select('*')
+        .eq('product_id', productId)
+        .order('created_at', { ascending: false })
+
+    if (error) {
+        console.error('Error fetching stock movements:', error)
+        return []
+    }
+
+    return data as StockMovement[]
+}
+
+export async function createStockMovement(movement: StockMovementInsert) {
+    const supabase = await createClient()
+
+    // We should ideally use a transaction or RPC, but effectively we will update product stock here too.
+    // Fetch current product to check stock? Supabase atomicity is better with RPC.
+    // For MVP, we Insert Movement THEN Update Product.
+
+    const { data: movementData, error: movementError } = await supabase
+        .from('stock_movements')
+        .insert(movement)
+        .select()
+        .single()
+
+    if (movementError) {
+        console.error('Error creating stock movement:', movementError)
+        throw new Error('Failed to create stock movement')
+    }
+
+    // Update Product Stock
+    // This is naive concurrency, but okay for MVP.
+    const { data: product } = await supabase.from('products').select('stock_total, stock_reserved').eq('id', movement.product_id!).single()
+
+    if (product) {
+        let updates: Partial<Product> = {}
+        const qty = movement.quantity
+
+        if (movement.type === 'IN') {
+            updates.stock_total = (product.stock_total || 0) + qty
+        } else if (movement.type === 'OUT') {
+            updates.stock_total = (product.stock_total || 0) - qty
+        } else if (movement.type === 'RESERVE') {
+            updates.stock_reserved = (product.stock_reserved || 0) + qty
+        } else if (movement.type === 'RELEASE') {
+            updates.stock_reserved = (product.stock_reserved || 0) - qty
+        }
+
+        if (Object.keys(updates).length > 0) {
+            await supabase.from('products').update(updates).eq('id', movement.product_id!)
+        }
+    }
+
+    revalidatePath(`/admin/estoque/${movement.product_id}`)
+    return movementData
 }

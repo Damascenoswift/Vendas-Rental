@@ -31,6 +31,9 @@ const productSchema = z.object({
     type: z.enum(['module', 'inverter', 'structure', 'cable', 'transformer', 'other']),
     manufacturer: z.string().optional(),
     model: z.string().optional(),
+    power: z.coerce.number().optional(),
+    technology: z.string().optional(),
+    stock_total: z.coerce.number().min(0).default(0),
     price: z.coerce.number().min(0, "Preço deve ser maior ou igual a 0"),
     cost: z.coerce.number().min(0).optional(),
     category: z.string().optional(),
@@ -46,7 +49,7 @@ interface ProductFormProps {
 
 export function ProductForm({ initialData }: ProductFormProps) {
     const router = useRouter()
-    const { toast } = useToast()
+    const { showToast } = useToast()
 
     // Default values need to handle potential nulls from DB nicely
     const defaultValues: Partial<ProductFormValues> = initialData ? {
@@ -54,6 +57,9 @@ export function ProductForm({ initialData }: ProductFormProps) {
         type: initialData.type,
         manufacturer: initialData.manufacturer || "",
         model: initialData.model || "",
+        power: initialData.power || undefined,
+        technology: initialData.technology || "",
+        stock_total: initialData.stock_total || 0,
         price: initialData.price,
         cost: initialData.cost || 0,
         category: initialData.category || "",
@@ -64,6 +70,9 @@ export function ProductForm({ initialData }: ProductFormProps) {
         type: "module",
         manufacturer: "",
         model: "",
+        power: undefined,
+        technology: "",
+        stock_total: 0,
         price: 0,
         cost: 0,
         category: "",
@@ -92,14 +101,14 @@ export function ProductForm({ initialData }: ProductFormProps) {
 
             if (initialData) {
                 await updateProduct(initialData.id, payload)
-                toast({
+                showToast({
                     title: "Sucesso",
                     description: "Produto atualizado com sucesso!",
                     variant: "success",
                 })
             } else {
                 await createProduct(payload)
-                toast({
+                showToast({
                     title: "Sucesso",
                     description: "Produto criado com sucesso!",
                     variant: "success",
@@ -108,10 +117,10 @@ export function ProductForm({ initialData }: ProductFormProps) {
             router.push("/admin/estoque")
             router.refresh()
         } catch (error) {
-            toast({
+            showToast({
                 title: "Erro",
                 description: "Erro ao salvar produto.",
-                variant: "destructive",
+                variant: "error",
             })
             console.error(error)
         }
@@ -204,7 +213,65 @@ export function ProductForm({ initialData }: ProductFormProps) {
                     />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
+                    <FormField
+                        control={form.control}
+                        name="power"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Potência (W)</FormLabel>
+                                <FormControl>
+                                    <Input type="number" placeholder="Ex: 550" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control}
+                        name="technology"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Tecnologia</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Ex: Mono Perc" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control}
+                        name="category"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Categoria (Opcional)</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Ex: Premium" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                    <FormField
+                        control={form.control}
+                        name="stock_total"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Estoque Total</FormLabel>
+                                <FormControl>
+                                    <Input type="number" placeholder="0" {...field} onChange={e => field.onChange(e.target.valueAsNumber)} />
+                                </FormControl>
+                                <FormDescription>Qtd. Física</FormDescription>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
                     <FormField
                         control={form.control}
                         name="price"
@@ -258,7 +325,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
                             <FormControl>
                                 <Checkbox
                                     checked={field.value}
-                                    onCheckedChange={field.onChange}
+                                    onChange={field.onChange}
                                 />
                             </FormControl>
                             <div className="space-y-1 leading-none">
