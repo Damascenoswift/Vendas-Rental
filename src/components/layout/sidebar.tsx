@@ -95,6 +95,18 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 </div>
 
+                {['adm_mestre', 'adm_dorata'].includes(role) && (
+                    <div className="px-3 py-2">
+                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                            Dorata Solar
+                        </h2>
+                        <div className="space-y-1">
+                            <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
+                            <NavItem href="/admin/importacao" label="Importação" icon={FileText} />
+                        </div>
+                    </div>
+                )} // End of Dorata Section
+
                 <div className="px-3 py-2">
                     <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                         Conta
