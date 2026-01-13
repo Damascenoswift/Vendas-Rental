@@ -265,7 +265,7 @@ export default function DashboardPage() {
           Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
         </p>
         <div className="pt-2 flex gap-2">
-          {profile?.role === "adm_mestre" && (
+          {['adm_mestre', 'funcionario_n1'].includes(profile?.role ?? '') && (
             <Link href="/admin/indicacoes">
               <Button variant="outline" size="sm">
                 Painel Admin

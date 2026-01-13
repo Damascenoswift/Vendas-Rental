@@ -64,6 +64,10 @@ export function Sidebar({ className }: SidebarProps) {
                     <div className="space-y-1">
                         <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
 
+                        {['adm_mestre', 'funcionario_n1', 'adm_dorata', 'supervisor'].includes(role) && (
+                            <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
+                        )}
+
                         {role === 'adm_mestre' && (
                             <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                         )}
