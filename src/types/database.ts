@@ -321,6 +321,248 @@ export interface Database {
           }
         ]
       }
+      products: {
+        Row: {
+          id: string
+          name: string
+          type: Database['public']['Enums']['product_type_enum']
+          category: string | null
+          price: number
+          cost: number | null
+          manufacturer: string | null
+          model: string | null
+          specs: Json | null
+          active: boolean | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          type: Database['public']['Enums']['product_type_enum']
+          category?: string | null
+          price?: number
+          cost?: number | null
+          manufacturer?: string | null
+          model?: string | null
+          specs?: Json | null
+          active?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          type?: Database['public']['Enums']['product_type_enum']
+          category?: string | null
+          price?: number
+          cost?: number | null
+          manufacturer?: string | null
+          model?: string | null
+          specs?: Json | null
+          active?: boolean | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      proposals: {
+        Row: {
+          id: string
+          client_id: string | null
+          seller_id: string | null
+          status: Database['public']['Enums']['proposal_status_enum'] | null
+          total_value: number | null
+          valid_until: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          client_id?: string | null
+          seller_id?: string | null
+          status?: Database['public']['Enums']['proposal_status_enum'] | null
+          total_value?: number | null
+          valid_until?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          client_id?: string | null
+          seller_id?: string | null
+          status?: Database['public']['Enums']['proposal_status_enum'] | null
+          total_value?: number | null
+          valid_until?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposals_client_id_fkey"
+            columns: ["client_id"]
+            referencedRelation: "indicacoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposals_seller_id_fkey"
+            columns: ["seller_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      proposal_items: {
+        Row: {
+          id: string
+          proposal_id: string | null
+          product_id: string | null
+          quantity: number
+          unit_price: number
+          total_price: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          proposal_id?: string | null
+          product_id?: string | null
+          quantity?: number
+          unit_price: number
+          total_price: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          proposal_id?: string | null
+          product_id?: string | null
+          quantity?: number
+          unit_price?: number
+          total_price?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposal_items_proposal_id_fkey"
+            columns: ["proposal_id"]
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_items_product_id_fkey"
+            columns: ["product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      consumer_units: {
+        Row: {
+          id: string
+          external_id: string | null
+          status: string | null
+          active_from: string | null
+          active_to: string | null
+          is_active_infinite: boolean | null
+          code: string | null
+          unit_name: string | null
+          company_name: string | null
+          client_number: string | null
+          type: string | null
+          is_generator: boolean | null
+          uf: string | null
+          distributor: string | null
+          modality: string | null
+          emission_day: number | null
+          faturamento_cnpj: string | null
+          address: string | null
+          number: string | null
+          complement: string | null
+          city: string | null
+          neighborhood: string | null
+          zip_code: string | null
+          faturamento_emails: string[] | null
+          sales_type: string | null
+          phone: string | null
+          power_generator: number | null
+          connection_type: string | null
+          is_rural: boolean | null
+          association_type: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          external_id?: string | null
+          status?: string | null
+          active_from?: string | null
+          active_to?: string | null
+          is_active_infinite?: boolean | null
+          code?: string | null
+          unit_name?: string | null
+          company_name?: string | null
+          client_number?: string | null
+          type?: string | null
+          is_generator?: boolean | null
+          uf?: string | null
+          distributor?: string | null
+          modality?: string | null
+          emission_day?: number | null
+          faturamento_cnpj?: string | null
+          address?: string | null
+          number?: string | null
+          complement?: string | null
+          city?: string | null
+          neighborhood?: string | null
+          zip_code?: string | null
+          faturamento_emails?: string[] | null
+          sales_type?: string | null
+          phone?: string | null
+          power_generator?: number | null
+          connection_type?: string | null
+          is_rural?: boolean | null
+          association_type?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          external_id?: string | null
+          status?: string | null
+          active_from?: string | null
+          active_to?: string | null
+          is_active_infinite?: boolean | null
+          code?: string | null
+          unit_name?: string | null
+          company_name?: string | null
+          client_number?: string | null
+          type?: string | null
+          is_generator?: boolean | null
+          uf?: string | null
+          distributor?: string | null
+          modality?: string | null
+          emission_day?: number | null
+          faturamento_cnpj?: string | null
+          address?: string | null
+          number?: string | null
+          complement?: string | null
+          city?: string | null
+          neighborhood?: string | null
+          zip_code?: string | null
+          faturamento_emails?: string[] | null
+          sales_type?: string | null
+          phone?: string | null
+          power_generator?: number | null
+          connection_type?: string | null
+          is_rural?: boolean | null
+          association_type?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -332,6 +574,8 @@ export interface Database {
       user_role_enum: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata' | 'suporte_tecnico' | 'suporte_limitado' | 'investidor' | 'funcionario_n1' | 'funcionario_n2'
       brand_enum: 'dorata' | 'rental'
       department_enum: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
+      product_type_enum: 'module' | 'inverter' | 'structure' | 'cable' | 'transformer' | 'other'
+      proposal_status_enum: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
     }
     CompositeTypes: {
       [_ in never]: never
