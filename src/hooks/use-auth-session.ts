@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import type { Session } from "@supabase/supabase-js"
 
 import { supabase } from "@/lib/supabase"
-import { buildUserProfile, type UserProfile } from "@/lib/auth"
+import { buildUserProfile, getProfile, type UserProfile } from "@/lib/auth"
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated"
 
@@ -29,7 +29,14 @@ export function useAuthSession(): UseAuthSessionReturn {
 
       const currentSession = data.session ?? null
       setSession(currentSession)
-      setProfile(buildUserProfile(currentSession?.user ?? null))
+
+      if (currentSession?.user) {
+        const dbProfile = await getProfile(supabase, currentSession.user.id)
+        setProfile(dbProfile || buildUserProfile(currentSession.user))
+      } else {
+        setProfile(null)
+      }
+
       setStatus(currentSession ? "authenticated" : "unauthenticated")
     }
 
@@ -37,11 +44,18 @@ export function useAuthSession(): UseAuthSessionReturn {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (!isMounted) return
 
       setSession(newSession)
-      setProfile(buildUserProfile(newSession?.user ?? null))
+
+      if (newSession?.user) {
+        const dbProfile = await getProfile(supabase, newSession.user.id)
+        setProfile(dbProfile || buildUserProfile(newSession.user))
+      } else {
+        setProfile(null)
+      }
+
       setStatus(newSession ? "authenticated" : "unauthenticated")
     })
 
