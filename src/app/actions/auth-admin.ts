@@ -155,3 +155,79 @@ export async function deleteUser(userId: string) {
     revalidatePath('/admin/usuarios')
     return { success: true, message: 'Usuário excluído com sucesso.' }
 }
+
+// Schema para atualização (parcial)
+const updateUserSchema = z.object({
+    userId: z.string().uuid(),
+    role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor', 'funcionario_n1', 'funcionario_n2']),
+    department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
+    brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
+    name: z.string().min(1, 'Nome é obrigatório'),
+    phone: z.string().optional(),
+    status: z.enum(['active', 'inactive', 'suspended']).optional(),
+})
+
+export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
+    const permission = await checkAdminPermission()
+    if (!permission.authorized) {
+        return { success: false, message: permission.message || 'Erro de permissão' }
+    }
+
+    const rawData = {
+        userId: formData.get('userId'),
+        role: formData.get('role'),
+        department: formData.get('department'),
+        brands: formData.getAll('brands'),
+        name: formData.get('name'),
+        phone: formData.get('phone'),
+        status: formData.get('status'),
+    }
+
+    const validated = updateUserSchema.safeParse(rawData)
+
+    if (!validated.success) {
+        return {
+            success: false,
+            message: 'Dados inválidos.',
+            errors: validated.error.flatten().fieldErrors,
+        }
+    }
+
+    const { userId, role, brands, department, name, phone, status } = validated.data
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    // 1. Update public.users table (Profile)
+    const { error: profileError } = await supabaseAdmin
+        .from('users')
+        .update({
+            role,
+            department: department || 'outro',
+            allowed_brands: brands,
+            name,
+            phone,
+            status: status || 'active'
+        })
+        .eq('id', userId)
+
+    if (profileError) {
+        console.error('Erro ao atualizar perfil (public.users):', profileError)
+        return { success: false, message: `Erro ao atualizar usuário: ${profileError.message}` }
+    }
+
+    // 2. Update auth.users metadata (to keep sync)
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: {
+            nome: name, // syncing with name field
+            role,
+            brands // optionally syncing brands if used in JWT
+        }
+    })
+
+    if (authError) {
+        // We don't block success if auth update fails, but we log it
+        console.error('Aviso: Falha ao atualizar metadata do auth.users:', authError)
+    }
+
+    revalidatePath('/admin/usuarios')
+    return { success: true, message: 'Usuário atualizado com sucesso!' }
+}

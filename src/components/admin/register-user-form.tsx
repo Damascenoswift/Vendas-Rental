@@ -75,6 +75,7 @@ export function RegisterUserForm() {
                     <option value="funcionario_n1">Funcionário Nível 1</option>
                     <option value="funcionario_n2">Funcionário Nível 2</option>
                 </select>
+                {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
             </div>
 
             <div>
@@ -94,7 +95,7 @@ export function RegisterUserForm() {
                     <option value="diretoria">Diretoria</option>
                     <option value="outro">Outro</option>
                 </select>
-                {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
+                {state.errors?.department && <p className="text-red-500 text-xs">{state.errors.department[0]}</p>}
             </div>
 
             <div className="space-y-2">

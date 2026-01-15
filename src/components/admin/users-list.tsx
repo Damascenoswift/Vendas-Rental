@@ -25,6 +25,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { Trash2, User, Shield } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { EditUserDialog } from "./edit-user-dialog"
 
 interface UsersListProps {
     users: any[]
@@ -68,7 +69,10 @@ export function UsersList({ users }: UsersListProps) {
                                 </div>
                             </TableCell>
                             <TableCell className="text-right">
-                                <DeleteUserButton userId={user.id} userName={user.name || user.email} />
+                                <div className="flex justify-end gap-1">
+                                    <EditUserDialog user={user} />
+                                    <DeleteUserButton userId={user.id} userName={user.name || user.email} />
+                                </div>
                             </TableCell>
                         </TableRow>
                     ))}
