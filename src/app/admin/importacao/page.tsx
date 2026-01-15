@@ -6,12 +6,12 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { importConsumerUnits } from "@/services/import-service"
 import { useToast } from "@/hooks/use-toast"
-import { Upload, FileSpice, Loader2 } from "lucide-react"
+import { Upload, FileSpreadsheet, Loader2 } from "lucide-react"
 
 export default function ImportPage() {
     const [file, setFile] = useState<File | null>(null)
     const [isLoading, setIsLoading] = useState(false)
-    const { toast } = useToast()
+    const { showToast: toast } = useToast()
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -21,7 +21,7 @@ export default function ImportPage() {
 
     const handleUpload = async () => {
         if (!file) {
-            toast({ title: "Erro", description: "Selecione um arquivo.", variant: "destructive" })
+            toast({ title: "Erro", description: "Selecione um arquivo.", variant: "error" })
             return
         }
 
@@ -43,7 +43,7 @@ export default function ImportPage() {
             toast({
                 title: "Erro na Importação",
                 description: result.error,
-                variant: "destructive"
+                variant: "error"
             })
         }
         setIsLoading(false)
@@ -77,7 +77,7 @@ export default function ImportPage() {
 
                         {file && (
                             <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 p-2 rounded border border-green-200">
-                                <FileSpice className="h-4 w-4" />
+                                <FileSpreadsheet className="h-4 w-4" />
                                 {file.name} ({(file.size / 1024).toFixed(2)} KB)
                             </div>
                         )}
