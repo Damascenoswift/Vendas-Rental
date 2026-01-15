@@ -83,6 +83,18 @@ export function EditUserDialog({ user }: EditUserDialogProps) {
                     </div>
 
                     <div className="space-y-2">
+                        <Label htmlFor="password">Nova Senha (Opcional)</Label>
+                        <Input
+                            id="password"
+                            name="password"
+                            type="password"
+                            placeholder="Deixe em branco para manter a atual"
+                            minLength={6}
+                        />
+                        <p className="text-[10px] text-muted-foreground">Mínimo de 6 caracteres.</p>
+                    </div>
+
+                    <div className="space-y-2">
                         <Label htmlFor="role">Perfil (Função)</Label>
                         <select
                             id="role"

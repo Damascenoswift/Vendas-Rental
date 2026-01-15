@@ -87,6 +87,9 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
 
     if (createError) {
         console.error('Erro ao criar usuário:', createError)
+        if (createError.message?.includes('already been registered')) {
+            return { success: false, message: 'Já existe um usuário cadastrado com este e-mail.' }
+        }
         return { success: false, message: `Erro ao criar usuário: ${createError.message}` }
     }
 
@@ -165,6 +168,7 @@ const updateUserSchema = z.object({
     name: z.string().min(1, 'Nome é obrigatório'),
     phone: z.string().optional(),
     status: z.enum(['active', 'inactive', 'suspended']).optional(),
+    password: z.string().optional(),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -181,6 +185,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         name: formData.get('name'),
         phone: formData.get('phone'),
         status: formData.get('status'),
+        password: formData.get('password') || undefined,
     }
 
     const validated = updateUserSchema.safeParse(rawData)
@@ -193,7 +198,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { userId, role, brands, department, name, phone, status } = validated.data
+    const { userId, role, brands, department, name, phone, status, password } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
 
     // 1. Update public.users table (Profile)
@@ -214,20 +219,28 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         return { success: false, message: `Erro ao atualizar usuário: ${profileError.message}` }
     }
 
-    // 2. Update auth.users metadata (to keep sync)
-    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    // 2. Update auth.users metadata (to keep sync) and password if provided
+    const authUpdateData: any = {
         user_metadata: {
-            nome: name, // syncing with name field
+            nome: name,
             role,
-            brands // optionally syncing brands if used in JWT
+            brands
         }
-    })
+    }
+
+    if (password && password.length >= 6) {
+        authUpdateData.password = password
+    }
+
+    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(userId, authUpdateData)
 
     if (authError) {
-        // We don't block success if auth update fails, but we log it
-        console.error('Aviso: Falha ao atualizar metadata do auth.users:', authError)
+        console.error('Aviso: Falha ao atualizar auth.users:', authError)
+        if (password) {
+            return { success: true, message: 'Perfil atualizado, mas falha ao alterar senha. Verifique se a senha atende aos requisitos.' }
+        }
     }
 
     revalidatePath('/admin/usuarios')
-    return { success: true, message: 'Usuário atualizado com sucesso!' }
+    return { success: true, message: password ? 'Usuário e senha atualizados com sucesso!' : 'Usuário atualizado com sucesso!' }
 }
