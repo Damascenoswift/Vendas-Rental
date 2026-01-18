@@ -90,3 +90,6 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     email: data.email || undefined,
   }
 }
+
+export type ContractType = 'RENTAL_PF' | 'RENTAL_PJ' | 'DORATA_PF' | 'DORATA_PJ'
+export type ContractStatus = 'DRAFT' | 'APPROVED' | 'EXPIRED'
