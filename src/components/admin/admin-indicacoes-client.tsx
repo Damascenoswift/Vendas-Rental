@@ -18,6 +18,8 @@ import { IndicationDetailsDialog } from "@/components/admin/indication-details-d
 import { IndicationsChart } from "@/components/admin/indications-chart"
 import { IndicationsFilter } from "@/components/admin/indications-filter"
 import { Button } from "@/components/ui/button"
+import { Trash2, FileText, Loader2 } from "lucide-react"
+import { generateContractFromIndication } from "@/app/actions/contracts-generation"
 
 import type { UserRole } from "@/lib/auth"
 
@@ -155,6 +157,10 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                                                 }}
                                                 vendedorName={vendedorInfo}
                                             />
+                                            {/* Contract Generation Button */}
+                                            {(role === 'adm_mestre' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
+                                                <GenerateContractButton indicationId={ind.id} />
+                                            )}
                                             {role === 'adm_mestre' && (
                                                 <DeleteIndicationButton id={ind.id} />
                                             )}
@@ -177,7 +183,6 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
     )
 }
 
-import { Trash2 } from "lucide-react"
 import { deleteIndication } from "@/app/actions/admin-indications"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -246,5 +251,56 @@ function DeleteIndicationButton({ id }: { id: string }) {
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>
+    )
+}
+
+function GenerateContractButton({ indicationId }: { indicationId: string }) {
+    const { showToast } = useToast()
+    const [isLoading, setIsLoading] = useState(false)
+
+    const handleGenerate = async () => {
+        setIsLoading(true)
+        try {
+            const result = await generateContractFromIndication(indicationId)
+            if (result.success) {
+                showToast({
+                    variant: "success",
+                    title: "Sucesso!",
+                    description: "Contrato gerado. O download iniciará em breve.",
+                })
+                // Open URL in new tab
+                if (result.url) {
+                    window.open(result.url, '_blank')
+                }
+            } else {
+                showToast({
+                    variant: "error",
+                    title: "Erro",
+                    description: result.message,
+                })
+            }
+        } catch (error) {
+            console.error(error)
+            showToast({
+                variant: "error",
+                title: "Erro",
+                description: "Falha ao solicitar geração.",
+            })
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    return (
+        <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            onClick={handleGenerate}
+            disabled={isLoading}
+            title="Gerar Contrato Automático"
+        >
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+        </Button>
     )
 }

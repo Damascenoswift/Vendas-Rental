@@ -59,6 +59,12 @@ const unifiedSchema = z.object({
   consumoMedioKwh: z.coerce.number().optional(),
   valorContaEnergia: z.coerce.number().optional(),
 
+
+  // New Contract Fields
+  precoKwh: z.coerce.number().optional(), // Preço Energisa
+  desconto: z.coerce.number().optional(), // % Desconto (20, 25...)
+  consumos: z.array(z.coerce.number()).optional(), // Array de consumos mensais
+
   // Rental PF Specific
   cpfCnpj: z.string().optional(),
   rg: z.string().optional(),
@@ -194,6 +200,8 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
       producaoDesejada: "",
       tipoTelhado: "",
       tipoEstrutura: undefined,
+      precoKwh: 0.95, // Default Value
+      desconto: 20,   // Default Value 20%
     },
   })
 
@@ -319,6 +327,7 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
 
     console.log("Submitting payload:", payload)
 
+    // @ts-ignore
     const { data, error } = await supabase
       .from("indicacoes")
       .insert(payload)
@@ -666,6 +675,27 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
                     )} />
                   </div>
 
+                  {/* DADOS CONTRATO (PF) */}
+                  <div className="rounded-md border p-4 bg-slate-50 mb-4">
+                    <h3 className="text-sm font-semibold mb-3 text-blue-700">Dados do Contrato</h3>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <FormField control={form.control} name="precoKwh" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Preço kWh (Energisa)</FormLabel>
+                          <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="desconto" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Desconto (%)</FormLabel>
+                          <FormControl><Input type="number" step="1" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                  </div>
+
                   <div className="grid gap-4 md:grid-cols-3">
                     <FormField control={form.control} name="consumoMedioPF" render={({ field }) => (
                       <FormItem>
@@ -808,6 +838,34 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
                         <FormMessage />
                       </FormItem>
                     )} />
+                  </div>
+
+                  {/* DADOS CONTRATO (PJ) */}
+                  <div className="rounded-md border p-4 bg-slate-50 mb-4">
+                    <h3 className="text-sm font-semibold mb-3 text-blue-700">Dados do Contrato</h3>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <FormField control={form.control} name="precoKwh" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Preço kWh (Energisa)</FormLabel>
+                          <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="desconto" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Desconto (%)</FormLabel>
+                          <FormControl><Input type="number" step="1" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="consumoMedioKwh" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Consumo Médio (kWh)</FormLabel>
+                          <FormControl><Input type="number" min={0} {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-3">
