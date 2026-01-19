@@ -44,7 +44,7 @@ const invoiceStyles: CSSProperties = {
 
 type LigacaoTipo = "bifasica" | "trifasica"
 
-const taxaMinimaPorLigacao: Record<LigacaoTipo, number> = {
+const taxaMinimaKwhPorLigacao: Record<LigacaoTipo, number> = {
     bifasica: 50,
     trifasica: 100,
 }
@@ -76,7 +76,8 @@ export function RentalCalculator() {
     const [ligacaoTipo, setLigacaoTipo] = useState<LigacaoTipo>("bifasica")
 
     const consumoAnual = useMemo(() => consumoKwh * 12, [consumoKwh])
-    const taxaMinima = useMemo(() => taxaMinimaPorLigacao[ligacaoTipo], [ligacaoTipo])
+    const taxaMinimaKwh = useMemo(() => taxaMinimaKwhPorLigacao[ligacaoTipo], [ligacaoTipo])
+    const taxaMinimaValor = useMemo(() => taxaMinimaKwh * valorKwh, [taxaMinimaKwh, valorKwh])
     const descontoKwhAplicado = useMemo(() => Math.min(descontoKwh, valorKwh), [descontoKwh, valorKwh])
     const energiaSemDesconto = useMemo(() => consumoKwh * valorKwh, [consumoKwh, valorKwh])
     const economiaMes = useMemo(() => consumoKwh * descontoKwhAplicado, [consumoKwh, descontoKwhAplicado])
@@ -84,7 +85,10 @@ export function RentalCalculator() {
         () => Math.max(0, energiaSemDesconto - economiaMes),
         [energiaSemDesconto, economiaMes]
     )
-    const valorConcessionaria = useMemo(() => iluminacaoPublica + taxaMinima, [iluminacaoPublica, taxaMinima])
+    const valorConcessionaria = useMemo(
+        () => iluminacaoPublica + taxaMinimaValor,
+        [iluminacaoPublica, taxaMinimaValor]
+    )
     const valorSemDesconto = useMemo(
         () => energiaSemDesconto + valorConcessionaria,
         [energiaSemDesconto, valorConcessionaria]
@@ -278,7 +282,8 @@ export function RentalCalculator() {
                                             {formatCurrency(valorConcessionaria)}
                                         </p>
                                         <p className="text-xs text-white/60">
-                                            Taxa minima: {formatCurrency(taxaMinima)}
+                                            Taxa minima: {formatCurrency(taxaMinimaValor)} (
+                                            {formatNumber(taxaMinimaKwh)} kWh)
                                         </p>
                                         <p className="text-xs text-white/60">
                                             Iluminacao publica: {formatCurrency(iluminacaoPublica)}
@@ -400,7 +405,7 @@ export function RentalCalculator() {
                                         </div>
                                         <div className="space-y-2 sm:col-span-2">
                                             <Label htmlFor="tipo-ligacao" className="text-xs">
-                                                Tipo de ligacao
+                                                Tipo de ligacao (minimo em kWh)
                                             </Label>
                                             <Select
                                                 value={ligacaoTipo}
@@ -411,10 +416,10 @@ export function RentalCalculator() {
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="bifasica">
-                                                        Bifasica (taxa minima R$ 50)
+                                                        Bifasica (minimo 50 kWh)
                                                     </SelectItem>
                                                     <SelectItem value="trifasica">
-                                                        Trifasica (taxa minima R$ 100)
+                                                        Trifasica (minimo 100 kWh)
                                                     </SelectItem>
                                                 </SelectContent>
                                             </Select>
@@ -423,7 +428,8 @@ export function RentalCalculator() {
                                     <div className="mt-3 rounded-lg border border-dashed border-muted-foreground/40 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
                                         Taxa minima Energisa:{" "}
                                         <span className="font-medium text-foreground">
-                                            {formatCurrency(taxaMinima)}
+                                            {formatCurrency(taxaMinimaValor)} (
+                                            {formatNumber(taxaMinimaKwh)} kWh)
                                         </span>
                                     </div>
                                 </div>
@@ -529,7 +535,8 @@ export function RentalCalculator() {
                                 <div className="flex items-center justify-between">
                                     <span className="text-muted-foreground">Taxa minima Energisa</span>
                                     <span className="font-medium">
-                                        {formatCurrency(taxaMinima)}
+                                        {formatCurrency(taxaMinimaValor)} (
+                                        {formatNumber(taxaMinimaKwh)} kWh)
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between">
