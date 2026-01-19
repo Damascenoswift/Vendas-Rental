@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import { createUser } from '@/app/actions/auth-admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,8 +14,13 @@ const initialState: CreateUserState = {
     errors: undefined,
 }
 
-export function RegisterUserForm() {
+interface RegisterUserFormProps {
+    supervisors?: any[]
+}
+
+export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
     const [state, formAction, isPending] = useActionState(createUser, initialState)
+    const [selectedRole, setSelectedRole] = useState("")
 
     return (
         <form action={formAction} className="space-y-6 max-w-md mx-auto p-6 border rounded-lg shadow-sm bg-white">
@@ -62,6 +67,7 @@ export function RegisterUserForm() {
                     required
                     className="w-full rounded-md border p-2"
                     defaultValue=""
+                    onChange={(e) => setSelectedRole(e.target.value)}
                 >
                     <option value="" disabled>Selecione um cargo</option>
                     <option value="vendedor_externo">Vendedor Externo</option>
@@ -77,6 +83,27 @@ export function RegisterUserForm() {
                 </select>
                 {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
             </div>
+
+            {/* Supervisor Selection - Conditional or Always visible but relevant for Sales */}
+            {(selectedRole === 'vendedor_interno' || selectedRole === 'vendedor_externo') && supervisors.length > 0 && (
+                <div className="space-y-2 bg-slate-50 p-3 rounded-md border border-slate-100">
+                    <Label htmlFor="supervisor_id" className="text-slate-700">Supervisor Responsável</Label>
+                    <select
+                        id="supervisor_id"
+                        name="supervisor_id"
+                        className="w-full rounded-md border p-2 text-sm"
+                        defaultValue=""
+                    >
+                        <option value="">Selecione um supervisor (opcional)</option>
+                        {supervisors.map(sup => (
+                            <option key={sup.id} value={sup.id}>
+                                {sup.name || sup.email}
+                            </option>
+                        ))}
+                    </select>
+                    <p className="text-[10px] text-muted-foreground">Vincular este vendedor a um supervisor.</p>
+                </div>
+            )}
 
             <div>
                 <label className="mb-2 block text-sm font-medium">Setor / Departamento</label>

@@ -27,6 +27,8 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import type { Brand } from "@/lib/auth"
 
+import { createIndicationAction } from "@/app/actions/indicacoes"
+
 const STORAGE_BUCKET = "indicacoes"
 
 // =============================
@@ -151,12 +153,21 @@ export type IndicacaoFormProps = {
   userId: string
   allowedBrands: Brand[]
   userRole?: string
+  subordinates?: Array<{ id: string, name: string, email: string }>
   onCreated?: () => Promise<void> | void
   isInternalRegistration?: boolean
 }
 
-export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isInternalRegistration = false }: IndicacaoFormProps) {
+export function IndicacaoForm({
+  userId,
+  allowedBrands,
+  userRole,
+  subordinates = [],
+  onCreated,
+  isInternalRegistration = false
+}: IndicacaoFormProps) {
   const { showToast } = useToast()
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const [filesPF, setFilesPF] = useState<{ faturaEnergia: File | null; documentoComFoto: File | null }>({
     faturaEnergia: null,
@@ -307,7 +318,9 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
       }
     }
 
-    // Inserção minimal na tabela indicacoes (mantemos metadata completo no Storage)
+    setIsSubmitting(true)
+
+    // Inserção na tabela indicacoes via Server Action
     const displayName = values.tipoPessoa === "PF" ? values.nomeCliente : values.nomeEmpresa
     const displayEmail = values.tipoPessoa === "PF" ? values.emailCliente : values.emailSignatario
     const displayPhone = values.tipoPessoa === "PF" ? values.telefoneCliente : values.telefoneCobranca
@@ -317,34 +330,27 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
       nome: (displayName ?? "").trim(),
       email: (displayEmail ?? "").toLowerCase().trim(),
       telefone: onlyDigits(displayPhone ?? ""),
-      status: "EM_ANALISE" as "EM_ANALISE",
-      user_id: userId,
+      status: "EM_ANALISE",
+      user_id: values.vendedorId, // Use the selected salesperson ID
       marca: values.marca,
       documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
       unidade_consumidora: values.tipoPessoa === "PF" ? null : values.localizacaoUC,
       codigo_cliente: values.tipoPessoa === "PF" ? values.codigoClienteEnergia : values.codigoInstalacao,
     }
 
-    console.log("Submitting payload:", payload)
+    const { success, id: indicationId, message } = await createIndicationAction(payload)
 
-    // @ts-ignore
-    const { data, error } = await supabase
-      .from("indicacoes")
-      .insert(payload)
-      .select("id")
-      .single()
-
-    if (error || !data?.id) {
-      console.error("Supabase Insert Error:", error)
-      showToast({ variant: "error", title: "Erro ao cadastrar", description: "Não foi possível registrar a indicação. Verifique o console." })
+    if (!success || !indicationId) {
+      showToast({ variant: "error", title: "Erro ao cadastrar", description: message || "Não foi possível registrar a indicação." })
+      setIsSubmitting(false)
       return
     }
 
-    // Salvar metadata completo
+    // Salvar metadata completo no Storage
     const storageClient = supabase.storage.from(STORAGE_BUCKET)
     const metadata = { ...values }
     const metadataUpload = await storageClient.upload(
-      `${userId}/${data.id}/metadata.json`,
+      `${userId}/${indicationId}/metadata.json`,
       new Blob([JSON.stringify(metadata)], { type: "application/json" }),
       { upsert: true, cacheControl: "3600", contentType: "application/json" }
     )
@@ -358,7 +364,7 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
     const uploads: Array<Promise<unknown>> = []
     const pushUpload = (name: string, f: File | null) => {
       if (!f) return
-      const path = `${userId}/${data.id}/${name}`
+      const path = `${userId}/${indicationId}/${name}`
       const uploadPromise = storageClient.upload(path, f, { upsert: true, cacheControl: "3600" })
 
       uploadPromise.then(({ error }) => {
@@ -384,6 +390,7 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
     showToast({ variant: "success", title: "Indicação criada", description: "Documentos recebidos com sucesso." })
     if (onCreated) await onCreated()
     form.reset({ ...form.getValues(), codigoClienteEnergia: "" })
+    setIsSubmitting(false)
   }
 
   // =============================
@@ -421,6 +428,33 @@ export function IndicacaoForm({ userId, allowedBrands, userRole, onCreated, isIn
       <Form {...form}>
         <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
           <div className="grid gap-4 md:grid-cols-3">
+            {/* Supervisor attribution field */}
+            {userRole === 'supervisor' && subordinates.length > 0 && (
+              <FormField
+                control={form.control}
+                name="vendedorId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-blue-700 font-bold">Vendedor Responsável</FormLabel>
+                    <FormControl>
+                      <select
+                        className="border-blue-200 text-blue-900 bg-blue-50/50 text-sm h-9 w-full rounded-md border px-3 shadow-xs outline-none focus:ring-2 focus:ring-blue-500"
+                        {...field}
+                      >
+                        <option value={userId}>Eu mesmo (Supervisor)</option>
+                        {subordinates.map(sub => (
+                          <option key={sub.id} value={sub.id}>
+                            {sub.name || sub.email}
+                          </option>
+                        ))}
+                      </select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <FormField
               control={form.control}
               name="tipoPessoa"

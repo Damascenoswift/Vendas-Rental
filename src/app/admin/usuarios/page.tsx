@@ -2,7 +2,7 @@ import { RegisterUserForm } from '@/components/admin/register-user-form'
 import { UsersList } from '@/components/admin/users-list'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { getUsers } from '@/app/actions/auth-admin'
+import { getUsers, getSupervisors } from '@/app/actions/auth-admin'
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
@@ -36,31 +36,34 @@ export default async function AdminUsersPage() {
         )
     }
 
-    const users = await getUsers()
+}
 
-    return (
-        <div className="container mx-auto py-10">
-            <div className="mb-8">
-                <h1 className="text-3xl font-bold">Gerenciamento de Usuários <span className="text-sm font-normal text-muted-foreground">(v1.1)</span></h1>
-                <p className="text-muted-foreground">
-                    Cadastre novos vendedores e supervisores ou gerencie os existentes.
-                </p>
-            </div>
+const users = await getUsers()
+const supervisors = await getSupervisors()
 
-            <Tabs defaultValue="list" className="space-y-4">
-                <TabsList>
-                    <TabsTrigger value="list">Lista de Usuários</TabsTrigger>
-                    <TabsTrigger value="register">Cadastrar Novo</TabsTrigger>
-                </TabsList>
-                <TabsContent value="list" className="space-y-4">
-                    <UsersList users={users} />
-                </TabsContent>
-                <TabsContent value="register">
-                    <div className="max-w-md mx-auto">
-                        <RegisterUserForm />
-                    </div>
-                </TabsContent>
-            </Tabs>
+return (
+    <div className="container mx-auto py-10">
+        <div className="mb-8">
+            <h1 className="text-3xl font-bold">Gerenciamento de Usuários <span className="text-sm font-normal text-muted-foreground">(v1.2)</span></h1>
+            <p className="text-muted-foreground">
+                Cadastre novos vendedores e supervisores ou gerencie os existentes.
+            </p>
         </div>
-    )
+
+        <Tabs defaultValue="list" className="space-y-4">
+            <TabsList>
+                <TabsTrigger value="list">Lista de Usuários</TabsTrigger>
+                <TabsTrigger value="register">Cadastrar Novo</TabsTrigger>
+            </TabsList>
+            <TabsContent value="list" className="space-y-4">
+                <UsersList users={users} supervisors={supervisors} />
+            </TabsContent>
+            <TabsContent value="register">
+                <div className="max-w-md mx-auto">
+                    <RegisterUserForm supervisors={supervisors} />
+                </div>
+            </TabsContent>
+        </Tabs>
+    </div>
+)
 }

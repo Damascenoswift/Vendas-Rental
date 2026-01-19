@@ -78,6 +78,7 @@ export default function IndicacoesPage() {
   const [attachmentsError, setAttachmentsError] = useState<string | null>(null)
   const [attachmentsMap, setAttachmentsMap] = useState<Record<string, AttachmentInfo[]>>({})
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
+  const [subordinates, setSubordinates] = useState<any[]>([])
 
   const isMounted = useRef(true)
 
@@ -89,6 +90,17 @@ export default function IndicacoesPage() {
       isMounted.current = false
     }
   }, [])
+
+  useEffect(() => {
+    if (profile?.role === 'supervisor' && userId) {
+      const fetchSubordinates = async () => {
+        const { getSubordinates } = await import('@/app/actions/auth-admin')
+        const subs = await getSubordinates(userId)
+        setSubordinates(subs)
+      }
+      fetchSubordinates()
+    }
+  }, [profile?.role, userId])
 
   const loadAttachments = useCallback(
     async (rows: IndicacaoRow[]) => {
@@ -191,8 +203,15 @@ export default function IndicacoesPage() {
       let query = supabase
         .from("indicacoes")
         .select("id, nome, email, telefone, status, created_at, marca")
-        .eq("user_id", userId)
         .order("created_at", { ascending: false })
+
+      // Filtering logic
+      if (profile?.role === 'supervisor' && subordinates.length > 0) {
+        const allRelevantUserIds = [userId, ...subordinates.map(s => s.id)]
+        query = query.in("user_id", allRelevantUserIds)
+      } else {
+        query = query.eq("user_id", userId)
+      }
 
       if (allowedBrands.length > 0) {
         query = query.in("marca", allowedBrands)
@@ -217,7 +236,7 @@ export default function IndicacoesPage() {
 
       setIsLoading(false)
     },
-    [userId, allowedBrands, loadAttachments]
+    [userId, allowedBrands, loadAttachments, subordinates, profile?.role]
   )
 
   useEffect(() => {
@@ -236,14 +255,17 @@ export default function IndicacoesPage() {
     }
 
     const channel = supabase
-      .channel(`indicacoes-user-${userId}`)
+      .channel(`indicacoes-user-visibility-${userId}`)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "indicacoes",
-          filter: `user_id=eq.${userId}`,
+          // If supervisor, we don't apply a client-side filter here because .in is not supported in realtime filters
+          // or we would need to subscribe to multiple channels.
+          // Removing the filter means the client receives all changes, but RLS ensures they ONLY see what they are allowed to.
+          filter: profile?.role === 'supervisor' ? undefined : `user_id=eq.${userId}`,
         },
         () => {
           void loadIndicacoes({ showLoading: false })
@@ -284,8 +306,6 @@ export default function IndicacoesPage() {
     }
   }
 
-  // ... existing imports ...
-
   // ... inside component ...
   return (
     <div className="space-y-6">
@@ -319,6 +339,7 @@ export default function IndicacoesPage() {
           onCreated={() => loadIndicacoes()}
           userId={userId}
           userRole={profile?.role}
+          subordinates={subordinates}
         />
       ) : null}
 

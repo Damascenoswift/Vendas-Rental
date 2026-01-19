@@ -28,6 +28,13 @@ export default async function NewIndicacaoPage() {
     // Pass allowed brands from profile
     const allowedBrands = profile.allowedBrands || ["rental"]
 
+    // Fetch subordinates if supervisor
+    let subordinates: any[] = []
+    if (profile.role === 'supervisor') {
+        const { getSubordinates } = await import('@/app/actions/auth-admin')
+        subordinates = await getSubordinates(user.id)
+    }
+
     return (
         <div className="container mx-auto py-10 max-w-4xl">
             <div className="mb-6">
@@ -50,6 +57,7 @@ export default async function NewIndicacaoPage() {
                 userId={user.id}
                 allowedBrands={allowedBrands}
                 userRole={profile.role}
+                subordinates={subordinates}
                 isInternalRegistration={true}
             />
         </div>

@@ -33,12 +33,15 @@ interface EditUserDialogProps {
         department?: string
         allowed_brands?: string[]
         status?: string
+        supervisor_id?: string
     }
+    supervisors?: any[]
 }
 
-export function EditUserDialog({ user }: EditUserDialogProps) {
+export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) {
     const [open, setOpen] = useState(false)
     const [state, formAction, isPending] = useActionState(updateUser, initialState)
+    const [selectedRole, setSelectedRole] = useState(user.role)
 
     // Close dialog on success
     if (state.success && open) {
@@ -101,6 +104,7 @@ export function EditUserDialog({ user }: EditUserDialogProps) {
                             name="role"
                             defaultValue={user.role}
                             className="w-full rounded-md border p-2 text-sm"
+                            onChange={(e) => setSelectedRole(e.target.value)}
                         >
                             <option value="vendedor_externo">Vendedor Externo</option>
                             <option value="vendedor_interno">Vendedor Interno</option>
@@ -114,6 +118,26 @@ export function EditUserDialog({ user }: EditUserDialogProps) {
                             <option value="funcionario_n2">Funcionário Nível 2</option>
                         </select>
                     </div>
+
+                    {/* Supervisor Selection */}
+                    {(selectedRole === 'vendedor_interno' || selectedRole === 'vendedor_externo') && supervisors.length > 0 && (
+                        <div className="space-y-2 bg-slate-50 p-3 rounded-md border border-slate-100">
+                            <Label htmlFor="supervisor_id" className="text-slate-700">Supervisor Responsável</Label>
+                            <select
+                                id="supervisor_id"
+                                name="supervisor_id"
+                                className="w-full rounded-md border p-2 text-sm"
+                                defaultValue={user.supervisor_id || ""}
+                            >
+                                <option value="">Selecione um supervisor (opcional)</option>
+                                {supervisors.map(sup => (
+                                    <option key={sup.id} value={sup.id}>
+                                        {sup.name || sup.email}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     <div className="space-y-2">
                         <Label htmlFor="department">Departamento</Label>

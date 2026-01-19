@@ -15,6 +15,7 @@ const createUserSchema = z.object({
     role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor', 'funcionario_n1', 'funcionario_n2']),
     department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
+    supervisor_id: z.string().optional().or(z.literal('')),
 })
 
 export type CreateUserState = {
@@ -58,6 +59,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         role: formData.get('role'),
         department: formData.get('department'),
         brands: formData.getAll('brands'),
+        supervisor_id: formData.get('supervisor_id'),
     }
 
     const validated = createUserSchema.safeParse(rawData)
@@ -70,7 +72,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { email, password, name, phone, role, brands, department } = validated.data
+    const { email, password, name, phone, role, brands, department, supervisor_id } = validated.data
 
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -97,22 +99,28 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         return { success: false, message: 'Erro inesperado: Usuário não retornado.' }
     }
 
+    // Prepare update data, ignoring supervisor_id if explicitly empty string
+    const updatePayload: any = {
+        role: role,
+        department: department || 'outro',
+        allowed_brands: brands,
+        status: 'active',
+        name: name,
+        phone: phone
+    }
+
+    if (supervisor_id) {
+        updatePayload.supervisor_id = supervisor_id
+    }
+
     const { error: updateError } = await supabaseAdmin
         .from('users')
-        .update({
-            role: role,
-            department: department || 'outro',
-            allowed_brands: brands,
-            status: 'active',
-            name: name,
-            phone: phone
-        })
-
+        .update(updatePayload)
         .eq('id', newUser.user.id)
 
     if (updateError) {
         console.error('Erro ao atualizar perfil:', updateError)
-        return { success: true, message: 'Usuário criado, mas houve um aviso ao atualizar permissões.' }
+        return { success: true, message: 'Usuário criado, mas houve um aviso ao atualizar permissões ou supervisor.' }
     }
 
     revalidatePath('/admin/usuarios')
@@ -125,6 +133,8 @@ export async function getUsers() {
 
     const supabaseAdmin = createSupabaseServiceClient()
 
+    // Fetch users with their supervisor name if available (self-join not explicitly easy without FK alias setup in client, but we added FK)
+    // We will just fetch all columns for now, supervisor_id will be there.
     const { data: users, error } = await supabaseAdmin
         .from('users')
         .select('*')
@@ -136,6 +146,44 @@ export async function getUsers() {
     }
 
     return users
+}
+
+export async function getSubordinates(supervisorId: string) {
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: subordinates, error } = await supabaseAdmin
+        .from('users')
+        .select('id, name, email')
+        .eq('supervisor_id', supervisorId)
+        .eq('status', 'active')
+        .order('name', { ascending: true })
+
+    if (error) {
+        console.error('Erro ao buscar subordinados:', error)
+        return []
+    }
+
+    return subordinates
+}
+
+export async function getSupervisors() {
+    // Only admins/support/supervisors might need this list.
+    // For now, allow fetch if authenticated (or add checkAdminPermission if strict).
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: supervisors, error } = await supabaseAdmin
+        .from('users')
+        .select('id, name, email')
+        .eq('role', 'supervisor')
+        .eq('status', 'active')
+        .order('name', { ascending: true })
+
+    if (error) {
+        console.error('Erro ao buscar supervisores:', error)
+        return []
+    }
+
+    return supervisors
 }
 
 export async function deleteUser(userId: string) {
@@ -169,6 +217,7 @@ const updateUserSchema = z.object({
     phone: z.string().optional(),
     status: z.enum(['active', 'inactive', 'suspended']).optional(),
     password: z.string().optional(),
+    supervisor_id: z.string().optional().or(z.literal('')),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -186,6 +235,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         phone: formData.get('phone'),
         status: formData.get('status'),
         password: formData.get('password') || undefined,
+        supervisor_id: formData.get('supervisor_id'),
     }
 
     const validated = updateUserSchema.safeParse(rawData)
@@ -198,20 +248,24 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { userId, role, brands, department, name, phone, status, password } = validated.data
+    const { userId, role, brands, department, name, phone, status, password, supervisor_id } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
 
     // 1. Update public.users table (Profile)
+    const updatePayload: any = {
+        role,
+        department: department || 'outro',
+        allowed_brands: brands,
+        name,
+        phone,
+        status: status || 'active',
+        supervisor_id: supervisor_id || null // Set to null if empty string
+    }
+
+    // @ts-ignore
     const { error: profileError } = await supabaseAdmin
         .from('users')
-        .update({
-            role,
-            department: department || 'outro',
-            allowed_brands: brands,
-            name,
-            phone,
-            status: status || 'active'
-        })
+        .update(updatePayload)
         .eq('id', userId)
 
     if (profileError) {

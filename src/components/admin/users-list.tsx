@@ -29,9 +29,10 @@ import { EditUserDialog } from "./edit-user-dialog"
 
 interface UsersListProps {
     users: any[]
+    supervisors?: any[]
 }
 
-export function UsersList({ users }: UsersListProps) {
+export function UsersList({ users, supervisors = [] }: UsersListProps) {
     return (
         <div className="rounded-md border">
             <Table>
@@ -70,7 +71,7 @@ export function UsersList({ users }: UsersListProps) {
                             </TableCell>
                             <TableCell className="text-right">
                                 <div className="flex justify-end gap-1">
-                                    <EditUserDialog user={user} />
+                                    <EditUserDialog user={user} supervisors={supervisors} />
                                     <DeleteUserButton userId={user.id} userName={user.name || user.email} />
                                 </div>
                             </TableCell>

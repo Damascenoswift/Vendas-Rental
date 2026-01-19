@@ -36,10 +36,19 @@ export default async function AdminIndicacoesPage() {
 
     const supabaseAdmin = createSupabaseServiceClient()
 
-    const { data: indicacoes, error } = await supabaseAdmin
+    let query = supabaseAdmin
         .from("indicacoes")
         .select("*, users(email, name)")
         .order("created_at", { ascending: false })
+
+    if (role === 'supervisor') {
+        const { getSubordinates } = await import('@/app/actions/auth-admin')
+        const subordinates = await getSubordinates(user.id) as any[]
+        const allRelevantUserIds = [user.id, ...subordinates.map(s => s.id)]
+        query = query.in("user_id", allRelevantUserIds)
+    }
+
+    const { data: indicacoes, error } = await query
 
     if (error) {
         console.error("Erro ao buscar indicações:", error)
