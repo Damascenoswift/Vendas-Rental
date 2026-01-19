@@ -338,6 +338,7 @@ export interface Database {
           stock_total: number | null
           stock_reserved: number | null
           stock_withdrawn: number | null
+          min_stock: number | null
           created_at: string
           updated_at: string
         }
@@ -357,6 +358,7 @@ export interface Database {
           stock_total?: number | null
           stock_reserved?: number | null
           stock_withdrawn?: number | null
+          min_stock?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -376,6 +378,7 @@ export interface Database {
           stock_total?: number | null
           stock_reserved?: number | null
           stock_withdrawn?: number | null
+          min_stock?: number | null
           created_at?: string
           updated_at?: string
         }

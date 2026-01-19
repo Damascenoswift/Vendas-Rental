@@ -160,3 +160,73 @@ export async function calculateProposalValue(
         }
     }
 }
+
+// Status & Stock Logic
+export type ProposalStatus = Database['public']['Enums']['proposal_status_enum']
+
+import { createStockMovement } from "./product-service"
+
+export async function updateProposalStatus(id: string, newStatus: ProposalStatus) {
+    const supabase = await createClient()
+
+    // 1. Get current proposal (to check previous status)
+    const { data: currentProposal, error: fetchError } = await supabase
+        .from('proposals')
+        .select('*, items:proposal_items(*)')
+        .eq('id', id)
+        .single()
+
+    if (fetchError || !currentProposal) {
+        throw new Error("Proposta não encontrada")
+    }
+
+    const previousStatus = currentProposal.status
+
+    // 2. Update status
+    const { error: updateError } = await supabase
+        .from('proposals')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', id)
+
+    if (updateError) {
+        throw new Error("Erro ao atualizar status da proposta")
+    }
+
+    // 3. Stock Logic
+    // If becoming ACCEPTED -> Reserve Stock
+    if (newStatus === 'accepted' && previousStatus !== 'accepted') {
+        const items = currentProposal.items as any[]
+        for (const item of items) {
+            if (item.product_id) {
+                await createStockMovement({
+                    product_id: item.product_id,
+                    type: 'RESERVE',
+                    quantity: item.quantity,
+                    reference_id: id,
+                    entity_name: `Proposta #${id.slice(0, 8)}`,
+                    date: new Date().toISOString()
+                })
+            }
+        }
+    }
+
+    // If leaving ACCEPTED (e.g. to Rejected or Draft) -> Release Stock
+    if (previousStatus === 'accepted' && newStatus !== 'accepted') {
+        const items = currentProposal.items as any[]
+        for (const item of items) {
+            if (item.product_id) {
+                await createStockMovement({
+                    product_id: item.product_id,
+                    type: 'RELEASE',
+                    quantity: item.quantity,
+                    reference_id: id,
+                    entity_name: `Reversão Proposta #${id.slice(0, 8)}`,
+                    date: new Date().toISOString()
+                })
+            }
+        }
+    }
+
+    revalidatePath('/admin/orcamentos')
+    return { success: true }
+}

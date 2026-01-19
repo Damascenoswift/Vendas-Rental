@@ -37,6 +37,7 @@ async function fillDocxTemplate(templateName: string, data: any): Promise<Buffer
     const doc = new Docxtemplater(zip, {
         paragraphLoop: true,
         linebreaks: true,
+        delimiters: { start: '{{', end: '}}' }
     })
 
     doc.render(data)
@@ -128,7 +129,11 @@ export async function generateContractFromIndication(indicacaoId: string) {
     const templateName = `${brand}_${type.toLowerCase()}` // e.g. rental_pf
 
     // F. Prepare Data for Template
+    // Mapping rules:
+    // 1. Existing lowercase keys (for compatibility with other templates)
+    // 2. Uppercase keys (as seen in User's template image: {{NOME}}, {{CPF}}, {{RG}}, etc.)
     const templateData = {
+        // --- Lowercase (standard) ---
         cliente_nome: indicacao.nome,
         cliente_doc: indicacao.documento,
         cliente_endereco: metadata.endereco || "",
@@ -136,7 +141,32 @@ export async function generateContractFromIndication(indicacaoId: string) {
         cliente_estado: metadata.estado || "",
         cliente_cep: metadata.cep || "",
 
-        // Calculated
+        // --- Uppercase (from User Image) ---
+        NOME: indicacao.nome,
+        CPF: indicacao.documento, // Assuming document is CPF for PF
+        CNPJ: indicacao.documento, // Provided for PJ templates just in case
+        RG: metadata.rg || "", // RG might not be in base table, check metadata
+        LOGRADOURO: metadata.logradouro || metadata.endereco || "", // Try specific then generic
+        "NÚMERO ENDEREÇO": metadata.numero || "",
+        "NÚMERO": metadata.numero || "", // Variation
+        BAIRRO: metadata.bairro || "",
+        CIDADE: metadata.cidade || indicacao.cidade || "",
+        Estado: metadata.estado || indicacao.estado || "", // Note: Image had "Estado" (Title Case)
+        ESTADO: metadata.estado || indicacao.estado || "", // Provide UPPER too
+        CEP: metadata.cep || "",
+        "E-mail do Signatário": indicacao.email,
+        EMAIL: indicacao.email,
+        TELEFONE: indicacao.telefone,
+
+        // --- Calculated Values (Uppercased for consistency) ---
+        // Image didn't show these, but good to have
+        CM_TOTAL: cmTotal.toFixed(0),
+        PRECO_KWH: priceKwh.toFixed(2),
+        DESCONTO_PERCENT: discountPercent,
+        VALOR_LOCACAO_TOTAL: valorLocacaoTotal.toLocaleString('pt-BR'),
+        PLACAS_TOTAL: placasTotal,
+
+        // --- Original Calculated ---
         CM_total: cmTotal.toFixed(0),
         preco_kwh: priceKwh.toFixed(2),
         desconto_percent: discountPercent,
@@ -145,6 +175,8 @@ export async function generateContractFromIndication(indicacaoId: string) {
 
         // Dates
         data_hoje: new Date().toLocaleDateString('pt-BR'),
+        DATA_HOJE: new Date().toLocaleDateString('pt-BR'),
+        ANO_ATUAL: new Date().getFullYear(),
     }
 
     // G. Generate DOCX

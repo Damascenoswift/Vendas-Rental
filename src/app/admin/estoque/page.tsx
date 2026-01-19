@@ -5,6 +5,13 @@ import { Plus } from "lucide-react"
 import Link from "next/link"
 import { ProductList } from "@/components/admin/inventory/product-list"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card"
+import { Package, AlertTriangle, DollarSign } from "lucide-react"
 
 export default async function InventoryPage() {
     return (
@@ -35,7 +42,67 @@ export default async function InventoryPage() {
 
 async function InventoryContent() {
     const products = await getProducts()
-    return <ProductList initialProducts={products} />
+
+    // Key Metrics Calculation
+    const totalItems = products.length
+    const lowStockCount = products.filter(p => ((p.stock_total || 0) - (p.stock_reserved || 0)) < (p.min_stock ?? 5) && p.active).length
+    const totalValue = products.reduce((acc, p) => acc + (p.price * (p.stock_total || 0)), 0)
+
+    function formatVal(val: number) {
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val)
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Dashboard Cards */}
+            <div className="grid gap-4 md:grid-cols-3">
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">
+                            Valor Total
+                        </CardTitle>
+                        <DollarSign className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{formatVal(totalValue)}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Em estoque físico
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">
+                            Total Produtos
+                        </CardTitle>
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{totalItems}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Cadastrados
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">
+                            Baixo Estoque
+                        </CardTitle>
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-red-600">{lowStockCount}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Abaixo do mínimo
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <ProductList initialProducts={products} />
+        </div>
+    )
 }
 
 function InventorySkeleton() {

@@ -28,11 +28,18 @@ interface AdminIndicacoesClientProps {
     role?: UserRole
 }
 
+import { IndicationsKanban } from "@/components/admin/indications-kanban"
+import { LayoutGrid, List } from "lucide-react"
+
+// ... imports remain the same
+
 export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicacoesClientProps) {
     const [indicacoes, setIndicacoes] = useState(initialIndicacoes)
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
+    const [view, setView] = useState<"list" | "kanban">("list")
 
+    // ... (useMemos remain the same) 
     // Extract unique vendors
     const vendors = useMemo(() => {
         const uniqueVendors = new Set<string>()
@@ -72,6 +79,29 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
 
     return (
         <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                <div className="flex bg-muted p-1 rounded-lg">
+                    <Button
+                        variant={view === 'list' ? 'secondary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setView('list')}
+                        className="h-8 px-3"
+                    >
+                        <List className="mr-2 h-4 w-4" />
+                        Lista
+                    </Button>
+                    <Button
+                        variant={view === 'kanban' ? 'secondary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setView('kanban')}
+                        className="h-8 px-3"
+                    >
+                        <LayoutGrid className="mr-2 h-4 w-4" />
+                        Kanban
+                    </Button>
+                </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
                     <IndicationsFilter
@@ -88,97 +118,103 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                 </div>
             </div>
 
-            <div className="rounded-md border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Data</TableHead>
-                            <TableHead>Marca</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Vendedor</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead className="text-right">Valor Compensado</TableHead>
-                            <TableHead>Ações</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {filteredIndicacoes.map((ind) => {
-                            const vendedorInfo = (ind.users as any)?.name || (ind.users as any)?.email || ind.user_id
+            {view === 'kanban' ? (
+                <div className="h-[calc(100vh-300px)] min-h-[500px]">
+                    <IndicationsKanban items={filteredIndicacoes} />
+                </div>
+            ) : (
+                <div className="rounded-md border">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Data</TableHead>
+                                <TableHead>Marca</TableHead>
+                                <TableHead>Cliente</TableHead>
+                                <TableHead>Vendedor</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="text-right">Valor Compensado</TableHead>
+                                <TableHead>Ações</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {filteredIndicacoes.map((ind) => {
+                                const vendedorInfo = (ind.users as any)?.name || (ind.users as any)?.email || ind.user_id
 
-                            return (
-                                <TableRow key={ind.id}>
-                                    <TableCell>
-                                        {new Intl.DateTimeFormat("pt-BR", {
-                                            day: "2-digit",
-                                            month: "2-digit",
-                                            year: "numeric",
-                                            hour: "2-digit",
-                                            minute: "2-digit",
-                                        }).format(new Date(ind.created_at))}
-                                    </TableCell>
-                                    <TableCell>
-                                        <Badge variant={ind.marca === "rental" ? "default" : "secondary"}>
-                                            {ind.marca.toUpperCase()}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex flex-col">
-                                            <span className="font-medium">{ind.nome}</span>
-                                            <span className="text-xs text-muted-foreground">{ind.email}</span>
-                                            <span className="text-xs text-muted-foreground">{ind.telefone}</span>
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="max-w-[200px] truncate" title={vendedorInfo}>
-                                        {vendedorInfo}
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="w-[180px]">
-                                            <IndicationStatusSelect id={ind.id} initialStatus={ind.status} />
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <IndicationValueEdit id={ind.id} initialValue={ind.valor} />
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex items-center gap-2">
-                                            <IndicationDetailsDialog indicationId={ind.id} userId={ind.user_id} />
-                                            <IndicationFlags
-                                                id={ind.id}
-                                                assinadaEm={(ind as any).assinada_em ?? null}
-                                                compensadaEm={(ind as any).compensada_em ?? null}
-                                            />
-                                            <IndicationFillButton
-                                                indication={{
-                                                    tipo: ind.tipo,
-                                                    nome: ind.nome,
-                                                    email: ind.email,
-                                                    telefone: ind.telefone,
-                                                    documento: ind.documento,
-                                                }}
-                                                vendedorName={vendedorInfo}
-                                            />
-                                            {/* Contract Generation Button */}
-                                            {(role === 'adm_mestre' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
-                                                <GenerateContractButton indicationId={ind.id} />
-                                            )}
-                                            {role === 'adm_mestre' && (
-                                                <DeleteIndicationButton id={ind.id} />
-                                            )}
-                                        </div>
+                                return (
+                                    <TableRow key={ind.id}>
+                                        <TableCell>
+                                            {new Intl.DateTimeFormat("pt-BR", {
+                                                day: "2-digit",
+                                                month: "2-digit",
+                                                year: "numeric",
+                                                hour: "2-digit",
+                                                minute: "2-digit",
+                                            }).format(new Date(ind.created_at))}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge variant={ind.marca === "rental" ? "default" : "secondary"}>
+                                                {ind.marca.toUpperCase()}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex flex-col">
+                                                <span className="font-medium">{ind.nome}</span>
+                                                <span className="text-xs text-muted-foreground">{ind.email}</span>
+                                                <span className="text-xs text-muted-foreground">{ind.telefone}</span>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="max-w-[200px] truncate" title={vendedorInfo}>
+                                            {vendedorInfo}
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="w-[180px]">
+                                                <IndicationStatusSelect id={ind.id} initialStatus={ind.status} />
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <IndicationValueEdit id={ind.id} initialValue={ind.valor} />
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2">
+                                                <IndicationDetailsDialog indicationId={ind.id} userId={ind.user_id} />
+                                                <IndicationFlags
+                                                    id={ind.id}
+                                                    assinadaEm={(ind as any).assinada_em ?? null}
+                                                    compensadaEm={(ind as any).compensada_em ?? null}
+                                                />
+                                                <IndicationFillButton
+                                                    indication={{
+                                                        tipo: ind.tipo,
+                                                        nome: ind.nome,
+                                                        email: ind.email,
+                                                        telefone: ind.telefone,
+                                                        documento: ind.documento,
+                                                    }}
+                                                    vendedorName={vendedorInfo}
+                                                />
+                                                {/* Contract Generation Button */}
+                                                {(role === 'adm_mestre' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
+                                                    <GenerateContractButton indicationId={ind.id} />
+                                                )}
+                                                {role === 'adm_mestre' && (
+                                                    <DeleteIndicationButton id={ind.id} />
+                                                )}
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                )
+                            })}
+                            {filteredIndicacoes.length === 0 && (
+                                <TableRow>
+                                    <TableCell colSpan={7} className="h-24 text-center">
+                                        Nenhuma indicação encontrada.
                                     </TableCell>
                                 </TableRow>
-                            )
-                        })}
-                        {filteredIndicacoes.length === 0 && (
-                            <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
-                                    Nenhuma indicação encontrada.
-                                </TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </div>
+                            )}
+                        </TableBody>
+                    </Table>
+                </div>
+            )}
         </div>
     )
 }
@@ -269,8 +305,15 @@ function GenerateContractButton({ indicationId }: { indicationId: string }) {
                     description: "Contrato gerado. O download iniciará em breve.",
                 })
                 // Open URL in new tab
+                // Open URL in new tab using anchor to key avoid popup blockers
                 if (result.url) {
-                    window.open(result.url, '_blank')
+                    const link = document.createElement('a');
+                    link.href = result.url;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
                 }
             } else {
                 showToast({

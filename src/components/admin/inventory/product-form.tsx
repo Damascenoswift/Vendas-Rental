@@ -34,6 +34,7 @@ const productSchema = z.object({
     power: z.coerce.number().optional(),
     technology: z.string().optional(),
     stock_total: z.coerce.number().min(0).default(0),
+    min_stock: z.coerce.number().min(0).default(5),
     price: z.coerce.number().min(0, "Preço deve ser maior ou igual a 0"),
     cost: z.coerce.number().min(0).optional(),
     category: z.string().optional(),
@@ -60,6 +61,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
         power: initialData.power || undefined,
         technology: initialData.technology || "",
         stock_total: initialData.stock_total || 0,
+        min_stock: initialData.min_stock || 5, // Default explicit
         price: initialData.price,
         cost: initialData.cost || 0,
         category: initialData.category || "",
@@ -73,6 +75,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
         power: undefined,
         technology: "",
         stock_total: 0,
+        min_stock: 5,
         price: 0,
         cost: 0,
         category: "",
@@ -257,7 +260,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
                     />
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                     <FormField
                         control={form.control}
                         name="stock_total"
@@ -268,6 +271,20 @@ export function ProductForm({ initialData }: ProductFormProps) {
                                     <Input type="number" placeholder="0" {...field} onChange={e => field.onChange(e.target.valueAsNumber)} />
                                 </FormControl>
                                 <FormDescription>Qtd. Física</FormDescription>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="min_stock"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Estoque Mínimo</FormLabel>
+                                <FormControl>
+                                    <Input type="number" placeholder="5" {...field} onChange={e => field.onChange(e.target.valueAsNumber)} />
+                                </FormControl>
+                                <FormDescription>Alerta</FormDescription>
                                 <FormMessage />
                             </FormItem>
                         )}
@@ -325,7 +342,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
                             <FormControl>
                                 <Checkbox
                                     checked={field.value}
-                                    onChange={field.onChange}
+                                    onChange={(e) => field.onChange(e.target.checked)}
                                 />
                             </FormControl>
                             <div className="space-y-1 leading-none">

@@ -19,16 +19,49 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
-import { MoreHorizontal, Search } from "lucide-react"
+import { MoreHorizontal, Search, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
+import { deleteProduct } from "@/services/product-service"
+import { useToast } from "@/hooks/use-toast"
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface ProductListProps {
     initialProducts: Product[]
 }
 
 export function ProductList({ initialProducts }: ProductListProps) {
+    const { showToast } = useToast()
+    const [deletingId, setDeletingId] = useState<string | null>(null)
     const [searchTerm, setSearchTerm] = useState("")
+
+    const handleDelete = async () => {
+        if (!deletingId) return
+        try {
+            await deleteProduct(deletingId)
+            showToast({
+                title: "Sucesso",
+                description: "Produto excluído com sucesso.",
+                variant: "success",
+            })
+            setDeletingId(null)
+        } catch (error) {
+            showToast({
+                title: "Erro",
+                description: "Erro ao excluir produto.",
+                variant: "error",
+            })
+        }
+    }
 
     const filteredProducts = initialProducts.filter(product =>
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -79,6 +112,14 @@ export function ProductList({ initialProducts }: ProductListProps) {
                                         <Badge variant={product.active ? "default" : "secondary"}>
                                             {product.active ? 'Ativo' : 'Inativo'}
                                         </Badge>
+                                        {/* Low Stock Warning */}
+                                        {/* @ts-ignore */}
+                                        {((product.stock_total || 0) - (product.stock_reserved || 0)) < (product.min_stock ?? 5) && product.active && (
+                                            <div className="flex items-center text-red-600 text-xs mt-1 font-semibold">
+                                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                                Baixo Est.
+                                            </div>
+                                        )}
                                     </TableCell>
                                     <TableCell>
                                         <DropdownMenu>
@@ -93,7 +134,10 @@ export function ProductList({ initialProducts }: ProductListProps) {
                                                 <Link href={`/admin/estoque/${product.id}`}>
                                                     <DropdownMenuItem>Editar</DropdownMenuItem>
                                                 </Link>
-                                                <DropdownMenuItem className="text-red-600">
+                                                <DropdownMenuItem
+                                                    className="text-red-600 cursor-pointer"
+                                                    onSelect={() => setDeletingId(product.id)}
+                                                >
                                                     Excluir
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>
@@ -105,6 +149,23 @@ export function ProductList({ initialProducts }: ProductListProps) {
                     </TableBody>
                 </Table>
             </div>
+
+            <AlertDialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Esta ação não pode ser desfeita. Isso excluirá permanentemente o produto do estoque.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">
+                            Excluir
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }
