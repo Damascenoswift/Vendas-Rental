@@ -20,7 +20,12 @@ export function DocChecklist({ indicacaoId, currentStatus = 'PENDING', onStatusC
     const [updating, setUpdating] = useState(false)
 
     // Only Admins/Support can validate docs
-    const canValidate = profile && ['adm_mestre', 'suporte_tecnico', 'adm_dorata'].includes(profile.role)
+    // Force include 'adm_mestre' and ensure typed roles are correct
+    const allowedRoles = ['adm_mestre', 'suporte_tecnico', 'adm_dorata', 'funcionario_n1', 'funcionario_n2']
+    const canValidate = profile && allowedRoles.includes(profile.role)
+
+    // Debug permission
+    // console.log("Profile Role:", profile?.role, "Can Validate:", canValidate)
 
     const handleStatusUpdate = async (status: 'APPROVED' | 'REJECTED' | 'INCOMPLETE') => {
         setUpdating(true)

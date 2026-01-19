@@ -205,11 +205,12 @@ export async function generateContractFromIndication(indicacaoId: string) {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 120) // +120 days
 
-    const { error: dbError } = await supabase.from('contracts').insert({
+    // @ts-ignore
+    const { error: dbError } = await supabaseAdmin.from('contracts').insert({
         indicacao_id: indicacaoId,
         type: `${brand.toUpperCase()}_${type}`,
         brand: brand.toUpperCase(),
-        status: 'APPROVED', // Auto-approved in this flow? Or just generated? "System handles download".
+        status: 'APPROVED',
         client_data: {
             name: indicacao.nome,
             doc: indicacao.documento
