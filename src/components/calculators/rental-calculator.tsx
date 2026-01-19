@@ -4,6 +4,13 @@ import { useMemo, useState, type CSSProperties } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -35,6 +42,13 @@ const invoiceStyles: CSSProperties = {
     "--invoice-cyan": "#63b7ff",
 }
 
+type LigacaoTipo = "bifasica" | "trifasica"
+
+const taxaMinimaPorLigacao: Record<LigacaoTipo, number> = {
+    bifasica: 50,
+    trifasica: 100,
+}
+
 const formatCurrency = (value: number) => currencyFormatter.format(value)
 const formatTariff = (value: number) => tariffFormatter.format(value)
 const formatNumber = (value: number) => numberFormatter.format(value)
@@ -55,48 +69,43 @@ export function RentalCalculator() {
     const [instalacao, setInstalacao] = useState("W0013703062")
     const [vencimento, setVencimento] = useState("10/11/25")
 
-    const [valorLocacao, setValorLocacao] = useState(10050.24)
-    const [valorPagoEnergisa, setValorPagoEnergisa] = useState(0)
-    const [valorDesconto, setValorDesconto] = useState(3350.08)
-    const [consumoAnual, setConsumoAnual] = useState(147816)
+    const [consumoKwh, setConsumoKwh] = useState(12318)
+    const [valorKwh, setValorKwh] = useState(2.8292)
+    const [descontoKwh, setDescontoKwh] = useState(0.2716)
+    const [iluminacaoPublica, setIluminacaoPublica] = useState(0)
+    const [ligacaoTipo, setLigacaoTipo] = useState<LigacaoTipo>("bifasica")
 
-    const consumoMensal = useMemo(() => consumoAnual / 12, [consumoAnual])
-    const consumoMensalArredondado = useMemo(() => Math.round(consumoMensal), [consumoMensal])
-
+    const consumoAnual = useMemo(() => consumoKwh * 12, [consumoKwh])
+    const taxaMinima = useMemo(() => taxaMinimaPorLigacao[ligacaoTipo], [ligacaoTipo])
+    const descontoKwhAplicado = useMemo(() => Math.min(descontoKwh, valorKwh), [descontoKwh, valorKwh])
+    const energiaSemDesconto = useMemo(() => consumoKwh * valorKwh, [consumoKwh, valorKwh])
+    const economiaMes = useMemo(() => consumoKwh * descontoKwhAplicado, [consumoKwh, descontoKwhAplicado])
+    const energiaComDesconto = useMemo(
+        () => Math.max(0, energiaSemDesconto - economiaMes),
+        [energiaSemDesconto, economiaMes]
+    )
+    const valorConcessionaria = useMemo(() => iluminacaoPublica + taxaMinima, [iluminacaoPublica, taxaMinima])
     const valorSemDesconto = useMemo(
-        () => valorLocacao + valorPagoEnergisa + valorDesconto,
-        [valorLocacao, valorPagoEnergisa, valorDesconto]
+        () => energiaSemDesconto + valorConcessionaria,
+        [energiaSemDesconto, valorConcessionaria]
     )
-
-    const valorAPagar = useMemo(
-        () => valorLocacao + valorPagoEnergisa,
-        [valorLocacao, valorPagoEnergisa]
-    )
-
-    const economiaMes = useMemo(() => Math.max(0, valorDesconto), [valorDesconto])
+    const valorLocacao = useMemo(() => energiaComDesconto, [energiaComDesconto])
+    const valorAPagar = useMemo(() => energiaComDesconto + valorConcessionaria, [energiaComDesconto, valorConcessionaria])
     const economiaAno = useMemo(() => economiaMes * 12, [economiaMes])
-
     const descontoPercentual = useMemo(() => {
-        if (valorSemDesconto <= 0) {
+        if (valorKwh <= 0) {
             return 0
         }
-        return (valorDesconto / valorSemDesconto) * 100
-    }, [valorDesconto, valorSemDesconto])
-
-    const tarifaSemDesconto = useMemo(() => {
-        if (consumoMensal <= 0) {
-            return 0
-        }
-        return valorSemDesconto / consumoMensal
-    }, [valorSemDesconto, consumoMensal])
+        return (descontoKwhAplicado / valorKwh) * 100
+    }, [descontoKwhAplicado, valorKwh])
 
     const monthlySeries = useMemo(
         () =>
             barMultipliers.map((multiplier) => ({
-                locacao: valorAPagar * multiplier,
+                locacao: valorLocacao * multiplier,
                 economia: economiaMes * multiplier,
             })),
-        [valorAPagar, economiaMes]
+        [valorLocacao, economiaMes]
     )
 
     const maxBar = useMemo(() => {
@@ -104,7 +113,7 @@ export function RentalCalculator() {
         return maxValue > 0 ? maxValue : 1
     }, [monthlySeries])
 
-    const tarifaLabel = consumoMensal > 0 ? formatTariff(tarifaSemDesconto) : "--"
+    const tarifaLabel = formatTariff(valorKwh)
 
     return (
         <Card className="border-dashed bg-muted/40">
@@ -114,7 +123,7 @@ export function RentalCalculator() {
                 </CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_420px] 2xl:grid-cols-[minmax(0,1fr)_460px]">
                     <div
                         className="relative overflow-hidden rounded-2xl border border-white/10 bg-[var(--invoice-ink)] text-white shadow-2xl"
                         style={invoiceStyles}
@@ -181,7 +190,7 @@ export function RentalCalculator() {
                                 </p>
                             </div>
 
-                            <div className="grid gap-4 lg:grid-cols-[180px_1fr_180px]">
+                            <div className="grid gap-4 lg:grid-cols-[180px_1fr_200px]">
                                 <div className="space-y-3">
                                     <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
                                         <p className="text-[11px] uppercase text-white/60">
@@ -205,7 +214,7 @@ export function RentalCalculator() {
                                             {formatPercent(descontoPercentual)}
                                         </p>
                                         <p className="text-xs text-white/60">
-                                            {formatCurrency(valorDesconto)}
+                                            {formatCurrency(economiaMes)}
                                         </p>
                                     </div>
                                 </div>
@@ -266,7 +275,13 @@ export function RentalCalculator() {
                                             Fatura concessionaria
                                         </p>
                                         <p className="text-sm font-semibold">
-                                            {formatCurrency(valorPagoEnergisa)}
+                                            {formatCurrency(valorConcessionaria)}
+                                        </p>
+                                        <p className="text-xs text-white/60">
+                                            Taxa minima: {formatCurrency(taxaMinima)}
+                                        </p>
+                                        <p className="text-xs text-white/60">
+                                            Iluminacao publica: {formatCurrency(iluminacaoPublica)}
                                         </p>
                                     </div>
                                     <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
@@ -299,17 +314,17 @@ export function RentalCalculator() {
                                 </div>
                                 <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                                     <p className="text-[11px] uppercase text-white/60">
-                                        Consumo medio mensal
+                                        Consumo do mes
                                     </p>
                                     <p className="text-2xl font-semibold">
-                                        {formatNumber(consumoMensalArredondado)} kWh
+                                        {formatNumber(consumoKwh)} kWh
                                     </p>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <aside className="space-y-4">
+                    <aside className="flex h-full flex-col gap-4">
                         <div className="rounded-2xl border bg-background p-4 shadow-sm">
                             <div className="flex items-center justify-between">
                                 <p className="text-sm font-semibold">Editar simulacao</p>
@@ -317,138 +332,174 @@ export function RentalCalculator() {
                                     Atualiza em tempo real
                                 </span>
                             </div>
-                            <div className="mt-4 grid gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="cliente-nome" className="text-xs">
-                                        Nome do cliente
-                                    </Label>
-                                    <Input
-                                        id="cliente-nome"
-                                        className="h-9 text-sm"
-                                        value={clienteNome}
-                                        onChange={(event) => setClienteNome(event.target.value)}
-                                    />
+                            <div className="mt-4 space-y-4">
+                                <div className="rounded-xl border bg-muted/40 p-3">
+                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                        Base de calculo
+                                    </p>
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="consumo-kwh" className="text-xs">
+                                                Consumo do mes (kWh)
+                                            </Label>
+                                            <Input
+                                                id="consumo-kwh"
+                                                type="number"
+                                                inputMode="decimal"
+                                                step="1"
+                                                min="0"
+                                                className="h-9 text-sm"
+                                                value={consumoKwh}
+                                                onChange={(event) => setConsumoKwh(toNumber(event.target.value))}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="valor-kwh" className="text-xs">
+                                                Valor do kWh (R$)
+                                            </Label>
+                                            <Input
+                                                id="valor-kwh"
+                                                type="number"
+                                                inputMode="decimal"
+                                                step="0.0001"
+                                                min="0"
+                                                className="h-9 text-sm"
+                                                value={valorKwh}
+                                                onChange={(event) => setValorKwh(toNumber(event.target.value))}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="desconto-kwh" className="text-xs">
+                                                Desconto no kWh (R$)
+                                            </Label>
+                                            <Input
+                                                id="desconto-kwh"
+                                                type="number"
+                                                inputMode="decimal"
+                                                step="0.0001"
+                                                min="0"
+                                                className="h-9 text-sm"
+                                                value={descontoKwh}
+                                                onChange={(event) => setDescontoKwh(toNumber(event.target.value))}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="iluminacao-publica" className="text-xs">
+                                                Iluminacao publica (R$)
+                                            </Label>
+                                            <Input
+                                                id="iluminacao-publica"
+                                                type="number"
+                                                inputMode="decimal"
+                                                step="0.01"
+                                                min="0"
+                                                className="h-9 text-sm"
+                                                value={iluminacaoPublica}
+                                                onChange={(event) => setIluminacaoPublica(toNumber(event.target.value))}
+                                            />
+                                        </div>
+                                        <div className="space-y-2 sm:col-span-2">
+                                            <Label htmlFor="tipo-ligacao" className="text-xs">
+                                                Tipo de ligacao
+                                            </Label>
+                                            <Select
+                                                value={ligacaoTipo}
+                                                onValueChange={(value) => setLigacaoTipo(value as LigacaoTipo)}
+                                            >
+                                                <SelectTrigger id="tipo-ligacao" className="h-9 text-sm">
+                                                    <SelectValue placeholder="Selecione o tipo" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="bifasica">
+                                                        Bifasica (taxa minima R$ 50)
+                                                    </SelectItem>
+                                                    <SelectItem value="trifasica">
+                                                        Trifasica (taxa minima R$ 100)
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 rounded-lg border border-dashed border-muted-foreground/40 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+                                        Taxa minima Energisa:{" "}
+                                        <span className="font-medium text-foreground">
+                                            {formatCurrency(taxaMinima)}
+                                        </span>
+                                    </div>
                                 </div>
 
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="referencia" className="text-xs">
-                                            Referencia
-                                        </Label>
-                                        <Input
-                                            id="referencia"
-                                            className="h-9 text-sm"
-                                            value={referencia}
-                                            onChange={(event) => setReferencia(event.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="vencimento" className="text-xs">
-                                            Vencimento
-                                        </Label>
-                                        <Input
-                                            id="vencimento"
-                                            className="h-9 text-sm"
-                                            value={vencimento}
-                                            onChange={(event) => setVencimento(event.target.value)}
-                                        />
-                                    </div>
-                                </div>
+                                <div className="rounded-xl border bg-muted/40 p-3">
+                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                        Dados da fatura
+                                    </p>
+                                    <div className="mt-3 grid gap-3">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="cliente-nome" className="text-xs">
+                                                Nome do cliente
+                                            </Label>
+                                            <Input
+                                                id="cliente-nome"
+                                                className="h-9 text-sm"
+                                                value={clienteNome}
+                                                onChange={(event) => setClienteNome(event.target.value)}
+                                            />
+                                        </div>
 
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="numero-fatura" className="text-xs">
-                                            Numero da fatura
-                                        </Label>
-                                        <Input
-                                            id="numero-fatura"
-                                            className="h-9 text-sm"
-                                            value={numeroFatura}
-                                            onChange={(event) => setNumeroFatura(event.target.value)}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="instalacao" className="text-xs">
-                                            Instalacao
-                                        </Label>
-                                        <Input
-                                            id="instalacao"
-                                            className="h-9 text-sm"
-                                            value={instalacao}
-                                            onChange={(event) => setInstalacao(event.target.value)}
-                                        />
-                                    </div>
-                                </div>
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="referencia" className="text-xs">
+                                                    Referencia
+                                                </Label>
+                                                <Input
+                                                    id="referencia"
+                                                    className="h-9 text-sm"
+                                                    value={referencia}
+                                                    onChange={(event) => setReferencia(event.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="vencimento" className="text-xs">
+                                                    Vencimento
+                                                </Label>
+                                                <Input
+                                                    id="vencimento"
+                                                    className="h-9 text-sm"
+                                                    value={vencimento}
+                                                    onChange={(event) => setVencimento(event.target.value)}
+                                                />
+                                            </div>
+                                        </div>
 
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="valor-locacao" className="text-xs">
-                                            Valor locacao (R$)
-                                        </Label>
-                                        <Input
-                                            id="valor-locacao"
-                                            type="number"
-                                            inputMode="decimal"
-                                            step="0.01"
-                                            min="0"
-                                            className="h-9 text-sm"
-                                            value={valorLocacao}
-                                            onChange={(event) => setValorLocacao(toNumber(event.target.value))}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="valor-energisa" className="text-xs">
-                                            Valor pago a Energisa (R$)
-                                        </Label>
-                                        <Input
-                                            id="valor-energisa"
-                                            type="number"
-                                            inputMode="decimal"
-                                            step="0.01"
-                                            min="0"
-                                            className="h-9 text-sm"
-                                            value={valorPagoEnergisa}
-                                            onChange={(event) => setValorPagoEnergisa(toNumber(event.target.value))}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="valor-desconto" className="text-xs">
-                                            Valor do desconto (R$)
-                                        </Label>
-                                        <Input
-                                            id="valor-desconto"
-                                            type="number"
-                                            inputMode="decimal"
-                                            step="0.01"
-                                            min="0"
-                                            className="h-9 text-sm"
-                                            value={valorDesconto}
-                                            onChange={(event) => setValorDesconto(toNumber(event.target.value))}
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="consumo-anual" className="text-xs">
-                                            Consumo medio anual (kWh)
-                                        </Label>
-                                        <Input
-                                            id="consumo-anual"
-                                            type="number"
-                                            inputMode="decimal"
-                                            step="1"
-                                            min="0"
-                                            className="h-9 text-sm"
-                                            value={consumoAnual}
-                                            onChange={(event) => setConsumoAnual(toNumber(event.target.value))}
-                                        />
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="numero-fatura" className="text-xs">
+                                                    Numero da fatura
+                                                </Label>
+                                                <Input
+                                                    id="numero-fatura"
+                                                    className="h-9 text-sm"
+                                                    value={numeroFatura}
+                                                    onChange={(event) => setNumeroFatura(event.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="instalacao" className="text-xs">
+                                                    Instalacao
+                                                </Label>
+                                                <Input
+                                                    id="instalacao"
+                                                    className="h-9 text-sm"
+                                                    value={instalacao}
+                                                    onChange={(event) => setInstalacao(event.target.value)}
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="rounded-2xl border bg-muted/40 p-4">
+                        <div className="flex-1 rounded-2xl border bg-muted/40 p-4">
                             <p className="text-sm font-semibold">Resumo rapido</p>
                             <div className="mt-3 space-y-2 text-sm">
                                 <div className="flex items-center justify-between">
@@ -458,9 +509,15 @@ export function RentalCalculator() {
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <span className="text-muted-foreground">Desconto (%)</span>
+                                    <span className="text-muted-foreground">Desconto no kWh</span>
                                     <span className="font-medium">
-                                        {formatPercent(descontoPercentual)}
+                                        {formatTariff(descontoKwhAplicado)} ({formatPercent(descontoPercentual)})
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Economia mensal</span>
+                                    <span className="font-medium">
+                                        {formatCurrency(economiaMes)}
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between">
@@ -470,8 +527,22 @@ export function RentalCalculator() {
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <span className="text-muted-foreground">Tarifa sem desconto</span>
-                                    <span className="font-medium">{tarifaLabel}</span>
+                                    <span className="text-muted-foreground">Taxa minima Energisa</span>
+                                    <span className="font-medium">
+                                        {formatCurrency(taxaMinima)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground">Iluminacao publica</span>
+                                    <span className="font-medium">
+                                        {formatCurrency(iluminacaoPublica)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between border-t pt-2">
+                                    <span className="text-muted-foreground">Valor total a pagar</span>
+                                    <span className="font-semibold">
+                                        {formatCurrency(valorAPagar)}
+                                    </span>
                                 </div>
                             </div>
                         </div>
