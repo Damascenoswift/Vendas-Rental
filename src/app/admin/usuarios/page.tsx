@@ -25,7 +25,7 @@ export default async function AdminUsersPage() {
         .eq('id', user.id)
         .single()
 
-    if (!profile || !['adm_mestre', 'adm_dorata'].includes(profile.role)) {
+    if (!profile || !['adm_mestre', 'adm_dorata', 'funcionario_n2'].includes(profile.role)) {
         return (
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">
@@ -36,34 +36,32 @@ export default async function AdminUsersPage() {
         )
     }
 
-}
+    const users = await getUsers()
+    const supervisors = await getSupervisors()
 
-const users = await getUsers()
-const supervisors = await getSupervisors()
+    return (
+        <div className="container mx-auto py-10">
+            <div className="mb-8">
+                <h1 className="text-3xl font-bold">Gerenciamento de Usuários <span className="text-sm font-normal text-muted-foreground">(v1.2)</span></h1>
+                <p className="text-muted-foreground">
+                    Cadastre novos vendedores e supervisores ou gerencie os existentes.
+                </p>
+            </div>
 
-return (
-    <div className="container mx-auto py-10">
-        <div className="mb-8">
-            <h1 className="text-3xl font-bold">Gerenciamento de Usuários <span className="text-sm font-normal text-muted-foreground">(v1.2)</span></h1>
-            <p className="text-muted-foreground">
-                Cadastre novos vendedores e supervisores ou gerencie os existentes.
-            </p>
+            <Tabs defaultValue="list" className="space-y-4">
+                <TabsList>
+                    <TabsTrigger value="list">Lista de Usuários</TabsTrigger>
+                    <TabsTrigger value="register">Cadastrar Novo</TabsTrigger>
+                </TabsList>
+                <TabsContent value="list" className="space-y-4">
+                    <UsersList users={users} supervisors={supervisors} />
+                </TabsContent>
+                <TabsContent value="register">
+                    <div className="max-w-md mx-auto">
+                        <RegisterUserForm supervisors={supervisors} />
+                    </div>
+                </TabsContent>
+            </Tabs>
         </div>
-
-        <Tabs defaultValue="list" className="space-y-4">
-            <TabsList>
-                <TabsTrigger value="list">Lista de Usuários</TabsTrigger>
-                <TabsTrigger value="register">Cadastrar Novo</TabsTrigger>
-            </TabsList>
-            <TabsContent value="list" className="space-y-4">
-                <UsersList users={users} supervisors={supervisors} />
-            </TabsContent>
-            <TabsContent value="register">
-                <div className="max-w-md mx-auto">
-                    <RegisterUserForm supervisors={supervisors} />
-                </div>
-            </TabsContent>
-        </Tabs>
-    </div>
-)
+    )
 }

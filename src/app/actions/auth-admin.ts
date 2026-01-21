@@ -38,7 +38,7 @@ async function checkAdminPermission() {
         .eq('id', user.id)
         .single()
 
-    if (!currentUserProfile || !['adm_mestre', 'adm_dorata'].includes(currentUserProfile.role)) {
+    if (!currentUserProfile || !['adm_mestre', 'adm_dorata', 'funcionario_n2'].includes(currentUserProfile.role)) {
         return { authorized: false, message: 'Acesso negado. Apenas administradores podem realizar esta ação.' }
     }
 
