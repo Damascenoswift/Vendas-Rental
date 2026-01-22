@@ -147,11 +147,17 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
     return { success: true, message: 'Usuário cadastrado com sucesso!' }
 }
 
-export async function getUsers() {
+export async function getUsers(options?: { includeInactive?: boolean }) {
     const permission = await checkAdminPermission()
     if (!permission.authorized) return []
 
-    const supabaseAdmin = createSupabaseServiceClient()
+    let supabaseAdmin
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin:', error)
+        return []
+    }
 
     // Fetch users with their supervisor name if available (self-join not explicitly easy without FK alias setup in client, but we added FK)
     // We will just fetch all columns for now, supervisor_id will be there.
@@ -165,7 +171,11 @@ export async function getUsers() {
         return []
     }
 
-    return users
+    if (options?.includeInactive) {
+        return users
+    }
+
+    return users.filter(user => user.status !== 'inactive')
 }
 
 export async function getSubordinates(supervisorId: string) {
@@ -212,7 +222,19 @@ export async function deleteUser(userId: string) {
         return { success: false, message: permission.message }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
+    let supabaseAdmin
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin:', error)
+        return { success: false, message: 'Configuração do servidor inválida para excluir usuários.' }
+    }
+
+    const { data: existingUser } = await supabaseAdmin
+        .from('users')
+        .select('email')
+        .eq('id', userId)
+        .single()
 
     // Delete from auth.users (this should cascade to public.users if configured, but we'll see)
     // Actually, usually we delete from auth.users via admin API
@@ -221,6 +243,20 @@ export async function deleteUser(userId: string) {
     if (error) {
         console.error('Erro ao excluir usuário:', error)
         return { success: false, message: 'Erro ao excluir usuário.' }
+    }
+
+    const updatePayload: { status: string; email?: string } = { status: 'inactive' }
+    if (existingUser?.email) {
+        updatePayload.email = `deleted+${userId}@rental.local`
+    }
+
+    const { error: updateError } = await supabaseAdmin
+        .from('users')
+        .update(updatePayload)
+        .eq('id', userId)
+
+    if (updateError) {
+        console.error('Aviso: Falha ao atualizar status do usuário:', updateError)
     }
 
     revalidatePath('/admin/usuarios')

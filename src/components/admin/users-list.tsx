@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { deleteUser } from "@/app/actions/auth-admin"
 import { Button } from "@/components/ui/button"
 import {
@@ -93,6 +94,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
 function DeleteUserButton({ userId, userName }: { userId: string, userName: string }) {
     const { showToast } = useToast()
     const [isDeleting, setIsDeleting] = useState(false)
+    const router = useRouter()
 
     const handleDelete = async () => {
         setIsDeleting(true)
@@ -104,6 +106,7 @@ function DeleteUserButton({ userId, userName }: { userId: string, userName: stri
                     title: "Usuário excluído",
                     description: "O usuário foi removido com sucesso.",
                 })
+                router.refresh()
             } else {
                 showToast({
                     variant: "error",
