@@ -47,7 +47,7 @@ export default async function FinancialPage() {
 
     const { data: rentalIndicacoes } = await supabase
         .from('indicacoes')
-        .select('id, created_at, nome, status, valor, users(name, email)')
+        .select('id, created_at, nome, status, valor, users!indicacoes_user_id_fkey(name, email)')
         .not('valor', 'is', null)
         .order('created_at', { ascending: false })
 

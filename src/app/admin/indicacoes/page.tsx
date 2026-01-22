@@ -38,7 +38,7 @@ export default async function AdminIndicacoesPage() {
 
     let query = supabaseAdmin
         .from("indicacoes")
-        .select("*, users(email, name)")
+        .select("*, users!indicacoes_user_id_fkey(email, name)")
         .order("created_at", { ascending: false })
 
     if (role === 'supervisor') {
