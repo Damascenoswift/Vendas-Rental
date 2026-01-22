@@ -10,20 +10,22 @@ export function AiChatWidget() {
     const { isOpen, toggleOpen, messages, addMessage, isLoading, setIsLoading } = useAiChat()
     const [inputValue, setInputValue] = useState("")
     const messagesEndRef = useRef<HTMLDivElement>(null)
-
-    if (status !== "authenticated" || profile?.role !== "adm_mestre") {
-        return null
-    }
+    const isAuthorized = status === "authenticated" && profile?.role === "adm_mestre"
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
     }
 
     useEffect(() => {
+        if (!isAuthorized) return
         if (isOpen) {
             scrollToBottom()
         }
-    }, [messages, isOpen])
+    }, [messages, isOpen, isAuthorized])
+
+    if (!isAuthorized) {
+        return null
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
