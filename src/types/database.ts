@@ -426,6 +426,7 @@ export interface Database {
           client_id: string | null
           seller_id: string | null
           status: Database['public']['Enums']['proposal_status_enum'] | null
+          calculation: Json | null
           total_value: number | null
           labor_cost: number | null
           equipment_cost: number | null
@@ -442,6 +443,7 @@ export interface Database {
           client_id?: string | null
           seller_id?: string | null
           status?: Database['public']['Enums']['proposal_status_enum'] | null
+          calculation?: Json | null
           total_value?: number | null
           labor_cost?: number | null
           equipment_cost?: number | null
@@ -458,6 +460,7 @@ export interface Database {
           client_id?: string | null
           seller_id?: string | null
           status?: Database['public']['Enums']['proposal_status_enum'] | null
+          calculation?: Json | null
           total_value?: number | null
           labor_cost?: number | null
           equipment_cost?: number | null

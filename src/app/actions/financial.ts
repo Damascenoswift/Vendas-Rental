@@ -35,7 +35,7 @@ export async function createTransaction(prevState: CreateTransactionState, formD
 
     // Check if admin
     const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-    if (!profile || !['adm_mestre', 'adm_dorata'].includes(profile.role)) {
+    if (!profile || !['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile.role)) {
         return { success: false, message: 'Permissão negada.' }
     }
 

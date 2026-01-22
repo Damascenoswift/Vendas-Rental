@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 
+const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2'] as const
+
 export async function updateIndicationStatus(id: string, newStatus: string) {
     const supabase = await createClient()
     const {
@@ -18,7 +20,7 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
 
-    if (role !== "adm_mestre") {
+    if (!role || !indicationUpdateRoles.includes(role)) {
         return { error: "Acesso negado" }
     }
 
@@ -56,7 +58,7 @@ export async function setIndicationFlags(id: string, flags: IndicationFlagsInput
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
 
-    if (role !== "adm_mestre") {
+    if (!role || !indicationUpdateRoles.includes(role)) {
         return { error: "Acesso negado" }
     }
 

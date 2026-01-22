@@ -64,7 +64,7 @@ export function Sidebar({ className }: SidebarProps) {
                     <div className="space-y-1">
                         <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
 
-                        {['adm_mestre', 'funcionario_n1', 'adm_dorata', 'supervisor'].includes(role) && (
+                        {['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) && (
                             <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
                         )}
 
@@ -72,11 +72,11 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                         )}
 
-                        {['adm_mestre', 'funcionario_n1'].includes(role) && (
+                        {['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />
                         )}
 
-                        {['adm_mestre', 'funcionario_n1'].includes(role) && (
+                        {['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/investidor" label="Portal Investidor" icon={PieChart} />
                         )}
                     </div>
@@ -87,27 +87,27 @@ export function Sidebar({ className }: SidebarProps) {
                         Gestão
                     </h2>
                     <div className="space-y-1">
-                        {['adm_mestre', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1'].includes(role) && (
+                        {['adm_mestre', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/energia" label="Energia" icon={Zap} />
                         )}
 
-                        {['adm_mestre', 'adm_dorata', 'funcionario_n1'].includes(role) && (
+                        {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 
-                        {['adm_mestre', 'funcionario_n2'].includes(role) && (
+                        {role === 'adm_mestre' && (
                             <NavItem href="/admin/usuarios" label="Usuários" icon={Users} />
                         )}
                     </div>
                 </div>
 
-                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'funcionario_n1'].includes(role) && (
+                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                             Dorata Solar
                         </h2>
                         <div className="space-y-1">
-                            {['adm_mestre', 'adm_dorata', 'funcionario_n1'].includes(role) && (
+                            {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <>
                                     <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
                                     <NavItem href="/admin/importacao" label="Importação" icon={FileText} />
@@ -116,7 +116,7 @@ export function Sidebar({ className }: SidebarProps) {
 
                             <NavItem href="/admin/orcamentos" label="Orçamentos" icon={Calculator} />
 
-                            {['adm_mestre', 'adm_dorata', 'funcionario_n1'].includes(role) && (
+                            {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <NavItem href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />
                             )}
                         </div>

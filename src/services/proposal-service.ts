@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { Database } from "@/types/database"
 import { revalidatePath } from "next/cache"
+import { calculateProposal, type ProposalCalcInput, type ProposalCalculation } from "@/lib/proposal-calculation"
 
 export type PricingRule = Database['public']['Tables']['pricing_rules']['Row']
 export type PricingRuleUpdate = Database['public']['Tables']['pricing_rules']['Update']
@@ -48,11 +49,30 @@ export async function createProposal(
     items: ProposalItemInsert[]
 ) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const commissionPercent = await getCommissionPercent(supabase)
 
     // 1. Create Proposal
+    const proposalPayload: ProposalInsert = {
+        ...proposalData,
+        seller_id: proposalData.seller_id ?? user?.id ?? null
+    }
+
+    const calculation = proposalPayload.calculation as ProposalCalculation | null
+    if (calculation) {
+        const contractValue = Number(
+            calculation.output?.totals?.total_a_vista ?? proposalPayload.total_value ?? 0
+        )
+        calculation.commission = {
+            percent: commissionPercent,
+            value: contractValue * commissionPercent,
+            base_value: contractValue
+        }
+        proposalPayload.calculation = calculation as any
+    }
     const { data: proposal, error: propError } = await supabase
         .from('proposals')
-        .insert(proposalData)
+        .insert(proposalPayload)
         .select()
         .single()
 
@@ -84,81 +104,27 @@ export async function createProposal(
 // Calculation Logic
 // This could be moved to a shared utility or kept here.
 // Returns calculated values but does NOT save to DB.
-export async function calculateProposalValue(
-    panels: { id: string, power: number, price: number, quantity: number },
-    inverters: { id: string, price: number, quantity: number }[],
-    structures: { id: string, price: number, quantity: number }[],
-    otherItems: { id: string, price: number, quantity: number }[]
-) {
-    const rules = await getPricingRules()
+export function calculateProposalValue(input: ProposalCalcInput) {
+    return calculateProposal(input)
+}
 
-    // Convert rules array to object for easier lookup
-    const ruleMap: Record<string, number> = {}
-    rules.forEach(r => {
-        if (r.active) ruleMap[r.key] = Number(r.value)
-    })
+async function getCommissionPercent(supabase: Awaited<ReturnType<typeof createClient>>) {
+    const { data, error } = await supabase
+        .from('pricing_rules')
+        .select('value')
+        .eq('key', 'dorata_commission_percent')
+        .single()
 
-    // 1. Equipment Cost
-    let equipmentCost = 0
-    let totalPower = 0
-
-    // Panels
-    const totalPanels = panels.quantity
-    equipmentCost += panels.price * panels.quantity
-    totalPower += (panels.power || 0) * panels.quantity
-
-    // Inverters
-    inverters.forEach(inv => {
-        equipmentCost += inv.price * inv.quantity
-    })
-
-    // Structures
-    structures.forEach(str => {
-        equipmentCost += str.price * str.quantity
-    })
-
-    // Others
-    otherItems.forEach(item => {
-        equipmentCost += item.price * item.quantity
-    })
-
-    // 2. Labor Cost
-    // Rules: 'labor_per_panel' OR 'labor_per_watt'
-    let laborCost = 0
-
-    if (ruleMap['labor_per_panel'] !== undefined) {
-        laborCost = totalPanels * ruleMap['labor_per_panel']
-    } else if (ruleMap['labor_per_watt'] !== undefined) {
-        laborCost = totalPower * ruleMap['labor_per_watt']
+    if (error || !data) {
+        return 0.03
     }
 
-    // 3. Additional & Margin
-    let additionalCost = 0 // Extra fixed costs if any rules exist
-
-    // 4. Profit Margin
-    // If margin is a percentage of (Equip + Labor)
-    let marginValue = 0
-    if (ruleMap['default_margin']) {
-        const costBasis = equipmentCost + laborCost + additionalCost
-        marginValue = costBasis * (ruleMap['default_margin'] / 100)
+    const rawValue = Number(data.value)
+    if (!Number.isFinite(rawValue)) {
+        return 0.03
     }
 
-    const totalValue = equipmentCost + laborCost + additionalCost + marginValue
-
-    return {
-        totalValue,
-        equipmentCost,
-        laborCost,
-        additionalCost,
-        profitMargin: marginValue,
-        totalPower,
-        breakdown: {
-            panels: panels.price * panels.quantity,
-            inverters: inverters.reduce((acc, i) => acc + i.price * i.quantity, 0),
-            structures: structures.reduce((acc, s) => acc + s.price * s.quantity, 0),
-            others: otherItems.reduce((acc, o) => acc + o.price * o.quantity, 0)
-        }
-    }
+    return rawValue > 1 ? rawValue / 100 : rawValue
 }
 
 // Status & Stock Logic

@@ -25,12 +25,20 @@ export default async function AdminUsersPage() {
         .eq('id', user.id)
         .single()
 
-    if (!profile || !['adm_mestre', 'adm_dorata', 'funcionario_n2'].includes(profile.role)) {
+    const ownerId = process.env.USER_MANAGEMENT_OWNER_ID
+    const ownerEmail = process.env.USER_MANAGEMENT_OWNER_EMAIL?.toLowerCase()
+    const userEmail = (user.email ?? '').toLowerCase()
+    const isOwner =
+        (ownerId && user.id === ownerId) ||
+        (ownerEmail && userEmail === ownerEmail) ||
+        (!ownerId && !ownerEmail && profile?.role === 'adm_mestre')
+
+    if (!profile || !isOwner) {
         return (
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">
                     <h2 className="text-lg font-bold">Acesso Negado</h2>
-                    <p>Seu usuário não tem permissão para acessar esta página.</p>
+                    <p>Somente o perfil proprietário pode gerenciar usuários.</p>
                 </div>
             </div>
         )

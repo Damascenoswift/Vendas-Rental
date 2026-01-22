@@ -2,12 +2,18 @@
 
 import React, { useState, useRef, useEffect } from "react"
 import { useAiChat } from "@/contexts/ai-chat-context"
+import { useAuthSession } from "@/hooks/use-auth-session"
 import { MessageSquare, X, Send, Bot, User } from "lucide-react"
 
 export function AiChatWidget() {
+    const { profile, status } = useAuthSession()
     const { isOpen, toggleOpen, messages, addMessage, isLoading, setIsLoading } = useAiChat()
     const [inputValue, setInputValue] = useState("")
     const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    if (status !== "authenticated" || profile?.role !== "adm_mestre") {
+        return null
+    }
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })

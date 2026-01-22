@@ -24,7 +24,9 @@ export type CreateUserState = {
     errors?: Record<string, string[]>
 }
 
-async function checkAdminPermission() {
+type AdminPermissionMode = 'read-users' | 'manage-users'
+
+async function checkAdminPermission(mode: AdminPermissionMode = 'read-users') {
     const supabase = await createClient()
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
@@ -32,21 +34,39 @@ async function checkAdminPermission() {
         return { authorized: false, message: 'Você precisa estar logado.' }
     }
 
-    const { data: currentUserProfile } = await supabase
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: currentUserProfile } = await supabaseAdmin
         .from('users')
-        .select('role')
+        .select('role, email')
         .eq('id', user.id)
         .single()
 
-    if (!currentUserProfile || !['adm_mestre', 'adm_dorata', 'funcionario_n2'].includes(currentUserProfile.role)) {
+    const role = (currentUserProfile?.role ?? user.user_metadata?.role) as UserRole | undefined
+    const ownerId = process.env.USER_MANAGEMENT_OWNER_ID
+    const ownerEmail = process.env.USER_MANAGEMENT_OWNER_EMAIL?.toLowerCase()
+    const userEmail = (user.email ?? currentUserProfile?.email ?? '').toLowerCase()
+    const isOwner =
+        (ownerId && user.id === ownerId) ||
+        (ownerEmail && userEmail === ownerEmail) ||
+        (!ownerId && !ownerEmail && role === 'adm_mestre')
+
+    if (mode === 'manage-users') {
+        if (!isOwner) {
+            return { authorized: false, message: 'Acesso negado. Apenas o perfil proprietário pode alterar usuários.' }
+        }
+        return { authorized: true, role, isOwner }
+    }
+
+    const allowedReadRoles: UserRole[] = ['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2']
+    if (!role || !allowedReadRoles.includes(role)) {
         return { authorized: false, message: 'Acesso negado. Apenas administradores podem realizar esta ação.' }
     }
 
-    return { authorized: true }
+    return { authorized: true, role, isOwner }
 }
 
 export async function createUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
-    const permission = await checkAdminPermission()
+    const permission = await checkAdminPermission('manage-users')
     if (!permission.authorized) {
         return { success: false, message: permission.message || 'Erro de permissão' }
     }
@@ -187,7 +207,7 @@ export async function getSupervisors() {
 }
 
 export async function deleteUser(userId: string) {
-    const permission = await checkAdminPermission()
+    const permission = await checkAdminPermission('manage-users')
     if (!permission.authorized) {
         return { success: false, message: permission.message }
     }
@@ -210,6 +230,7 @@ export async function deleteUser(userId: string) {
 // Schema para atualização (parcial)
 const updateUserSchema = z.object({
     userId: z.string().uuid(),
+    email: z.string().email('Email inválido'),
     role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor', 'funcionario_n1', 'funcionario_n2']),
     department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
@@ -221,13 +242,14 @@ const updateUserSchema = z.object({
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
-    const permission = await checkAdminPermission()
+    const permission = await checkAdminPermission('manage-users')
     if (!permission.authorized) {
         return { success: false, message: permission.message || 'Erro de permissão' }
     }
 
     const rawData = {
         userId: formData.get('userId'),
+        email: formData.get('email'),
         role: formData.get('role'),
         department: formData.get('department'),
         brands: formData.getAll('brands'),
@@ -248,7 +270,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { userId, role, brands, department, name, phone, status, password, supervisor_id } = validated.data
+    const { userId, email, role, brands, department, name, phone, status, password, supervisor_id } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
 
     // 1. Update public.users table (Profile)
@@ -258,6 +280,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         allowed_brands: brands,
         name,
         phone,
+        email,
         status: status || 'active',
         supervisor_id: supervisor_id || null // Set to null if empty string
     }
@@ -275,9 +298,11 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
 
     // 2. Update auth.users metadata (to keep sync) and password if provided
     const authUpdateData: any = {
+        email,
         user_metadata: {
             nome: name,
             role,
+            telefone: phone,
             brands
         }
     }

@@ -86,6 +86,11 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                     </div>
 
                     <div className="space-y-2">
+                        <Label htmlFor="email">Email</Label>
+                        <Input id="email" name="email" type="email" defaultValue={user.email || ""} required />
+                    </div>
+
+                    <div className="space-y-2">
                         <Label htmlFor="password">Nova Senha (Opcional)</Label>
                         <Input
                             id="password"
@@ -167,7 +172,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                                     id="edit-brand-rental"
                                     name="brands"
                                     value="rental"
-                                    defaultChecked={user.allowed_brands?.includes('rental')}
+                                    defaultChecked={user.allowed_brands?.length ? user.allowed_brands.includes('rental') : true}
                                     className="h-4 w-4"
                                 />
                                 <Label htmlFor="edit-brand-rental">Rental</Label>
@@ -178,7 +183,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                                     id="edit-brand-dorata"
                                     name="brands"
                                     value="dorata"
-                                    defaultChecked={user.allowed_brands?.includes('dorata')}
+                                    defaultChecked={user.allowed_brands?.length ? user.allowed_brands.includes('dorata') : false}
                                     className="h-4 w-4"
                                 />
                                 <Label htmlFor="edit-brand-dorata">Dorata</Label>

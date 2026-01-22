@@ -39,7 +39,7 @@ export async function createIndicationAction(payload: any) {
             // we might want to block this or just ignore the attribution.
             // For now, let's allow if they are admin, but the prompt says
             // supervisors manage THEIR salespeople.
-            if (!['adm_mestre', 'adm_dorata'].includes(profile.role)) {
+            if (!['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile.role)) {
                 return { success: false, message: 'Você só pode atribuir indicações para seus subordinados.' }
             }
         }

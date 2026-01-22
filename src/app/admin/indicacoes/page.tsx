@@ -22,7 +22,7 @@ export default async function AdminIndicacoesPage() {
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
 
-    const allowedRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1']
+    const allowedRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2']
     if (!role || !allowedRoles.includes(role)) {
         return (
             <div className="container mx-auto py-10">

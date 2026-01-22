@@ -23,7 +23,7 @@ export default async function InvestorLayout({
         .single()
 
     const effectiveRole = profile?.role ?? (user.user_metadata?.role as string | undefined)
-    const canAccess = effectiveRole === 'investidor' || effectiveRole === 'adm_mestre'
+    const canAccess = ['investidor', 'adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(effectiveRole ?? '')
 
     if (!canAccess) {
         redirect("/dashboard")

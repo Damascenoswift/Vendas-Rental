@@ -106,13 +106,14 @@ export function NewTransactionDialog({ users }: { users: UserSummary[] }) {
                             <SelectTrigger>
                                 <SelectValue placeholder="Selecione..." />
                             </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="bonus_recrutamento">Bônus Recrutamento (+ R$ 500)</SelectItem>
-                                <SelectItem value="comissao_venda">Comissão Venda (Manual)</SelectItem>
-                                <SelectItem value="override_gestao">Override Gestão</SelectItem>
-                                <SelectItem value="adiantamento">Adiantamento (Débito)</SelectItem>
-                                <SelectItem value="despesa">Despesa (Débito)</SelectItem>
-                            </SelectContent>
+                        <SelectContent>
+                            <SelectItem value="bonus_recrutamento">Bônus Recrutamento (+ R$ 500)</SelectItem>
+                            <SelectItem value="comissao_venda">Comissão Venda (Manual)</SelectItem>
+                            <SelectItem value="comissao_dorata">Comissão Dorata</SelectItem>
+                            <SelectItem value="override_gestao">Override Gestão</SelectItem>
+                            <SelectItem value="adiantamento">Adiantamento (Débito)</SelectItem>
+                            <SelectItem value="despesa">Despesa (Débito)</SelectItem>
+                        </SelectContent>
                         </Select>
                     </div>
 
