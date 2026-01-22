@@ -104,7 +104,7 @@ export async function createProposal(
 // Calculation Logic
 // This could be moved to a shared utility or kept here.
 // Returns calculated values but does NOT save to DB.
-export function calculateProposalValue(input: ProposalCalcInput) {
+export async function calculateProposalValue(input: ProposalCalcInput) {
     return calculateProposal(input)
 }
 
