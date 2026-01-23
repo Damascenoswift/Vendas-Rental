@@ -41,6 +41,7 @@ const productSchema = z.object({
     category_special: z.string().optional(),
     specs: z.string().optional(),
     inverter_kind: z.enum(["micro", "string"]).optional(),
+    mppt_inputs: z.coerce.number().min(0).optional(),
     active: z.boolean().default(true)
 })
 
@@ -74,6 +75,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
         category_special: (specsObject.category_special as string | undefined) || "",
         specs: initialData.specs ? JSON.stringify(initialData.specs, null, 2) : "{}",
         inverter_kind: (specsObject.inverter_kind as "micro" | "string" | undefined),
+        mppt_inputs: typeof specsObject.mppt_inputs === "number" ? specsObject.mppt_inputs : undefined,
         active: initialData.active ?? true
     } : {
         name: "",
@@ -90,6 +92,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
         category_special: "",
         specs: "{}",
         inverter_kind: undefined,
+        mppt_inputs: undefined,
         active: true
     }
 
@@ -108,7 +111,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
                 // ignore
             }
 
-            const { specs, category_special, inverter_kind, ...rest } = data
+            const { specs, category_special, inverter_kind, mppt_inputs, ...rest } = data
 
             if (category_special) {
                 ;(parsedSpecs as any).category_special = category_special
@@ -120,6 +123,12 @@ export function ProductForm({ initialData }: ProductFormProps) {
                 ;(parsedSpecs as any).inverter_kind = inverter_kind
             } else if ((parsedSpecs as any).inverter_kind) {
                 delete (parsedSpecs as any).inverter_kind
+            }
+
+            if (rest.type === "inverter" && Number.isFinite(mppt_inputs)) {
+                ;(parsedSpecs as any).mppt_inputs = mppt_inputs
+            } else if ((parsedSpecs as any).mppt_inputs) {
+                delete (parsedSpecs as any).mppt_inputs
             }
 
             const payload: any = {
@@ -209,27 +218,48 @@ export function ProductForm({ initialData }: ProductFormProps) {
                     />
 
                     {watchedType === "inverter" ? (
-                        <FormField
-                            control={form.control}
-                            name="inverter_kind"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Tipo de Inversor</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <>
+                            <FormField
+                                control={form.control}
+                                name="inverter_kind"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Tipo de Inversor</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Selecione" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="micro">Micro inversor</SelectItem>
+                                                <SelectItem value="string">String</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            <FormField
+                                control={form.control}
+                                name="mppt_inputs"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Entradas MPPT</FormLabel>
                                         <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Selecione" />
-                                            </SelectTrigger>
+                                            <Input
+                                                type="number"
+                                                min="0"
+                                                placeholder="Ex: 2"
+                                                {...field}
+                                                onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                                            />
                                         </FormControl>
-                                        <SelectContent>
-                                            <SelectItem value="micro">Micro inversor</SelectItem>
-                                            <SelectItem value="string">String</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </>
                     ) : null}
 
                     <FormField
