@@ -38,7 +38,9 @@ const productSchema = z.object({
     price: z.coerce.number().min(0, "Preço deve ser maior ou igual a 0"),
     cost: z.coerce.number().min(0).optional(),
     category: z.string().optional(),
+    category_special: z.string().optional(),
     specs: z.string().optional(),
+    inverter_kind: z.enum(["micro", "string"]).optional(),
     active: z.boolean().default(true)
 })
 
@@ -51,6 +53,10 @@ interface ProductFormProps {
 export function ProductForm({ initialData }: ProductFormProps) {
     const router = useRouter()
     const { showToast } = useToast()
+    const specsObject =
+        initialData?.specs && typeof initialData.specs === "object" && !Array.isArray(initialData.specs)
+            ? (initialData.specs as Record<string, any>)
+            : {}
 
     // Default values need to handle potential nulls from DB nicely
     const defaultValues: Partial<ProductFormValues> = initialData ? {
@@ -65,7 +71,9 @@ export function ProductForm({ initialData }: ProductFormProps) {
         price: initialData.price,
         cost: initialData.cost || 0,
         category: initialData.category || "",
+        category_special: (specsObject.category_special as string | undefined) || "",
         specs: initialData.specs ? JSON.stringify(initialData.specs, null, 2) : "{}",
+        inverter_kind: (specsObject.inverter_kind as "micro" | "string" | undefined),
         active: initialData.active ?? true
     } : {
         name: "",
@@ -79,7 +87,9 @@ export function ProductForm({ initialData }: ProductFormProps) {
         price: 0,
         cost: 0,
         category: "",
+        category_special: "",
         specs: "{}",
+        inverter_kind: undefined,
         active: true
     }
 
@@ -87,6 +97,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
         resolver: zodResolver(productSchema),
         defaultValues
     })
+    const watchedType = form.watch("type")
 
     async function onSubmit(data: ProductFormValues) {
         try {
@@ -97,8 +108,22 @@ export function ProductForm({ initialData }: ProductFormProps) {
                 // ignore
             }
 
+            const { specs, category_special, inverter_kind, ...rest } = data
+
+            if (category_special) {
+                ;(parsedSpecs as any).category_special = category_special
+            } else if ((parsedSpecs as any).category_special) {
+                delete (parsedSpecs as any).category_special
+            }
+
+            if (rest.type === "inverter" && inverter_kind) {
+                ;(parsedSpecs as any).inverter_kind = inverter_kind
+            } else if ((parsedSpecs as any).inverter_kind) {
+                delete (parsedSpecs as any).inverter_kind
+            }
+
             const payload: any = {
-                ...data,
+                ...rest,
                 specs: parsedSpecs
             }
 
@@ -183,6 +208,30 @@ export function ProductForm({ initialData }: ProductFormProps) {
                         )}
                     />
 
+                    {watchedType === "inverter" ? (
+                        <FormField
+                            control={form.control}
+                            name="inverter_kind"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Tipo de Inversor</FormLabel>
+                                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="micro">Micro inversor</SelectItem>
+                                            <SelectItem value="string">String</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                    ) : null}
+
                     <FormField
                         control={form.control}
                         name="manufacturer"
@@ -257,10 +306,10 @@ export function ProductForm({ initialData }: ProductFormProps) {
 
                     <FormField
                         control={form.control}
-                        name="category"
+                        name="category_special"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Categoria (Opcional)</FormLabel>
+                                <FormLabel>Categoria especial (Opcional)</FormLabel>
                                 <FormControl>
                                     <Input placeholder="Ex: Premium" {...field} />
                                 </FormControl>

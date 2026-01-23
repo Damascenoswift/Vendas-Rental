@@ -55,9 +55,25 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
+function getSpecValue(product: Product, key: string) {
+    const specs = product.specs
+    if (!specs || typeof specs !== "object" || Array.isArray(specs)) {
+        return undefined
+    }
+    return (specs as Record<string, any>)[key]
+}
+
 export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalculatorProps) {
     const panelProducts = products.filter((p) => p.type === "module")
     const inverterProducts = products.filter((p) => p.type === "inverter")
+    const microInverterProducts = inverterProducts.filter(
+        (p) => getSpecValue(p, "inverter_kind") === "micro"
+    )
+    const stringInverterProducts = inverterProducts.filter(
+        (p) => getSpecValue(p, "inverter_kind") === "string"
+    )
+    const effectiveMicroInverters = microInverterProducts.length ? microInverterProducts : inverterProducts
+    const effectiveStringInverters = stringInverterProducts.length ? stringInverterProducts : inverterProducts
     const structureProducts = products.filter((p) => p.type === "structure")
 
     const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
@@ -487,7 +503,7 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                                         <SelectValue placeholder="Selecionar" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {inverterProducts.map((product) => (
+                                        {effectiveStringInverters.map((product) => (
                                             <SelectItem key={product.id} value={product.id}>
                                                 {product.name}
                                             </SelectItem>
@@ -523,7 +539,7 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                                         <SelectValue placeholder="Selecionar" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {inverterProducts.map((product) => (
+                                        {effectiveMicroInverters.map((product) => (
                                             <SelectItem key={product.id} value={product.id}>
                                                 {product.name}
                                             </SelectItem>
