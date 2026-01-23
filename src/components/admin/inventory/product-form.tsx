@@ -120,9 +120,13 @@ export function ProductForm({ initialData }: ProductFormProps) {
             router.push("/admin/estoque")
             router.refresh()
         } catch (error) {
+            const message =
+                error instanceof Error && error.message
+                    ? error.message
+                    : "Erro ao salvar produto."
             showToast({
                 title: "Erro",
-                description: "Erro ao salvar produto.",
+                description: message,
                 variant: "error",
             })
             console.error(error)

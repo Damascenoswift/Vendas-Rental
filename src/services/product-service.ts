@@ -67,7 +67,7 @@ export async function createProduct(product: ProductInsert) {
 
     if (error) {
         console.error('Error creating product:', error)
-        throw new Error('Failed to create product')
+        throw new Error(error.message || 'Failed to create product')
     }
 
     revalidatePath('/admin/estoque')
@@ -86,7 +86,7 @@ export async function updateProduct(id: string, updates: ProductUpdate) {
 
     if (error) {
         console.error('Error updating product:', error)
-        throw new Error('Failed to update product')
+        throw new Error(error.message || 'Failed to update product')
     }
 
     revalidatePath('/admin/estoque')
@@ -106,7 +106,7 @@ export async function deleteProduct(id: string) {
 
     if (error) {
         console.error('Error deleting product:', error)
-        throw new Error('Failed to delete product')
+        throw new Error(error.message || 'Failed to delete product')
     }
 
     revalidatePath('/admin/estoque')

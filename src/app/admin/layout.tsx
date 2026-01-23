@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar" // Import Sidebar
+import { ToastContainer } from "@/components/ui/toaster"
 
 export default async function AdminLayout({
     children,
@@ -39,6 +40,7 @@ export default async function AdminLayout({
                     {children}
                 </main>
             </div>
+            <ToastContainer />
         </div>
     )
 }
