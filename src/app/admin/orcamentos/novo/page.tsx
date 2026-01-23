@@ -3,6 +3,8 @@ import { getProducts } from "@/services/product-service"
 import { getPricingRules } from "@/services/proposal-service"
 import { ProposalCalculator } from "@/components/admin/proposals/proposal-calculator"
 
+export const dynamic = "force-dynamic"
+
 export default async function NewProposalPage() {
     let products = []
     let pricingRules = []
