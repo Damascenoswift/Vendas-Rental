@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/card"
 import { Package, AlertTriangle, DollarSign } from "lucide-react"
 
+export const dynamic = "force-dynamic"
+
 export default async function InventoryPage() {
     return (
         <div className="h-full flex-1 flex-col space-y-8 p-8 md:flex">
@@ -41,7 +43,28 @@ export default async function InventoryPage() {
 }
 
 async function InventoryContent() {
-    const products = await getProducts()
+    let products = []
+    let loadError: string | null = null
+
+    try {
+        products = await getProducts()
+    } catch (error) {
+        console.error("Erro ao carregar produtos:", error)
+        loadError = "Não foi possível carregar os produtos do estoque."
+    }
+
+    if (loadError) {
+        return (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                <p className="font-semibold">{loadError}</p>
+                <p className="mt-2 text-xs text-destructive/80">
+                    Verifique se as migrações do estoque foram aplicadas no Supabase
+                    (ex.: <code>030_create_inventory_and_proposals.sql</code> e{" "}
+                    <code>033_add_inventory_stock.sql</code>).
+                </p>
+            </div>
+        )
+    }
 
     // Key Metrics Calculation
     const totalItems = products.length
