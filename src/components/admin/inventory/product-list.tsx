@@ -47,7 +47,10 @@ export function ProductList({ initialProducts }: ProductListProps) {
     const handleDelete = async () => {
         if (!deletingId) return
         try {
-            await deleteProduct(deletingId)
+            const result = await deleteProduct(deletingId)
+            if (result.error) {
+                throw new Error(result.error)
+            }
             showToast({
                 title: "Sucesso",
                 description: "Produto excluído com sucesso.",

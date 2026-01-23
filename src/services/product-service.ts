@@ -13,6 +13,8 @@ export type StockMovement = Database['public']['Tables']['stock_movements']['Row
 export type StockMovementInsert = Database['public']['Tables']['stock_movements']['Insert']
 export type StockMovementType = Database['public']['Enums']['stock_movement_type']
 
+type ProductActionResult = { data: Product | null; error?: string }
+
 export async function getProducts(filters?: { active?: boolean, type?: ProductType }) {
     const supabase = await createClient()
 
@@ -67,11 +69,11 @@ export async function createProduct(product: ProductInsert) {
 
     if (error) {
         console.error('Error creating product:', error)
-        throw new Error(error.message || 'Failed to create product')
+        return { data: null, error: error.message || 'Erro ao criar produto.' } satisfies ProductActionResult
     }
 
     revalidatePath('/admin/estoque')
-    return data as Product
+    return { data: data as Product } satisfies ProductActionResult
 }
 
 export async function updateProduct(id: string, updates: ProductUpdate) {
@@ -86,11 +88,11 @@ export async function updateProduct(id: string, updates: ProductUpdate) {
 
     if (error) {
         console.error('Error updating product:', error)
-        throw new Error(error.message || 'Failed to update product')
+        return { data: null, error: error.message || 'Erro ao atualizar produto.' } satisfies ProductActionResult
     }
 
     revalidatePath('/admin/estoque')
-    return data as Product
+    return { data: data as Product } satisfies ProductActionResult
 }
 
 export async function deleteProduct(id: string) {
@@ -106,10 +108,11 @@ export async function deleteProduct(id: string) {
 
     if (error) {
         console.error('Error deleting product:', error)
-        throw new Error(error.message || 'Failed to delete product')
+        return { error: error.message || 'Erro ao excluir produto.' }
     }
 
     revalidatePath('/admin/estoque')
+    return { error: undefined }
 }
 
 export async function getStockMovements(productId: string) {

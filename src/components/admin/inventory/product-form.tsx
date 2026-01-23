@@ -103,14 +103,20 @@ export function ProductForm({ initialData }: ProductFormProps) {
             }
 
             if (initialData) {
-                await updateProduct(initialData.id, payload)
+                const result = await updateProduct(initialData.id, payload)
+                if (result.error) {
+                    throw new Error(result.error)
+                }
                 showToast({
                     title: "Sucesso",
                     description: "Produto atualizado com sucesso!",
                     variant: "success",
                 })
             } else {
-                await createProduct(payload)
+                const result = await createProduct(payload)
+                if (result.error) {
+                    throw new Error(result.error)
+                }
                 showToast({
                     title: "Sucesso",
                     description: "Produto criado com sucesso!",
