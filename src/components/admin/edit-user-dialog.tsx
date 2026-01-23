@@ -78,16 +78,19 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                         <div className="space-y-2">
                             <Label htmlFor="name">Nome</Label>
                             <Input id="name" name="name" defaultValue={user.name} required />
+                            {state.errors?.name && <p className="text-red-500 text-xs">{state.errors.name[0]}</p>}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="phone">Telefone</Label>
                             <Input id="phone" name="phone" defaultValue={user.phone} />
+                            {state.errors?.phone && <p className="text-red-500 text-xs">{state.errors.phone[0]}</p>}
                         </div>
                     </div>
 
                     <div className="space-y-2">
                         <Label htmlFor="email">Email</Label>
                         <Input id="email" name="email" type="email" defaultValue={user.email || ""} required />
+                        {state.errors?.email && <p className="text-red-500 text-xs">{state.errors.email[0]}</p>}
                     </div>
 
                     <div className="space-y-2">
@@ -100,6 +103,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             minLength={6}
                         />
                         <p className="text-[10px] text-muted-foreground">Mínimo de 6 caracteres.</p>
+                        {state.errors?.password && <p className="text-red-500 text-xs">{state.errors.password[0]}</p>}
                     </div>
 
                     <div className="space-y-2">
@@ -122,6 +126,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             <option value="funcionario_n1">Funcionário Nível 1</option>
                             <option value="funcionario_n2">Funcionário Nível 2</option>
                         </select>
+                        {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
                     </div>
 
                     {/* Supervisor Selection */}
@@ -161,6 +166,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             <option value="diretoria">Diretoria</option>
                             <option value="outro">Outro</option>
                         </select>
+                        {state.errors?.department && <p className="text-red-500 text-xs">{state.errors.department[0]}</p>}
                     </div>
 
                     <div className="space-y-2">
@@ -189,6 +195,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                                 <Label htmlFor="edit-brand-dorata">Dorata</Label>
                             </div>
                         </div>
+                        {state.errors?.brands && <p className="text-red-500 text-xs">{state.errors.brands[0]}</p>}
                     </div>
 
                     <div className="space-y-2">
@@ -203,6 +210,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             <option value="inactive">Inativo</option>
                             <option value="suspended">Suspenso</option>
                         </select>
+                        {state.errors?.status && <p className="text-red-500 text-xs">{state.errors.status[0]}</p>}
                     </div>
 
                     <DialogFooter>

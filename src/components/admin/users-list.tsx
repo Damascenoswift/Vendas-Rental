@@ -104,7 +104,7 @@ function DeleteUserButton({ userId, userName }: { userId: string, userName: stri
                 showToast({
                     variant: "success",
                     title: "Usuário excluído",
-                    description: "O usuário foi removido com sucesso.",
+                    description: result.message || "O usuário foi removido com sucesso.",
                 })
                 router.refresh()
             } else {

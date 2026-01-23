@@ -7,15 +7,34 @@ import { z } from 'zod'
 import type { UserRole, Brand } from '@/lib/auth'
 
 // Schema de validação
+const userRoleValues = [
+    'vendedor_externo',
+    'vendedor_interno',
+    'supervisor',
+    'adm_mestre',
+    'adm_dorata',
+    'suporte_tecnico',
+    'suporte_limitado',
+    'investidor',
+    'funcionario_n1',
+    'funcionario_n2',
+] as const
+
+const optionalString = (value: FormDataEntryValue | null) => {
+    if (typeof value !== 'string') return undefined
+    const trimmed = value.trim()
+    return trimmed.length ? trimmed : undefined
+}
+
 const createUserSchema = z.object({
     email: z.string().email('Email inválido'),
     password: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres'),
     name: z.string().min(1, 'Nome é obrigatório'),
     phone: z.string().optional(),
-    role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor', 'funcionario_n1', 'funcionario_n2']),
+    role: z.enum(userRoleValues),
     department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
-    supervisor_id: z.string().optional().or(z.literal('')),
+    supervisor_id: z.string().optional(),
 })
 
 export type CreateUserState = {
@@ -34,7 +53,13 @@ async function checkAdminPermission(mode: AdminPermissionMode = 'read-users') {
         return { authorized: false, message: 'Você precisa estar logado.' }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
+    let supabaseAdmin
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin:', error)
+        return { success: false, message: 'Configuração do servidor inválida para criar usuários.' }
+    }
     const { data: currentUserProfile } = await supabaseAdmin
         .from('users')
         .select('role, email')
@@ -77,9 +102,9 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         name: formData.get('name'),
         phone: formData.get('phone'),
         role: formData.get('role'),
-        department: formData.get('department'),
+        department: optionalString(formData.get('department')),
         brands: formData.getAll('brands'),
-        supervisor_id: formData.get('supervisor_id'),
+        supervisor_id: optionalString(formData.get('supervisor_id')),
     }
 
     const validated = createUserSchema.safeParse(rawData)
@@ -119,8 +144,10 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         return { success: false, message: 'Erro inesperado: Usuário não retornado.' }
     }
 
-    // Prepare update data, ignoring supervisor_id if explicitly empty string
-    const updatePayload: any = {
+    // Upsert user profile to ensure row exists even if trigger is missing
+    const upsertPayload: any = {
+        id: newUser.user.id,
+        email,
         role: role,
         department: department || 'outro',
         allowed_brands: brands,
@@ -130,17 +157,16 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
     }
 
     if (supervisor_id) {
-        updatePayload.supervisor_id = supervisor_id
+        upsertPayload.supervisor_id = supervisor_id
     }
 
-    const { error: updateError } = await supabaseAdmin
+    const { error: upsertError } = await supabaseAdmin
         .from('users')
-        .update(updatePayload)
-        .eq('id', newUser.user.id)
+        .upsert(upsertPayload, { onConflict: 'id' })
 
-    if (updateError) {
-        console.error('Erro ao atualizar perfil:', updateError)
-        return { success: true, message: 'Usuário criado, mas houve um aviso ao atualizar permissões ou supervisor.' }
+    if (upsertError) {
+        console.error('Erro ao criar/atualizar perfil:', upsertError)
+        return { success: false, message: `Usuário criado no Auth, mas falha ao salvar perfil: ${upsertError.message}` }
     }
 
     revalidatePath('/admin/usuarios')
@@ -185,7 +211,7 @@ export async function getSubordinates(supervisorId: string) {
         .from('users')
         .select('id, name, email')
         .eq('supervisor_id', supervisorId)
-        .eq('status', 'active')
+        .in('status', ['active', 'ATIVO'])
         .order('name', { ascending: true })
 
     if (error) {
@@ -205,7 +231,7 @@ export async function getSupervisors() {
         .from('users')
         .select('id, name, email')
         .eq('role', 'supervisor')
-        .eq('status', 'active')
+        .in('status', ['active', 'ATIVO'])
         .order('name', { ascending: true })
 
     if (error) {
@@ -236,13 +262,17 @@ export async function deleteUser(userId: string) {
         .eq('id', userId)
         .single()
 
-    // Delete from auth.users (this should cascade to public.users if configured, but we'll see)
-    // Actually, usually we delete from auth.users via admin API
-    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId)
+    // Soft delete to avoid FK blocks and still revoke access
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(userId, true)
+    const authMissing =
+        error &&
+        ((error as any).status === 404 ||
+            (error as any).code === 'user_not_found' ||
+            String(error.message || '').toLowerCase().includes('user not found'))
 
-    if (error) {
+    if (error && !authMissing) {
         console.error('Erro ao excluir usuário:', error)
-        return { success: false, message: 'Erro ao excluir usuário.' }
+        return { success: false, message: `Erro ao excluir usuário: ${error.message}` }
     }
 
     const updatePayload: { status: string; email?: string } = { status: 'inactive' }
@@ -260,21 +290,23 @@ export async function deleteUser(userId: string) {
     }
 
     revalidatePath('/admin/usuarios')
-    return { success: true, message: 'Usuário excluído com sucesso.' }
+    return authMissing
+        ? { success: true, message: 'Usuário removido apenas do cadastro local (não existe no Auth).' }
+        : { success: true, message: 'Usuário excluído com sucesso.' }
 }
 
 // Schema para atualização (parcial)
 const updateUserSchema = z.object({
     userId: z.string().uuid(),
     email: z.string().email('Email inválido'),
-    role: z.enum(['vendedor_externo', 'vendedor_interno', 'supervisor', 'adm_mestre', 'adm_dorata', 'investidor', 'funcionario_n1', 'funcionario_n2']),
+    role: z.enum(userRoleValues),
     department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
     name: z.string().min(1, 'Nome é obrigatório'),
     phone: z.string().optional(),
     status: z.enum(['active', 'inactive', 'suspended']).optional(),
     password: z.string().optional(),
-    supervisor_id: z.string().optional().or(z.literal('')),
+    supervisor_id: z.string().optional(),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -287,13 +319,13 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         userId: formData.get('userId'),
         email: formData.get('email'),
         role: formData.get('role'),
-        department: formData.get('department'),
+        department: optionalString(formData.get('department')),
         brands: formData.getAll('brands'),
         name: formData.get('name'),
         phone: formData.get('phone'),
-        status: formData.get('status'),
+        status: optionalString(formData.get('status')),
         password: formData.get('password') || undefined,
-        supervisor_id: formData.get('supervisor_id'),
+        supervisor_id: optionalString(formData.get('supervisor_id')),
     }
 
     const validated = updateUserSchema.safeParse(rawData)

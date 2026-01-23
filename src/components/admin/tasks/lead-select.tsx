@@ -31,9 +31,10 @@ interface Lead {
 interface LeadSelectProps {
     value?: string
     onChange: (value: string) => void
+    onSelectLead?: (lead: Lead) => void
 }
 
-export function LeadSelect({ value, onChange }: LeadSelectProps) {
+export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
     const [open, setOpen] = React.useState(false)
     const [leads, setLeads] = React.useState<Lead[]>([])
     const [search, setSearch] = React.useState("")
@@ -106,6 +107,7 @@ export function LeadSelect({ value, onChange }: LeadSelectProps) {
                                     onSelect={() => {
                                         console.log("Selected lead:", lead)
                                         onChange(lead.id)
+                                        onSelectLead?.(lead)
                                         setSelectedLead(lead)
                                         setOpen(false)
                                     }}

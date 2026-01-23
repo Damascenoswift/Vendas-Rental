@@ -49,6 +49,7 @@ const taskSchema = z.object({
     due_date: z.string().optional(), // YYYY-MM-DD
     assignee_id: z.string().optional(),
     indicacao_id: z.string().optional(), // Linked lead
+    client_name: z.string().optional(),
     status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
     brand: z.enum(["rental", "dorata"]),
 })
@@ -70,6 +71,7 @@ export function TaskDialog() {
             status: "TODO",
             brand: "rental",
             description: "",
+            client_name: "",
         },
     })
 
@@ -84,6 +86,7 @@ export function TaskDialog() {
         const { data, error } = await supabase
             .from('users')
             .select('id, name, department')
+            .in('status', ['active', 'ATIVO'])
             .order('name')
 
         if (error) {
@@ -105,8 +108,9 @@ export function TaskDialog() {
         setIsLoading(true)
         try {
             // Find client name if lead is selected
-            let clientName = undefined
-            if (data.indicacao_id) {
+            const manualClientName = data.client_name?.trim()
+            let clientName = manualClientName || undefined
+            if (data.indicacao_id && !clientName) {
                 const { data: lead } = await supabase.from('indicacoes').select('nome').eq('id', data.indicacao_id).single()
                 if (lead) clientName = lead.nome
             }
@@ -322,7 +326,24 @@ export function TaskDialog() {
                                         <LeadSelect
                                             value={field.value}
                                             onChange={field.onChange}
+                                            onSelectLead={(lead) => {
+                                                form.setValue("client_name", lead.nome)
+                                            }}
                                         />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        <FormField
+                            control={form.control}
+                            name="client_name"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Cliente Manual (Opcional)</FormLabel>
+                                    <FormControl>
+                                        <Input placeholder="Ex: Maria Silva" {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
