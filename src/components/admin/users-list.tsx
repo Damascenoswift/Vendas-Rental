@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { deleteUser } from "@/app/actions/auth-admin"
+import { deleteUser, syncUsersFromAuth } from "@/app/actions/auth-admin"
 import { Button } from "@/components/ui/button"
 import {
     Table,
@@ -34,8 +34,49 @@ interface UsersListProps {
 }
 
 export function UsersList({ users, supervisors = [] }: UsersListProps) {
+    const { showToast } = useToast()
+    const [isSyncing, setIsSyncing] = useState(false)
+    const router = useRouter()
+
+    const handleSync = async () => {
+        setIsSyncing(true)
+        try {
+            const result = await syncUsersFromAuth()
+            if (result.success) {
+                showToast({
+                    variant: "success",
+                    title: "Sincronização concluída",
+                    description: result.message,
+                })
+                router.refresh()
+            } else {
+                showToast({
+                    variant: "error",
+                    title: "Erro ao sincronizar",
+                    description: result.message,
+                })
+            }
+        } catch (error) {
+            showToast({
+                variant: "error",
+                title: "Erro inesperado",
+                description: "Não foi possível sincronizar os usuários.",
+            })
+        } finally {
+            setIsSyncing(false)
+        }
+    }
+
     return (
         <div className="rounded-md border">
+            <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-3">
+                <div className="text-sm text-muted-foreground">
+                    Sincronize usuários do Auth para garantir que todos apareçam na lista.
+                </div>
+                <Button size="sm" variant="outline" onClick={handleSync} disabled={isSyncing}>
+                    {isSyncing ? "Sincronizando..." : "Sincronizar Auth"}
+                </Button>
+            </div>
             <Table>
                 <TableHeader>
                     <TableRow>

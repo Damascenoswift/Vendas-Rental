@@ -26,6 +26,26 @@ const optionalString = (value: FormDataEntryValue | null) => {
     return trimmed.length ? trimmed : undefined
 }
 
+const isValidRole = (value: unknown): value is UserRole => {
+    return userRoleValues.includes(value as UserRole)
+}
+
+const normalizeBrands = (value: unknown): Brand[] => {
+    if (Array.isArray(value)) {
+        const valid = value.filter((item): item is Brand => item === 'rental' || item === 'dorata')
+        if (valid.length > 0) return valid
+    }
+    return ['rental']
+}
+
+const chunkArray = <T>(items: T[], size: number) => {
+    const chunks: T[][] = []
+    for (let i = 0; i < items.length; i += size) {
+        chunks.push(items.slice(i, i + size))
+    }
+    return chunks
+}
+
 const createUserSchema = z.object({
     email: z.string().email('Email inválido'),
     password: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres'),
@@ -149,20 +169,31 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         id: newUser.user.id,
         email,
         role: role,
-        department: department || 'outro',
         allowed_brands: brands,
         status: 'active',
         name: name,
         phone: phone
     }
 
+    if (department) {
+        upsertPayload.department = department
+    }
+
     if (supervisor_id) {
         upsertPayload.supervisor_id = supervisor_id
     }
 
-    const { error: upsertError } = await supabaseAdmin
+    let { error: upsertError } = await supabaseAdmin
         .from('users')
         .upsert(upsertPayload, { onConflict: 'id' })
+
+    if (upsertError && String(upsertError.message || '').toLowerCase().includes('department')) {
+        const { department: _omit, ...retryPayload } = upsertPayload
+        const retry = await supabaseAdmin
+            .from('users')
+            .upsert(retryPayload, { onConflict: 'id' })
+        upsertError = retry.error
+    }
 
     if (upsertError) {
         console.error('Erro ao criar/atualizar perfil:', upsertError)
@@ -240,6 +271,84 @@ export async function getSupervisors() {
     }
 
     return supervisors
+}
+
+export async function syncUsersFromAuth() {
+    const permission = await checkAdminPermission('manage-users')
+    if (!permission.authorized) {
+        return { success: false, message: permission.message || 'Erro de permissão' }
+    }
+
+    let supabaseAdmin
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin:', error)
+        return { success: false, message: 'Configuração do servidor inválida para sincronizar usuários.' }
+    }
+
+    const perPage = 1000
+    let page = 1
+    let processed = 0
+
+    while (true) {
+        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage })
+        if (error) {
+            console.error('Erro ao listar usuários do Auth:', error)
+            return { success: false, message: `Erro ao listar usuários do Auth: ${error.message}` }
+        }
+
+        const users = data?.users ?? []
+        if (users.length === 0) break
+
+        const rows = users.map((authUser) => {
+            const metadata: any = authUser.user_metadata ?? {}
+            const role = isValidRole(metadata.role) ? metadata.role : 'vendedor_externo'
+            const allowedBrands = normalizeBrands(metadata.brands ?? metadata.allowed_brands)
+            const name = metadata.nome || metadata.name || authUser.email || 'Usuário'
+            const phone = metadata.telefone || metadata.phone
+            const department = metadata.department || 'outro'
+
+            return {
+                id: authUser.id,
+                email: authUser.email ?? '',
+                role,
+                allowed_brands: allowedBrands,
+                name,
+                phone,
+                department,
+                status: metadata.status || 'active',
+            }
+        })
+
+        for (const chunk of chunkArray(rows, 500)) {
+            let { error: upsertError } = await supabaseAdmin
+                .from('users')
+                .upsert(chunk, { onConflict: 'id' })
+
+            if (upsertError && String(upsertError.message || '').toLowerCase().includes('department')) {
+                const retryChunk = chunk.map(({ department: _omit, ...rest }) => rest)
+                const retry = await supabaseAdmin
+                    .from('users')
+                    .upsert(retryChunk, { onConflict: 'id' })
+                upsertError = retry.error
+            }
+
+            if (upsertError) {
+                console.error('Erro ao sincronizar usuários:', upsertError)
+                return { success: false, message: `Erro ao sincronizar usuários: ${upsertError.message}` }
+            }
+
+            processed += chunk.length
+        }
+
+        if (data?.lastPage && page >= data.lastPage) break
+        if (users.length < perPage) break
+        page += 1
+    }
+
+    revalidatePath('/admin/usuarios')
+    return { success: true, message: `Sincronização concluída. ${processed} usuários processados.` }
 }
 
 export async function deleteUser(userId: string) {
