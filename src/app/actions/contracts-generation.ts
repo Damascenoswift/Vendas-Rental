@@ -1,18 +1,10 @@
 "use server"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
-import { generateContractHtml } from "@/lib/documents"
-import HTMLtoDOCX from "html-to-docx" // Wait, I need DOCX->DOCX filler, not HTML->DOCX converter for this flow.
-// The previous flow was DOCX -> HTML (Input) -> HTML (Edit) -> DOCX (Output).
-// The user now wants: Template DOCX -> Filled DOCX directly. 
-// "Usar Docxtemplater para preencher DOCX diretamente (sem editor HTML)."
-// So I don't need HTMLtoDOCX. I just need Docxtemplater to output a buffer and upload it.
-// I need to refactor `generateContractHtml` to just `generateContractDocx` or similar.
+import { loadTemplateDocx } from "@/lib/template-loader"
 
 import PizZip from "pizzip"
 import Docxtemplater from "docxtemplater"
-import * as fs from "fs"
-import path from "path"
 import { revalidatePath } from "next/cache"
 
 // TYPES 
@@ -25,13 +17,7 @@ interface ContractValues {
 
 // 1. Helper to load and fill template
 async function fillDocxTemplate(templateName: string, data: any): Promise<Buffer> {
-    const templatePath = path.join(process.cwd(), "public", "templates", `${templateName}.docx`)
-
-    if (!fs.existsSync(templatePath)) {
-        throw new Error(`Template not found: ${templatePath}. (Procurei em public/templates/)`)
-    }
-
-    const content = fs.readFileSync(templatePath, "binary")
+    const content = await loadTemplateDocx(templateName)
     const zip = new PizZip(content)
 
     const doc = new Docxtemplater(zip, {

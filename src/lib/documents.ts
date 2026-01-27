@@ -1,8 +1,7 @@
 import PizZip from "pizzip"
 import Docxtemplater from "docxtemplater"
-import * as fs from "fs"
-import path from "path"
 import mammoth from "mammoth"
+import { loadTemplateDocx } from "./template-loader"
 
 // This function will be called from the Server Action
 export async function generateContractHtml(
@@ -10,16 +9,8 @@ export async function generateContractHtml(
     data: any, // The data to fill placeholders
 ): Promise<string> {
 
-    // 1. Load the template
-    // Templates should be in public/templates/
-    const templatePath = path.join(process.cwd(), "public", "templates", `${templateName}.docx`)
-
-    // Check if exists
-    if (!fs.existsSync(templatePath)) {
-        throw new Error(`Template not found: ${templatePath}`)
-    }
-
-    const content = fs.readFileSync(templatePath, "binary")
+    // 1. Load the template (local first, then HTTP fallback)
+    const content = await loadTemplateDocx(templateName)
     const zip = new PizZip(content)
 
     const doc = new Docxtemplater(zip, {
