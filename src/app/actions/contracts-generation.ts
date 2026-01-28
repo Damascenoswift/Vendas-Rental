@@ -183,7 +183,13 @@ export async function generateContractFromIndication(indicacaoId: string) {
             upsert: true
         })
 
-    if (uploadError) return { success: false, message: "Erro upload Storage" }
+    if (uploadError) {
+        console.error("Upload Storage Error:", uploadError)
+        return {
+            success: false,
+            message: `Erro upload Storage: ${uploadError.message ?? "desconhecido"}`,
+        }
+    }
 
     const { data: { publicUrl } } = supabaseAdmin.storage.from('documents').getPublicUrl(fileName)
 
