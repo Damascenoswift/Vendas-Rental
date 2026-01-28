@@ -217,7 +217,10 @@ export async function generateContractFromIndication(indicacaoId: string) {
 
     if (dbError) {
         console.error(dbError)
-        return { success: false, message: "Erro ao salvar registro de contrato." }
+        return {
+            success: false,
+            message: `Erro ao salvar registro de contrato: ${dbError.message ?? "desconhecido"}`,
+        }
     }
 
     revalidatePath(`/admin/indicacoes`)
