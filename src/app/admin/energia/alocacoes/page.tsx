@@ -15,7 +15,7 @@ export default async function AlocacoesPage() {
     }
 
     const { data: alocacoes, error } = await supabase
-        .from("alocacoes_clientes")
+        .from("energia_alocacoes_ucs")
         .select(`
             id,
             percentual_alocado,
@@ -24,8 +24,11 @@ export default async function AlocacoesPage() {
             status,
             created_at,
             usina:usinas(nome),
-            cliente:indicacoes(nome)
-
+            uc:energia_ucs(
+                codigo_uc_fatura,
+                tipo_uc,
+                cliente:indicacoes(nome)
+            )
         `)
         .order("created_at", { ascending: false })
 

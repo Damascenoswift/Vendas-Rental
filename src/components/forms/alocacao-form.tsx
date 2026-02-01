@@ -24,7 +24,7 @@ import { useRouter } from "next/navigation"
 
 const alocacaoSchema = z.object({
     usina_id: z.string().uuid("Selecione uma usina"),
-    cliente_id: z.string().uuid("Selecione um cliente"),
+    uc_id: z.string().uuid("Selecione uma UC"),
     tipo_alocacao: z.enum(["percentual", "fixo"]),
     valor: z.coerce.number().positive("Valor deve ser positivo"),
     data_inicio: z.string().min(1, "Data de início obrigatória"),
@@ -34,10 +34,10 @@ type AlocacaoFormValues = z.infer<typeof alocacaoSchema>
 
 interface AlocacaoFormProps {
     usinas: { id: string; nome: string }[]
-    clientes: { id: string; nome: string }[]
+    ucs: { id: string; codigo_uc_fatura?: string | null; tipo_uc?: string | null; cliente?: { nome?: string | null } | null }[]
 }
 
-export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
+export function AlocacaoForm({ usinas, ucs }: AlocacaoFormProps) {
     const router = useRouter()
     const { showToast } = useToast()
     const [isSubmitting, setIsSubmitting] = useState(false)
@@ -57,7 +57,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
         try {
             const payload = {
                 usina_id: values.usina_id,
-                cliente_id: values.cliente_id,
+                uc_id: values.uc_id,
                 data_inicio: values.data_inicio,
                 percentual_alocado: values.tipo_alocacao === 'percentual' ? values.valor : null,
                 quantidade_kwh_alocado: values.tipo_alocacao === 'fixo' ? values.valor : null,
@@ -65,7 +65,7 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
             }
 
             const { error } = await supabase
-                .from("alocacoes_clientes")
+                .from("energia_alocacoes_ucs")
                 .insert(payload)
 
             if (error) throw error
@@ -94,20 +94,20 @@ export function AlocacaoForm({ usinas, clientes }: AlocacaoFormProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
                         control={form.control as any}
-                        name="cliente_id"
+                        name="uc_id"
                         render={({ field }) => (
                             <FormItem>
-                                <FormLabel>Cliente (Lead Aprovado)</FormLabel>
+                                <FormLabel>Unidade Consumidora (UC)</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <FormControl>
                                         <SelectTrigger>
-                                            <SelectValue placeholder="Selecione o cliente" />
+                                            <SelectValue placeholder="Selecione a UC" />
                                         </SelectTrigger>
                                     </FormControl>
                                     <SelectContent>
-                                        {clientes.map(cliente => (
-                                            <SelectItem key={cliente.id} value={cliente.id}>
-                                                {cliente.nome}
+                                        {ucs.map(uc => (
+                                            <SelectItem key={uc.id} value={uc.id}>
+                                                {uc.codigo_uc_fatura || "UC"} {uc.cliente?.nome ? `- ${uc.cliente?.nome}` : ""} {uc.tipo_uc ? `(${uc.tipo_uc})` : ""}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

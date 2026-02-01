@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BarChart3, Factory, Users, FileText, Zap } from "lucide-react"
+import { BarChart3, Factory, Users, FileText, Zap, PlugZap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
@@ -16,6 +16,11 @@ const sidebarItems = [
         title: "Usinas",
         href: "/admin/energia/usinas",
         icon: Factory,
+    },
+    {
+        title: "UCs",
+        href: "/admin/energia/ucs",
+        icon: PlugZap,
     },
     {
         title: "Alocações",

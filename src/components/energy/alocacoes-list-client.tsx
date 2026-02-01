@@ -28,7 +28,11 @@ interface Alocacao {
     data_inicio: string
     status: string
     usina: { nome: string } | null
-    cliente: { nome: string } | null
+    uc: {
+        codigo_uc_fatura?: string | null
+        tipo_uc?: string | null
+        cliente?: { nome?: string | null } | null
+    } | null
     created_at?: string
     creator?: { id: string; name: string; email: string } | null
 }
@@ -62,6 +66,7 @@ export function AlocacoesListClient({ initialAlocacoes }: AlocacoesListClientPro
                         <TableRow>
                             <TableHead>Usina</TableHead>
                             <TableHead>Cliente</TableHead>
+                            <TableHead>UC</TableHead>
                             <TableHead>Alocação</TableHead>
                             <TableHead>Início</TableHead>
                             <TableHead>Status</TableHead>
@@ -72,7 +77,7 @@ export function AlocacoesListClient({ initialAlocacoes }: AlocacoesListClientPro
                     <TableBody>
                         {alocacoes.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
+                                <TableCell colSpan={8} className="h-24 text-center">
                                     Nenhuma alocação encontrada.
                                 </TableCell>
                             </TableRow>
@@ -82,7 +87,17 @@ export function AlocacoesListClient({ initialAlocacoes }: AlocacoesListClientPro
                                     <TableCell className="font-medium">
                                         {alocacao.usina?.nome || "—"}
                                     </TableCell>
-                                    <TableCell>{alocacao.cliente?.nome || "—"}</TableCell>
+                                    <TableCell>{alocacao.uc?.cliente?.nome || "—"}</TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col">
+                                            <span className="font-medium">
+                                                {alocacao.uc?.codigo_uc_fatura || "—"}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {alocacao.uc?.tipo_uc || "—"}
+                                            </span>
+                                        </div>
+                                    </TableCell>
                                     <TableCell>
                                         <div className="flex flex-col">
                                             <span>

@@ -18,12 +18,17 @@ export default async function NovaAlocacaoPage() {
         .eq("status", "ATIVA")
         .order("nome")
 
-    // Fetch Clients (Concluded or Approved)
-    const { data: clientes } = await supabase
-        .from("indicacoes")
-        .select("id, nome")
-        .in("status", ["APROVADA", "CONCLUIDA"])
-        .order("nome")
+    // Fetch UCs
+    const { data: ucs } = await supabase
+        .from("energia_ucs")
+        .select(`
+            id,
+            codigo_uc_fatura,
+            tipo_uc,
+            cliente:indicacoes(nome)
+        `)
+        .eq("ativo", true)
+        .order("codigo_uc_fatura")
 
     return (
         <div className="max-w-2xl mx-auto py-6">
@@ -34,7 +39,7 @@ export default async function NovaAlocacaoPage() {
 
             <AlocacaoForm
                 usinas={usinas || []}
-                clientes={clientes || []}
+                ucs={(ucs as any[]) || []}
             />
         </div>
     )

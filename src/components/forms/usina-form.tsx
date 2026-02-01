@@ -26,6 +26,9 @@ const usinaSchema = z.object({
     nome: z.string().min(3, "Nome deve ter pelo menos 3 caracteres"),
     capacidade_total: z.coerce.number().min(0, "Capacidade deve ser positiva"),
     tipo: z.enum(["rental", "parceiro"]),
+    categoria_energia: z.enum(["geradora", "acumuladora"]),
+    percentual_alocavel: z.coerce.number().min(1).max(100),
+    prazo_expiracao_credito_meses: z.coerce.number().min(1),
     investidor_user_id: z.string().optional(),
     modelo_negocio: z.string().optional(),
     status: z.enum(["ATIVA", "MANUTENCAO", "INATIVA"]),
@@ -49,6 +52,9 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
             nome: initialData?.nome || "",
             capacidade_total: initialData?.capacidade_total || 0,
             tipo: initialData?.tipo || "rental",
+            categoria_energia: initialData?.categoria_energia || "geradora",
+            percentual_alocavel: initialData?.percentual_alocavel ?? 90,
+            prazo_expiracao_credito_meses: initialData?.prazo_expiracao_credito_meses ?? 60,
             investidor_user_id: initialData?.investidor_user_id || undefined,
             modelo_negocio: initialData?.modelo_negocio || "",
             status: initialData?.status || "ATIVA",
@@ -150,6 +156,56 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                                         <SelectItem value="parceiro">Parceiro / Investidor</SelectItem>
                                     </SelectContent>
                                 </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control as any}
+                        name="categoria_energia"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Categoria de Energia</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Selecione a categoria" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="geradora">Geradora</SelectItem>
+                                        <SelectItem value="acumuladora">Acumuladora</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control as any}
+                        name="percentual_alocavel"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>% Alocável (padrão)</FormLabel>
+                                <FormControl>
+                                    <Input type="number" step="0.01" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control as any}
+                        name="prazo_expiracao_credito_meses"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Expiração do crédito (meses)</FormLabel>
+                                <FormControl>
+                                    <Input type="number" {...field} />
+                                </FormControl>
                                 <FormMessage />
                             </FormItem>
                         )}

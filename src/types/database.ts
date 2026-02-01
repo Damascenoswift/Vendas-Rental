@@ -159,6 +159,9 @@ export interface Database {
           nome: string
           capacidade_total: number
           tipo: 'rental' | 'parceiro'
+          categoria_energia: 'geradora' | 'acumuladora'
+          percentual_alocavel: number
+          prazo_expiracao_credito_meses: number
           investidor_user_id: string | null
           modelo_negocio: string | null
           status: 'ATIVA' | 'MANUTENCAO' | 'INATIVA'
@@ -169,6 +172,9 @@ export interface Database {
           nome: string
           capacidade_total?: number
           tipo?: 'rental' | 'parceiro'
+          categoria_energia?: 'geradora' | 'acumuladora'
+          percentual_alocavel?: number
+          prazo_expiracao_credito_meses?: number
           investidor_user_id?: string | null
           modelo_negocio?: string | null
           status?: 'ATIVA' | 'MANUTENCAO' | 'INATIVA'
@@ -179,6 +185,9 @@ export interface Database {
           nome?: string
           capacidade_total?: number
           tipo?: 'rental' | 'parceiro'
+          categoria_energia?: 'geradora' | 'acumuladora'
+          percentual_alocavel?: number
+          prazo_expiracao_credito_meses?: number
           investidor_user_id?: string | null
           modelo_negocio?: string | null
           status?: 'ATIVA' | 'MANUTENCAO' | 'INATIVA'
@@ -237,6 +246,184 @@ export interface Database {
             foreignKeyName: "alocacoes_clientes_cliente_id_fkey"
             columns: ["cliente_id"]
             referencedRelation: "indicacoes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      energia_ucs: {
+        Row: {
+          id: string
+          created_at: string
+          updated_at: string
+          cliente_id: string | null
+          codigo_uc_fatura: string
+          tipo_uc: string
+          atendido_via_consorcio: boolean
+          transferida_para_consorcio: boolean
+          ativo: boolean
+          observacoes: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          cliente_id?: string | null
+          codigo_uc_fatura: string
+          tipo_uc?: string
+          atendido_via_consorcio?: boolean
+          transferida_para_consorcio?: boolean
+          ativo?: boolean
+          observacoes?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          cliente_id?: string | null
+          codigo_uc_fatura?: string
+          tipo_uc?: string
+          atendido_via_consorcio?: boolean
+          transferida_para_consorcio?: boolean
+          ativo?: boolean
+          observacoes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "energia_ucs_cliente_id_fkey"
+            columns: ["cliente_id"]
+            referencedRelation: "indicacoes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      energia_alocacoes_ucs: {
+        Row: {
+          id: string
+          created_at: string
+          updated_at: string
+          usina_id: string
+          uc_id: string
+          percentual_alocado: number | null
+          quantidade_kwh_alocado: number | null
+          data_inicio: string
+          data_fim: string | null
+          status: 'ATIVO' | 'INATIVO'
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          usina_id: string
+          uc_id: string
+          percentual_alocado?: number | null
+          quantidade_kwh_alocado?: number | null
+          data_inicio?: string
+          data_fim?: string | null
+          status?: 'ATIVO' | 'INATIVO'
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          usina_id?: string
+          uc_id?: string
+          percentual_alocado?: number | null
+          quantidade_kwh_alocado?: number | null
+          data_inicio?: string
+          data_fim?: string | null
+          status?: 'ATIVO' | 'INATIVO'
+        }
+        Relationships: [
+          {
+            foreignKeyName: "energia_alocacoes_ucs_usina_id_fkey"
+            columns: ["usina_id"]
+            referencedRelation: "usinas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "energia_alocacoes_ucs_uc_id_fkey"
+            columns: ["uc_id"]
+            referencedRelation: "energia_ucs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      energia_credito_transferencias: {
+        Row: {
+          id: string
+          created_at: string
+          updated_at: string
+          usina_id: string
+          uc_id: string
+          kwh_enviado: number
+          data_envio: string
+          expires_at: string | null
+          observacoes: string | null
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          usina_id: string
+          uc_id: string
+          kwh_enviado: number
+          data_envio?: string
+          expires_at?: string | null
+          observacoes?: string | null
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          updated_at?: string
+          usina_id?: string
+          uc_id?: string
+          kwh_enviado?: number
+          data_envio?: string
+          expires_at?: string | null
+          observacoes?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "energia_credito_transferencias_usina_id_fkey"
+            columns: ["usina_id"]
+            referencedRelation: "usinas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "energia_credito_transferencias_uc_id_fkey"
+            columns: ["uc_id"]
+            referencedRelation: "energia_ucs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      energia_credito_consumos: {
+        Row: {
+          id: string
+          created_at: string
+          transferencia_id: string
+          competencia: string
+          kwh_consumido: number
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          transferencia_id: string
+          competencia: string
+          kwh_consumido?: number
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          transferencia_id?: string
+          competencia?: string
+          kwh_consumido?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "energia_credito_consumos_transferencia_id_fkey"
+            columns: ["transferencia_id"]
+            referencedRelation: "energia_credito_transferencias"
             referencedColumns: ["id"]
           }
         ]

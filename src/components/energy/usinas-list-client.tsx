@@ -45,7 +45,9 @@ export function UsinasListClient({ initialUsinas }: UsinasListClientProps) {
                         <TableRow>
                             <TableHead>Nome</TableHead>
                             <TableHead>Tipo</TableHead>
+                            <TableHead>Categoria</TableHead>
                             <TableHead>Capacidade</TableHead>
+                            <TableHead>% Alocável</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
@@ -53,7 +55,7 @@ export function UsinasListClient({ initialUsinas }: UsinasListClientProps) {
                     <TableBody>
                         {initialUsinas.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                     Nenhuma usina cadastrada.
                                 </TableCell>
                             </TableRow>
@@ -65,7 +67,13 @@ export function UsinasListClient({ initialUsinas }: UsinasListClientProps) {
                                         {usina.tipo}
                                     </Badge>
                                 </TableCell>
+                                <TableCell>
+                                    <Badge variant="secondary" className="uppercase text-xs">
+                                        {usina.categoria_energia ?? "geradora"}
+                                    </Badge>
+                                </TableCell>
                                 <TableCell>{usina.capacidade_total} kWh</TableCell>
+                                <TableCell>{usina.percentual_alocavel ?? 90}%</TableCell>
                                 <TableCell>
                                     <Badge
                                         className={
