@@ -26,6 +26,7 @@ export default async function AlocacoesPage() {
             usina:usinas(nome),
             uc:energia_ucs(
                 codigo_uc_fatura,
+                codigo_instalacao,
                 tipo_uc,
                 cliente:indicacoes(nome)
             )

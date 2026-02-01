@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 interface UcRow {
     id: string
     codigo_uc_fatura: string
+    codigo_instalacao?: string | null
     tipo_uc: string
     atendido_via_consorcio: boolean
     transferida_para_consorcio: boolean
@@ -55,6 +56,7 @@ export function UcsListClient({ initialUcs }: UcsListClientProps) {
                     <TableHeader>
                         <TableRow>
                             <TableHead>UC</TableHead>
+                            <TableHead>Instalação</TableHead>
                             <TableHead>Cliente</TableHead>
                             <TableHead>Tipo</TableHead>
                             <TableHead>Consórcio</TableHead>
@@ -64,7 +66,7 @@ export function UcsListClient({ initialUcs }: UcsListClientProps) {
                     <TableBody>
                         {ucs.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
+                                <TableCell colSpan={6} className="h-24 text-center">
                                     Nenhuma UC cadastrada.
                                 </TableCell>
                             </TableRow>
@@ -72,6 +74,9 @@ export function UcsListClient({ initialUcs }: UcsListClientProps) {
                             ucs.map((uc) => (
                                 <TableRow key={uc.id}>
                                     <TableCell className="font-medium">{uc.codigo_uc_fatura}</TableCell>
+                                    <TableCell className="text-muted-foreground">
+                                        {uc.codigo_instalacao || "—"}
+                                    </TableCell>
                                     <TableCell>
                                         {uc.cliente?.nome || uc.cliente?.email || "—"}
                                     </TableCell>

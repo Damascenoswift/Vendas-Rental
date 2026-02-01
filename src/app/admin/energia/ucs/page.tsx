@@ -14,6 +14,7 @@ export default async function UcsPage() {
         .select(`
             id,
             codigo_uc_fatura,
+            codigo_instalacao,
             tipo_uc,
             atendido_via_consorcio,
             transferida_para_consorcio,

@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation"
 const ucSchema = z.object({
     cliente_id: z.string().uuid("Selecione um cliente"),
     codigo_uc_fatura: z.string().min(1, "Código da UC é obrigatório"),
+    codigo_instalacao: z.string().min(1, "Código da instalação é obrigatório"),
     tipo_uc: z.enum(["normal", "b_optante"]),
     atendido_via_consorcio: z.boolean().default(false),
     transferida_para_consorcio: z.boolean().default(false),
@@ -60,6 +61,7 @@ export function UcForm({ clientes }: UcFormProps) {
             const payload = {
                 cliente_id: values.cliente_id,
                 codigo_uc_fatura: values.codigo_uc_fatura.trim(),
+                codigo_instalacao: values.codigo_instalacao.trim(),
                 tipo_uc: values.tipo_uc,
                 atendido_via_consorcio: values.atendido_via_consorcio,
                 transferida_para_consorcio: values.transferida_para_consorcio,
@@ -128,6 +130,20 @@ export function UcForm({ clientes }: UcFormProps) {
                                 <FormLabel>Código da UC (fatura)</FormLabel>
                                 <FormControl>
                                     <Input placeholder="Ex: 12345678" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control as any}
+                        name="codigo_instalacao"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Código da instalação</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Ex: 00002157080" {...field} />
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>

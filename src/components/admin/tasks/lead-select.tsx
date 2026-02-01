@@ -26,6 +26,7 @@ interface Lead {
     documento: string | null
     unidade_consumidora: string | null
     codigo_cliente: string | null
+    codigo_instalacao: string | null
 }
 
 interface LeadSelectProps {
@@ -46,7 +47,7 @@ export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
         if (value && !selectedLead) {
             supabase
                 .from('indicacoes')
-                .select('id, nome, documento, unidade_consumidora, codigo_cliente')
+                .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
                 .eq('id', value)
                 .single()
                 .then(({ data }) => {
@@ -60,7 +61,7 @@ export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
         async function fetchLeads() {
             let query = supabase
                 .from('indicacoes')
-                .select('id, nome, documento, unidade_consumidora, codigo_cliente')
+                .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
                 .limit(20)
 
             if (debouncedSearch) {
@@ -124,6 +125,7 @@ export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
                                             Doc: {lead.documento || 'N/A'}
                                             {lead.unidade_consumidora && ` • UC: ${lead.unidade_consumidora}`}
                                             {lead.codigo_cliente && ` • Cód: ${lead.codigo_cliente}`}
+                                            {lead.codigo_instalacao && ` • Inst: ${lead.codigo_instalacao}`}
                                         </span>
                                     </div>
                                 </CommandItem>

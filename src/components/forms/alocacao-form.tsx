@@ -34,7 +34,13 @@ type AlocacaoFormValues = z.infer<typeof alocacaoSchema>
 
 interface AlocacaoFormProps {
     usinas: { id: string; nome: string }[]
-    ucs: { id: string; codigo_uc_fatura?: string | null; tipo_uc?: string | null; cliente?: { nome?: string | null } | null }[]
+    ucs: {
+        id: string
+        codigo_uc_fatura?: string | null
+        codigo_instalacao?: string | null
+        tipo_uc?: string | null
+        cliente?: { nome?: string | null } | null
+    }[]
 }
 
 export function AlocacaoForm({ usinas, ucs }: AlocacaoFormProps) {
@@ -107,7 +113,10 @@ export function AlocacaoForm({ usinas, ucs }: AlocacaoFormProps) {
                                     <SelectContent>
                                         {ucs.map(uc => (
                                             <SelectItem key={uc.id} value={uc.id}>
-                                                {uc.codigo_uc_fatura || "UC"} {uc.cliente?.nome ? `- ${uc.cliente?.nome}` : ""} {uc.tipo_uc ? `(${uc.tipo_uc})` : ""}
+                                                {uc.codigo_uc_fatura || "UC"}
+                                                {uc.codigo_instalacao ? ` • Inst: ${uc.codigo_instalacao}` : ""}
+                                                {uc.cliente?.nome ? ` - ${uc.cliente?.nome}` : ""}
+                                                {uc.tipo_uc ? ` (${uc.tipo_uc})` : ""}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

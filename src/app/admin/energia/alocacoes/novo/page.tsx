@@ -24,6 +24,7 @@ export default async function NovaAlocacaoPage() {
         .select(`
             id,
             codigo_uc_fatura,
+            codigo_instalacao,
             tipo_uc,
             cliente:indicacoes(nome)
         `)

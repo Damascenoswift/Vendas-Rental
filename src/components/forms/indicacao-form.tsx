@@ -107,7 +107,8 @@ const unifiedSchema = z.object({
   // RENTAL VALIDATION
   // ======================
   if (data.marca === 'rental') {
-    if (!data.codigoClienteEnergia) ctx.addIssue({ path: ['codigoClienteEnergia'], code: z.ZodIssueCode.custom, message: "Informe o código da conta" })
+    if (!data.codigoClienteEnergia) ctx.addIssue({ path: ['codigoClienteEnergia'], code: z.ZodIssueCode.custom, message: "Informe o código do cliente (UC)" })
+    if (!data.codigoInstalacao) ctx.addIssue({ path: ['codigoInstalacao'], code: z.ZodIssueCode.custom, message: "Informe o código da instalação" })
 
     if (data.tipoPessoa === 'PF') {
       if (!data.nomeCliente) ctx.addIssue({ path: ['nomeCliente'], code: z.ZodIssueCode.custom, message: "Nome é obrigatório" })
@@ -195,6 +196,7 @@ export function IndicacaoForm({
       tipoPessoa: "PF",
       marca: initialBrand,
       codigoClienteEnergia: "",
+      codigoInstalacao: "",
       vendedorId: userId,
       status: "EM_ANALISE",
       // PF defaults
@@ -260,6 +262,7 @@ export function IndicacaoForm({
         if (data.consumo) form.setValue("consumoMedioPF", Number(data.consumo))
         if (data.valor) form.setValue("valorContaEnergia", Number(data.valor))
         if (data.codigo_conta_energia) form.setValue("codigoClienteEnergia", data.codigo_conta_energia)
+        if (data.codigo_instalacao) form.setValue("codigoInstalacao", data.codigo_instalacao)
 
         showToast({ variant: "success", title: "IA Finalizada", description: "Campos preenchidos automaticamente!" })
       }
@@ -335,7 +338,8 @@ export function IndicacaoForm({
       marca: values.marca,
       documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
       unidade_consumidora: values.tipoPessoa === "PF" ? null : values.localizacaoUC,
-      codigo_cliente: values.tipoPessoa === "PF" ? values.codigoClienteEnergia : values.codigoInstalacao,
+      codigo_cliente: values.codigoClienteEnergia,
+      codigo_instalacao: values.codigoInstalacao,
     }
 
     const { success, id: indicationId, message } = await createIndicationAction(payload)
@@ -389,7 +393,7 @@ export function IndicacaoForm({
 
     showToast({ variant: "success", title: "Indicação criada", description: "Documentos recebidos com sucesso." })
     if (onCreated) await onCreated()
-    form.reset({ ...form.getValues(), codigoClienteEnergia: "" })
+    form.reset({ ...form.getValues(), codigoClienteEnergia: "", codigoInstalacao: "" })
     setIsSubmitting(false)
   }
 
@@ -427,7 +431,7 @@ export function IndicacaoForm({
 
       <Form {...form}>
         <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             {/* Supervisor attribution field */}
             {userRole === 'supervisor' && subordinates.length > 0 && (
               <FormField
@@ -498,9 +502,24 @@ export function IndicacaoForm({
                 name="codigoClienteEnergia"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Código da conta de energia</FormLabel>
+                    <FormLabel>Código do cliente (UC)</FormLabel>
                     <FormControl>
-                      <Input placeholder="Informe o código da conta" {...field} />
+                      <Input placeholder="Ex: 6/4724252-4" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+            {form.watch('marca') === 'rental' && (
+              <FormField
+                control={form.control}
+                name="codigoInstalacao"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Código da instalação</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ex: 00002157080" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -940,14 +959,7 @@ export function IndicacaoForm({
                     )} />
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <FormField control={form.control} name="codigoInstalacao" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Código instalação</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                  <div className="grid gap-4 md:grid-cols-2">
                     <FormField control={form.control} name="localizacaoUC" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Localização UC</FormLabel>

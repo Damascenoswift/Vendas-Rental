@@ -66,6 +66,7 @@ export interface Database {
           valor: number | null
           unidade_consumidora: string | null
           codigo_cliente: string | null
+          codigo_instalacao: string | null
         }
         Insert: {
           id?: string
@@ -84,6 +85,7 @@ export interface Database {
           valor?: number | null
           unidade_consumidora?: string | null
           codigo_cliente?: string | null
+          codigo_instalacao?: string | null
         }
         Update: {
           id?: string
@@ -102,6 +104,7 @@ export interface Database {
           valor?: number | null
           unidade_consumidora?: string | null
           codigo_cliente?: string | null
+          codigo_instalacao?: string | null
         }
         Relationships: [
           {
@@ -257,6 +260,7 @@ export interface Database {
           updated_at: string
           cliente_id: string | null
           codigo_uc_fatura: string
+          codigo_instalacao: string | null
           tipo_uc: string
           atendido_via_consorcio: boolean
           transferida_para_consorcio: boolean
@@ -269,6 +273,7 @@ export interface Database {
           updated_at?: string
           cliente_id?: string | null
           codigo_uc_fatura: string
+          codigo_instalacao?: string | null
           tipo_uc?: string
           atendido_via_consorcio?: boolean
           transferida_para_consorcio?: boolean
@@ -281,6 +286,7 @@ export interface Database {
           updated_at?: string
           cliente_id?: string | null
           codigo_uc_fatura?: string
+          codigo_instalacao?: string | null
           tipo_uc?: string
           atendido_via_consorcio?: boolean
           transferida_para_consorcio?: boolean

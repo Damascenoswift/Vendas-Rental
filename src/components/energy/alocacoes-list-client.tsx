@@ -30,6 +30,7 @@ interface Alocacao {
     usina: { nome: string } | null
     uc: {
         codigo_uc_fatura?: string | null
+        codigo_instalacao?: string | null
         tipo_uc?: string | null
         cliente?: { nome?: string | null } | null
     } | null
@@ -92,6 +93,9 @@ export function AlocacoesListClient({ initialAlocacoes }: AlocacoesListClientPro
                                         <div className="flex flex-col">
                                             <span className="font-medium">
                                                 {alocacao.uc?.codigo_uc_fatura || "—"}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {alocacao.uc?.codigo_instalacao ? `Inst: ${alocacao.uc.codigo_instalacao}` : "Inst: —"}
                                             </span>
                                             <span className="text-xs text-muted-foreground">
                                                 {alocacao.uc?.tipo_uc || "—"}
