@@ -1,0 +1,43 @@
+"use client"
+
+import { useDroppable } from "@dnd-kit/core"
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
+import { Badge } from "@/components/ui/badge"
+import { CrmCard, CrmCardData } from "./crm-card"
+
+type Props = {
+    id: string
+    title: string
+    isClosed?: boolean
+    items: CrmCardData[]
+}
+
+export function CrmColumn({ id, title, isClosed, items }: Props) {
+    const { setNodeRef } = useDroppable({ id })
+
+    return (
+        <div className="flex w-80 min-w-[320px] flex-col rounded-md bg-secondary/30">
+            <div className="p-3 text-sm font-semibold flex items-center justify-between bg-secondary/50 rounded-t-md">
+                <div className="flex items-center gap-2">
+                    <span>{title}</span>
+                    {isClosed ? (
+                        <Badge variant="secondary" className="text-[10px] h-5">
+                            Final
+                        </Badge>
+                    ) : null}
+                </div>
+                <span className="bg-background text-xs px-2 py-0.5 rounded-full border">
+                    {items.length}
+                </span>
+            </div>
+
+            <div ref={setNodeRef} className="flex-1 p-2 space-y-2 min-h-[150px]" data-column-id={id}>
+                <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                    {items.map((item) => (
+                        <CrmCard key={item.id} item={item} />
+                    ))}
+                </SortableContext>
+            </div>
+        </div>
+    )
+}

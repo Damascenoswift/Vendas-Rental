@@ -15,7 +15,8 @@ import {
     PieChart,
     CheckSquare,
     CircleDollarSign,
-    Calculator
+    Calculator,
+    KanbanSquare
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -101,12 +102,16 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 </div>
 
-                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                             Dorata Solar
                         </h2>
                         <div className="space-y-1">
+                            {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                                <NavItem href="/admin/crm" label="CRM" icon={KanbanSquare} />
+                            )}
+
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <>
                                     <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
