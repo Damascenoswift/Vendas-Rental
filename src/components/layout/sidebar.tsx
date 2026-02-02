@@ -102,6 +102,23 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 </div>
 
+                {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                    <div className="px-3 py-2">
+                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                            Rental
+                        </h2>
+                        <div className="space-y-1">
+                            <NavItem href="/admin/crm/rental" label="CRM Rental" icon={KanbanSquare} />
+                            <NavItem href="/admin/energia" label="Energia" icon={Zap} />
+                            <NavItem href="/admin/energia/usinas" label="Usinas" icon={Building2} />
+                            <NavItem href="/admin/energia/ucs" label="UCs" icon={FileText} />
+                            <NavItem href="/admin/energia/alocacoes" label="Alocações" icon={CheckSquare} />
+                            <NavItem href="/admin/energia/faturas" label="Faturas" icon={Wallet} />
+                            <NavItem href="/admin/energia/producao" label="Produção" icon={PieChart} />
+                        </div>
+                    </div>
+                )}
+
                 {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">

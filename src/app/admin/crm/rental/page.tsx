@@ -7,7 +7,7 @@ import { CrmToolbar } from "@/components/admin/crm/crm-toolbar"
 
 export const dynamic = "force-dynamic"
 
-export default async function AdminCrmPage() {
+export default async function AdminCrmRentalPage() {
     const supabase = await createClient()
     const {
         data: { user },
@@ -46,7 +46,7 @@ export default async function AdminCrmPage() {
     const { data: pipeline, error: pipelineError } = await supabaseAdmin
         .from("crm_pipelines")
         .select("id, name, description, brand")
-        .eq("brand", "dorata")
+        .eq("brand", "rental")
         .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .limit(1)
@@ -68,7 +68,7 @@ export default async function AdminCrmPage() {
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-yellow-50 p-4 text-yellow-900">
                     <h3 className="font-bold">Pipeline nao encontrado</h3>
-                    <p className="text-sm">Crie o funil Dorata no Supabase e tente novamente.</p>
+                    <p className="text-sm">Crie o funil Rental no Supabase e tente novamente.</p>
                 </div>
             </div>
         )
@@ -124,12 +124,12 @@ export default async function AdminCrmPage() {
         <div className="container mx-auto py-6">
             <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">CRM Dorata</h1>
+                    <h1 className="text-3xl font-bold">CRM Rental</h1>
                     <p className="text-muted-foreground">
                         {pipeline.name} {pipeline.description ? `- ${pipeline.description}` : ""}
                     </p>
                 </div>
-                <CrmToolbar brand="dorata" />
+                <CrmToolbar brand="rental" />
             </div>
 
             <CrmBoard stages={stages ?? []} cards={cards} />

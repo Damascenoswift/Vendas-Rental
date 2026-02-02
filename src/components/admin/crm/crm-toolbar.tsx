@@ -6,14 +6,19 @@ import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
 import { syncCrmCardsFromIndicacoes } from "@/app/actions/crm"
 
-export function CrmToolbar() {
+type Props = {
+    brand: "dorata" | "rental"
+}
+
+export function CrmToolbar({ brand }: Props) {
     const [isPending, startTransition] = useTransition()
     const router = useRouter()
     const { showToast } = useToast()
+    const brandLabel = brand === "rental" ? "Rental" : "Dorata"
 
     const handleSync = () => {
         startTransition(async () => {
-            const result = await syncCrmCardsFromIndicacoes()
+            const result = await syncCrmCardsFromIndicacoes({ brand })
             if (result?.error) {
                 showToast({
                     variant: "error",
@@ -26,7 +31,7 @@ export function CrmToolbar() {
             showToast({
                 variant: "success",
                 title: "Sincronização concluída",
-                description: `${result?.created ?? 0} cards criados`,
+                description: `${result?.created ?? 0} cards criados (${brandLabel})`,
             })
             router.refresh()
         })

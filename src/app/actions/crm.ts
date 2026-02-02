@@ -53,6 +53,7 @@ export async function updateCrmCardStage(cardId: string, newStageId: string) {
     }
 
     revalidatePath("/admin/crm")
+    revalidatePath("/admin/crm/rental")
     return { success: true }
 }
 
@@ -74,7 +75,7 @@ function chunkArray<T>(items: T[], size: number) {
     return chunks
 }
 
-export async function syncCrmCardsFromIndicacoes() {
+export async function syncCrmCardsFromIndicacoes(params: { brand: "dorata" | "rental" }) {
     const supabase = await createClient()
     const {
         data: { user },
@@ -93,17 +94,20 @@ export async function syncCrmCardsFromIndicacoes() {
 
     const supabaseAdmin = createSupabaseServiceClient()
 
+    const brand = params?.brand === "rental" ? "rental" : "dorata"
+    const crmPath = brand === "rental" ? "/admin/crm/rental" : "/admin/crm"
+
     const { data: pipeline, error: pipelineError } = await supabaseAdmin
         .from("crm_pipelines")
         .select("id")
-        .eq("brand", "dorata")
+        .eq("brand", brand)
         .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .limit(1)
         .maybeSingle()
 
     if (pipelineError || !pipeline) {
-        return { error: pipelineError?.message ?? "Pipeline Dorata não encontrado" }
+        return { error: pipelineError?.message ?? `Pipeline ${brand} nao encontrado` }
     }
 
     const { data: stages, error: stagesError } = await supabaseAdmin
@@ -133,7 +137,7 @@ export async function syncCrmCardsFromIndicacoes() {
     const { data: indicacoes, error: indicacoesError } = await supabaseAdmin
         .from("indicacoes")
         .select("id, nome, user_id")
-        .eq("marca", "dorata")
+        .eq("marca", brand)
 
     if (indicacoesError) {
         return { error: indicacoesError.message }
@@ -162,7 +166,7 @@ export async function syncCrmCardsFromIndicacoes() {
         }
     }
 
-    revalidatePath("/admin/crm")
+    revalidatePath(crmPath)
     return {
         success: true,
         created: newCards.length,

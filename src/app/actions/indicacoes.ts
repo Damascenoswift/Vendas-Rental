@@ -4,19 +4,20 @@ import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-async function createDorataCrmCard(params: {
+async function createCrmCardForBrand(params: {
     supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
     indicacaoId: string
     title: string | null
     assigneeId: string | null
     createdBy: string
+    brand: "dorata" | "rental"
 }) {
-    const { supabaseAdmin, indicacaoId, title, assigneeId, createdBy } = params
+    const { supabaseAdmin, indicacaoId, title, assigneeId, createdBy, brand } = params
 
     const { data: pipeline, error: pipelineError } = await supabaseAdmin
         .from('crm_pipelines')
         .select('id')
-        .eq('brand', 'dorata')
+        .eq('brand', brand)
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
         .limit(1)
@@ -24,7 +25,7 @@ async function createDorataCrmCard(params: {
 
     if (pipelineError || !pipeline) {
         console.error('CRM Pipeline Error:', pipelineError)
-        return { error: pipelineError?.message ?? 'Pipeline Dorata não encontrado' }
+        return { error: pipelineError?.message ?? `Pipeline ${brand} nao encontrado` }
     }
 
     const { data: stage, error: stageError } = await supabaseAdmin
@@ -37,7 +38,7 @@ async function createDorataCrmCard(params: {
 
     if (stageError || !stage) {
         console.error('CRM Stage Error:', stageError)
-        return { error: stageError?.message ?? 'Etapa inicial não encontrada' }
+        return { error: stageError?.message ?? 'Etapa inicial nao encontrada' }
     }
 
     const { data: existingCard, error: existingError } = await supabaseAdmin
@@ -144,18 +145,21 @@ export async function createIndicationAction(payload: any) {
         return { success: false, message: error.message }
     }
 
-    if (String(finalPayload.marca).toLowerCase() === 'dorata') {
-        const crmResult = await createDorataCrmCard({
+    const brand = String(finalPayload.marca ?? '').toLowerCase()
+    if (brand === 'dorata' || brand === 'rental') {
+        const crmResult = await createCrmCardForBrand({
             supabaseAdmin,
             indicacaoId: data.id,
             title: finalPayload.nome ?? null,
             assigneeId: finalPayload.user_id ?? null,
             createdBy: user.id,
+            brand,
         })
         if (crmResult?.error) {
             console.error('CRM Auto Create Error:', crmResult.error)
         } else {
-            revalidatePath('/admin/crm')
+            const crmPath = brand === 'rental' ? '/admin/crm/rental' : '/admin/crm'
+            revalidatePath(crmPath)
         }
     }
 

@@ -89,6 +89,7 @@ ALTER TABLE public.crm_stage_history ENABLE ROW LEVEL SECURITY;
 -- CRM staff roles (internal only)
 -- Note: vendors are intentionally excluded.
 
+DROP POLICY IF EXISTS "CRM staff full access pipelines" ON public.crm_pipelines;
 CREATE POLICY "CRM staff full access pipelines"
 ON public.crm_pipelines
 FOR ALL
@@ -123,6 +124,7 @@ WITH CHECK (
     )
 );
 
+DROP POLICY IF EXISTS "CRM staff full access stages" ON public.crm_stages;
 CREATE POLICY "CRM staff full access stages"
 ON public.crm_stages
 FOR ALL
@@ -157,6 +159,7 @@ WITH CHECK (
     )
 );
 
+DROP POLICY IF EXISTS "CRM staff full access cards" ON public.crm_cards;
 CREATE POLICY "CRM staff full access cards"
 ON public.crm_cards
 FOR ALL
@@ -191,6 +194,7 @@ WITH CHECK (
     )
 );
 
+DROP POLICY IF EXISTS "CRM staff full access stage history" ON public.crm_stage_history;
 CREATE POLICY "CRM staff full access stage history"
 ON public.crm_stage_history
 FOR ALL
