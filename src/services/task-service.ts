@@ -22,6 +22,8 @@ export interface Task {
     department: Department | null
     created_at: string
     brand: Brand
+    checklist_total?: number
+    checklist_done?: number
     assignee?: {
         name: string
         email: string
@@ -29,6 +31,23 @@ export interface Task {
     creator?: {
         name: string
     }
+}
+
+export interface TaskChecklistItem {
+    id: string
+    task_id: string
+    title: string
+    is_done: boolean
+    sort_order: number
+    created_at: string
+}
+
+export interface TaskObserver {
+    user_id: string
+    user: {
+        name: string
+        email: string
+    } | null
 }
 
 export async function getTasks(filters?: {
@@ -70,12 +89,42 @@ export async function getTasks(filters?: {
         return []
     }
 
-    // Manual casting due to joins
-    return (data as any[]).map(item => ({
+    const rows = (data as any[]).map(item => ({
         ...item,
         assignee: item.assignee,
         creator: item.creator
     })) as Task[]
+
+    if (rows.length === 0) return rows
+
+    const taskIds = rows.map(task => task.id)
+
+    const { data: checklistRows, error: checklistError } = await supabase
+        .from('task_checklists')
+        .select('task_id, is_done')
+        .in('task_id', taskIds)
+
+    if (checklistError) {
+        console.error("Error fetching task checklists:", checklistError)
+        return rows
+    }
+
+    const summary = new Map<string, { total: number; done: number }>()
+    ;(checklistRows ?? []).forEach((item: any) => {
+        const current = summary.get(item.task_id) ?? { total: 0, done: 0 }
+        current.total += 1
+        if (item.is_done) current.done += 1
+        summary.set(item.task_id, current)
+    })
+
+    return rows.map(task => {
+        const counts = summary.get(task.id)
+        return {
+            ...task,
+            checklist_total: counts?.total ?? 0,
+            checklist_done: counts?.done ?? 0,
+        }
+    })
 }
 
 export async function createTask(data: {
@@ -89,22 +138,40 @@ export async function createTask(data: {
     client_name?: string
     status?: TaskStatus
     brand?: Brand
+    observer_ids?: string[]
 }) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) return { error: "Unauthorized" }
 
-    const { error } = await supabase
+    const { data: inserted, error } = await supabase
         .from('tasks')
         .insert({
             ...data,
             creator_id: user.id
         })
+        .select('id')
+        .single()
 
     if (error) {
         console.error("Error creating task:", error)
         return { error: error.message }
+    }
+
+    const observerIds = Array.from(new Set((data.observer_ids ?? []).filter(Boolean)))
+    if (observerIds.length > 0 && inserted?.id) {
+        const { error: observersError } = await supabase
+            .from('task_observers')
+            .insert(observerIds.map((observerId) => ({
+                task_id: inserted.id,
+                user_id: observerId,
+            })))
+
+        if (observersError) {
+            console.error("Error creating task observers:", observersError)
+            return { error: observersError.message }
+        }
     }
 
     revalidatePath('/admin/tarefas')
@@ -147,6 +214,115 @@ export async function deleteTask(taskId: string) {
         .from('tasks')
         .delete()
         .eq('id', taskId)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function getTaskChecklists(taskId: string) {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+        .from('task_checklists')
+        .select('id, task_id, title, is_done, sort_order, created_at')
+        .eq('task_id', taskId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error("Error fetching task checklists:", error)
+        return []
+    }
+
+    return data as TaskChecklistItem[]
+}
+
+export async function addTaskChecklistItem(taskId: string, title: string) {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+        .from('task_checklists')
+        .insert({
+            task_id: taskId,
+            title: title.trim()
+        })
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+        .from('task_checklists')
+        .update({ is_done: isDone })
+        .eq('id', itemId)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function deleteTaskChecklistItem(itemId: string) {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+        .from('task_checklists')
+        .delete()
+        .eq('id', itemId)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function getTaskObservers(taskId: string) {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+        .from('task_observers')
+        .select('user_id, user:users(name, email)')
+        .eq('task_id', taskId)
+
+    if (error) {
+        console.error("Error fetching task observers:", error)
+        return []
+    }
+
+    return data as TaskObserver[]
+}
+
+export async function addTaskObserver(taskId: string, userId: string) {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+        .from('task_observers')
+        .insert({
+            task_id: taskId,
+            user_id: userId
+        })
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function removeTaskObserver(taskId: string, userId: string) {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+        .from('task_observers')
+        .delete()
+        .eq('task_id', taskId)
+        .eq('user_id', userId)
 
     if (error) return { error: error.message }
 

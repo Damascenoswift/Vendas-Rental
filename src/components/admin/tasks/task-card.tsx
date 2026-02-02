@@ -39,6 +39,10 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
     }
 
     const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== 'DONE'
+    const checklistTotal = task.checklist_total ?? 0
+    const checklistDone = task.checklist_done ?? 0
+    const shouldShowProgress = checklistTotal >= 2
+    const progress = checklistTotal > 0 ? Math.round((checklistDone / checklistTotal) * 100) : 0
 
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="touch-none">
@@ -72,6 +76,21 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
                             </p>
                         )}
                     </div>
+
+                    {shouldShowProgress && (
+                        <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                <span>Checklist</span>
+                                <span>{checklistDone}/{checklistTotal}</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-gray-200">
+                                <div
+                                    className="h-1.5 rounded-full bg-blue-600 transition-all"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                         <div className="flex items-center gap-2">

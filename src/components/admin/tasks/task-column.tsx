@@ -8,9 +8,10 @@ interface TaskColumnProps {
     id: TaskStatus
     title: string
     tasks: Task[]
+    onTaskClick?: (taskId: string) => void
 }
 
-export function TaskColumn({ id, title, tasks }: TaskColumnProps) {
+export function TaskColumn({ id, title, tasks, onTaskClick }: TaskColumnProps) {
     const { setNodeRef } = useDroppable({ id })
 
     return (
@@ -29,7 +30,7 @@ export function TaskColumn({ id, title, tasks }: TaskColumnProps) {
                 className="flex-1 bg-gray-50/50 rounded-lg p-2 space-y-2 min-h-[500px] border border-transparent hover:border-gray-200 transition-colors"
             >
                 {tasks.map(task => (
-                    <TaskCard key={task.id} task={task} />
+                    <TaskCard key={task.id} task={task} onClick={() => onTaskClick?.(task.id)} />
                 ))}
             </div>
         </div>

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Plus, Calendar as CalendarIcon } from "lucide-react"
+import { Loader2, Plus } from "lucide-react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 
@@ -40,6 +40,7 @@ import { supabase } from "@/lib/supabase"
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import { getProfile } from "@/lib/auth"
+import { Checkbox } from "@/components/ui/checkbox"
 
 const taskSchema = z.object({
     title: z.string().min(3, "Título deve ter pelo menos 3 caracteres"),
@@ -60,6 +61,7 @@ export function TaskDialog() {
     const [open, setOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [users, setUsers] = useState<{ id: string, name: string, department: string | null }[]>([])
+    const [observerIds, setObserverIds] = useState<string[]>([])
 
     const { showToast } = useToast()
 
@@ -79,6 +81,12 @@ export function TaskDialog() {
     useEffect(() => {
         if (open) {
             fetchUsers()
+        }
+    }, [open])
+
+    useEffect(() => {
+        if (!open) {
+            setObserverIds([])
         }
     }, [open])
 
@@ -117,7 +125,8 @@ export function TaskDialog() {
 
             const result = await createTask({
                 ...data,
-                client_name: clientName
+                client_name: clientName,
+                observer_ids: observerIds
             })
 
             if (result.error) {
@@ -126,6 +135,7 @@ export function TaskDialog() {
                 showToast({ title: "Tarefa criada!", variant: "success" })
                 setOpen(false)
                 form.reset()
+                setObserverIds([])
             }
         } catch (error) {
             console.error(error)
@@ -314,6 +324,29 @@ export function TaskDialog() {
                                     </FormItem>
                                 )}
                             />
+                        </div>
+
+                        <div className="space-y-2">
+                            <FormLabel>Observadores</FormLabel>
+                            <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto rounded-md border p-2">
+                                {users.map((user) => (
+                                    <label key={user.id} className="flex items-center gap-2 text-xs">
+                                        <Checkbox
+                                            checked={observerIds.includes(user.id)}
+                                            onCheckedChange={(checked) => {
+                                                setObserverIds((prev) => {
+                                                    if (checked) return [...prev, user.id]
+                                                    return prev.filter((id) => id !== user.id)
+                                                })
+                                            }}
+                                        />
+                                        <span>{user.name}</span>
+                                    </label>
+                                ))}
+                                {users.length === 0 && (
+                                    <span className="text-xs text-muted-foreground">Nenhum usuário disponível.</span>
+                                )}
+                            </div>
                         </div>
 
                         <FormField
