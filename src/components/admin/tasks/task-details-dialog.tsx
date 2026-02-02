@@ -82,13 +82,25 @@ export function TaskDetailsDialog({
         return { total, done }
     }, [checklists])
 
+    const formattedDueDate = useMemo(() => {
+        if (!task?.due_date) return "Sem prazo"
+        const parsed = new Date(task.due_date)
+        if (Number.isNaN(parsed.getTime())) return "Sem prazo"
+        return format(parsed, "dd 'de' MMM 'de' yyyy", { locale: ptBR })
+    }, [task?.due_date])
+
     useEffect(() => {
         if (!open || !task) return
 
         setChecklists([])
         setObservers([])
         setEditDescription(task.description ?? "")
-        setEditDueDate(task.due_date ? format(new Date(task.due_date), "yyyy-MM-dd") : "")
+        if (task.due_date) {
+            const parsed = new Date(task.due_date)
+            setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
+        } else {
+            setEditDueDate("")
+        }
 
         const load = async () => {
             setIsLoading(true)
@@ -136,10 +148,6 @@ export function TaskDetailsDialog({
     }, [checklistSummary, onChecklistSummaryChange, task])
 
     if (!task) return null
-
-    const formattedDueDate = task.due_date
-        ? format(new Date(task.due_date), "dd 'de' MMM 'de' yyyy", { locale: ptBR })
-        : "Sem prazo"
 
     const handleAddChecklist = async () => {
         if (!newChecklistTitle.trim()) return
@@ -210,9 +218,16 @@ export function TaskDetailsDialog({
 
     const handleSaveDetails = async () => {
         setIsSavingDetails(true)
+        let dueDateIso: string | null = null
+        if (editDueDate) {
+            const parsed = new Date(editDueDate)
+            if (!Number.isNaN(parsed.getTime())) {
+                dueDateIso = parsed.toISOString()
+            }
+        }
         const updates: Partial<Task> = {
             description: editDescription.trim() ? editDescription.trim() : null,
-            due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
+            due_date: dueDateIso,
         }
 
         const result = await updateTask(task.id, updates)
