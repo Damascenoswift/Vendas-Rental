@@ -4,6 +4,7 @@ import { formatPhone, onlyDigits } from '@/lib/formatters'
 import { createSupabaseServiceClient, getUserFromAuthorizationHeader } from '@/lib/supabase-server'
 import { indicacaoSchema } from '@/lib/validations/indicacao'
 import { getProfile } from '@/lib/auth'
+import { ensureCrmCardForIndication } from '@/services/crm-card-service'
 import type { Database } from '@/types/database'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -187,6 +188,21 @@ export async function POST(request: Request) {
       },
       { status: 500 }
     )
+  }
+
+  if (payload.marca === 'rental' || payload.marca === 'dorata') {
+    const crmResult = await ensureCrmCardForIndication({
+      brand: payload.marca,
+      indicacaoId: data.id,
+      title: payload.nome,
+      assigneeId: user.id,
+      createdBy: user.id,
+      status: newRow.status,
+    })
+
+    if (crmResult?.error) {
+      console.error('CRM Auto Create Error:', crmResult.error)
+    }
   }
 
   return NextResponse.json(

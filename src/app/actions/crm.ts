@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
+import { getRentalDefaultStageName } from "@/services/crm-card-service"
 
 export async function updateCrmCardStage(cardId: string, newStageId: string) {
     const supabase = await createClient()
@@ -112,16 +113,22 @@ export async function syncCrmCardsFromIndicacoes(params: { brand: "dorata" | "re
 
     const { data: stages, error: stagesError } = await supabaseAdmin
         .from("crm_stages")
-        .select("id, sort_order")
+        .select("id, name, sort_order")
         .eq("pipeline_id", pipeline.id)
         .order("sort_order", { ascending: true })
-        .limit(1)
 
     if (stagesError || !stages || stages.length === 0) {
         return { error: stagesError?.message ?? "Etapas do pipeline não encontradas" }
     }
 
     const initialStageId = stages[0].id
+    const stageByName = new Map(stages.map((stage) => [stage.name, stage.id]))
+    const rentalStageName = brand === "rental" ? getRentalDefaultStageName() : null
+    const rentalStageId = rentalStageName ? stageByName.get(rentalStageName) ?? null : null
+
+    if (brand === "rental" && !rentalStageId) {
+        return { error: `Etapa nao encontrada: ${rentalStageName}` }
+    }
 
     const { data: existingCards, error: existingError } = await supabaseAdmin
         .from("crm_cards")
@@ -145,14 +152,28 @@ export async function syncCrmCardsFromIndicacoes(params: { brand: "dorata" | "re
 
     const newCards = (indicacoes ?? [])
         .filter((indicacao) => !existingIds.has(indicacao.id))
-        .map((indicacao) => ({
-            pipeline_id: pipeline.id,
-            stage_id: initialStageId,
-            indicacao_id: indicacao.id,
-            title: indicacao.nome ?? null,
-            created_by: user.id,
-            assignee_id: indicacao.user_id ?? null,
-        }))
+        .map((indicacao) => {
+            if (brand === "rental") {
+                return {
+                    pipeline_id: pipeline.id,
+                    stage_id: rentalStageId as string,
+                    indicacao_id: indicacao.id,
+                    title: indicacao.nome ?? null,
+                    created_by: user.id,
+                    assignee_id: indicacao.user_id ?? null,
+                }
+            }
+
+            return {
+                pipeline_id: pipeline.id,
+                stage_id: initialStageId,
+                indicacao_id: indicacao.id,
+                title: indicacao.nome ?? null,
+                created_by: user.id,
+                assignee_id: indicacao.user_id ?? null,
+            }
+        })
+        .filter((card): card is NonNullable<typeof card> => Boolean(card))
 
     if (newCards.length === 0) {
         return { success: true, created: 0, skipped: indicacoes?.length ?? 0 }

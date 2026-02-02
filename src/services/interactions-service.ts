@@ -1,7 +1,9 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
+import { ensureCrmCardForIndication } from "@/services/crm-card-service"
 
 export type InteractionType = 'COMMENT' | 'STATUS_CHANGE' | 'DOC_REQUEST' | 'DOC_APPROVAL'
 
@@ -142,6 +144,32 @@ export async function updateStatusWithComment(
             comment,
             'COMMENT'
         )
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+        .from('indicacoes')
+        .select('id, nome, user_id, marca, status')
+        .eq('id', indicacaoId)
+        .maybeSingle()
+
+    if (indicacaoError) {
+        console.error('Erro ao buscar indicacao para CRM:', indicacaoError)
+    }
+
+    if (indicacao?.marca === 'rental' || indicacao?.marca === 'dorata') {
+        const crmResult = await ensureCrmCardForIndication({
+            brand: indicacao.marca,
+            indicacaoId: indicacao.id,
+            title: indicacao.nome ?? null,
+            assigneeId: indicacao.user_id ?? null,
+            createdBy: user.id,
+            status: indicacao.status ?? newStatus,
+        })
+
+        if (crmResult?.error) {
+            console.error('Erro ao criar/atualizar card CRM:', crmResult.error)
+        }
     }
 
     revalidatePath(`/admin/leads`)

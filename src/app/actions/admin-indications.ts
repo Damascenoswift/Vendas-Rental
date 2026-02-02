@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
+import { ensureCrmCardForIndication } from "@/services/crm-card-service"
 
 const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2'] as const
 
@@ -34,6 +35,31 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
     if (error) {
         console.error("Erro ao atualizar status:", error)
         return { error: "Erro ao atualizar status" }
+    }
+
+    const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+        .from("indicacoes")
+        .select("id, nome, user_id, marca, status")
+        .eq("id", id)
+        .maybeSingle()
+
+    if (indicacaoError) {
+        console.error("Erro ao buscar indicacao para CRM:", indicacaoError)
+    }
+
+    if (indicacao?.marca === "rental" || indicacao?.marca === "dorata") {
+        const crmResult = await ensureCrmCardForIndication({
+            brand: indicacao.marca,
+            indicacaoId: indicacao.id,
+            title: indicacao.nome ?? null,
+            assigneeId: indicacao.user_id ?? null,
+            createdBy: user.id,
+            status: indicacao.status ?? newStatus,
+        })
+
+        if (crmResult?.error) {
+            console.error("Erro ao criar/atualizar card CRM:", crmResult.error)
+        }
     }
 
     revalidatePath("/admin/indicacoes")

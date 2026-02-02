@@ -30,16 +30,15 @@ FROM pipeline_id,
 LATERAL (
     VALUES
         ('Coleta de Dados', 1, false),
-        ('Formulario enviado [ADV]', 2, false),
-        ('Formulario Enviado', 3, false),
-        ('Aguardando | ASS', 4, false),
-        ('Aguardando PG - Transferir', 5, false),
-        ('B-Obitante [cadastro]', 6, false),
-        ('Processo Energisa', 7, false),
-        ('Cadastrado', 8, false),
-        ('Credito recebido', 9, false),
-        ('Pos venda inicial', 10, false),
-        ('Gestao de Usinas | Terceiros', 11, true)
+        ('Formulario Enviado', 2, false),
+        ('Aguardando | ASS', 3, false),
+        ('Aguardando PG - Transferir', 4, false),
+        ('B-Obitante [cadastro]', 5, false),
+        ('Processo Energisa', 6, false),
+        ('Cadastrado', 7, false),
+        ('Credito recebido', 8, false),
+        ('Pos venda inicial', 9, false),
+        ('Gestao de Usinas | Terceiros', 10, true)
 ) AS stage(name, sort_order, is_closed)
 WHERE NOT EXISTS (
     SELECT 1 FROM public.crm_stages s
