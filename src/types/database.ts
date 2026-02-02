@@ -47,7 +47,7 @@ export interface Database {
           department?: Database['public']['Enums']['department_enum'] | null
         }
         Relationships: []
-      }
+      },
       indicacoes: {
         Row: {
           id: string
@@ -863,6 +863,114 @@ export interface Database {
           connection_type?: string | null
           is_rural?: boolean | null
           association_type?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      contacts: {
+        Row: {
+          id: string
+          external_id: string | null
+          source: string | null
+          first_name: string | null
+          last_name: string | null
+          full_name: string | null
+          email: string | null
+          phone: string | null
+          mobile: string | null
+          whatsapp: string | null
+          whatsapp_remote_lid: string | null
+          address: string | null
+          city: string | null
+          state: string | null
+          zipcode: string | null
+          country: string | null
+          timezone: string | null
+          preferred_locale: string | null
+          cm: string | null
+          uc: string | null
+          sh_status: string | null
+          star_score: number | null
+          created_by: string | null
+          created_by_name: string | null
+          created_by_type: string | null
+          updated_by: string | null
+          updated_by_name: string | null
+          source_created_at: string | null
+          source_updated_at: string | null
+          imported_by: string | null
+          raw_payload: Json | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          external_id?: string | null
+          source?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          full_name?: string | null
+          email?: string | null
+          phone?: string | null
+          mobile?: string | null
+          whatsapp?: string | null
+          whatsapp_remote_lid?: string | null
+          address?: string | null
+          city?: string | null
+          state?: string | null
+          zipcode?: string | null
+          country?: string | null
+          timezone?: string | null
+          preferred_locale?: string | null
+          cm?: string | null
+          uc?: string | null
+          sh_status?: string | null
+          star_score?: number | null
+          created_by?: string | null
+          created_by_name?: string | null
+          created_by_type?: string | null
+          updated_by?: string | null
+          updated_by_name?: string | null
+          source_created_at?: string | null
+          source_updated_at?: string | null
+          imported_by?: string | null
+          raw_payload?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          external_id?: string | null
+          source?: string | null
+          first_name?: string | null
+          last_name?: string | null
+          full_name?: string | null
+          email?: string | null
+          phone?: string | null
+          mobile?: string | null
+          whatsapp?: string | null
+          whatsapp_remote_lid?: string | null
+          address?: string | null
+          city?: string | null
+          state?: string | null
+          zipcode?: string | null
+          country?: string | null
+          timezone?: string | null
+          preferred_locale?: string | null
+          cm?: string | null
+          uc?: string | null
+          sh_status?: string | null
+          star_score?: number | null
+          created_by?: string | null
+          created_by_name?: string | null
+          created_by_type?: string | null
+          updated_by?: string | null
+          updated_by_name?: string | null
+          source_created_at?: string | null
+          source_updated_at?: string | null
+          imported_by?: string | null
+          raw_payload?: Json | null
           created_at?: string
           updated_at?: string
         }

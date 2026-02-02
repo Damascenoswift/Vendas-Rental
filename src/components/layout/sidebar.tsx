@@ -112,6 +112,10 @@ export function Sidebar({ className }: SidebarProps) {
                                 <NavItem href="/admin/crm" label="CRM" icon={KanbanSquare} />
                             )}
 
+                            {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                                <NavItem href="/admin/contatos" label="Contatos" icon={Users} />
+                            )}
+
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <>
                                     <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
