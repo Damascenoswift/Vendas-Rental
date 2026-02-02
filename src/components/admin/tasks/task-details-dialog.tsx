@@ -145,7 +145,7 @@ export function TaskDetailsDialog({
     useEffect(() => {
         if (!task) return
         onChecklistSummaryChange?.(task.id, checklistSummary.total, checklistSummary.done)
-    }, [checklistSummary, onChecklistSummaryChange, task])
+    }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, task?.id])
 
     if (!task) return null
 

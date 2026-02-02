@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import {
     DndContext,
     DragOverlay,
@@ -83,16 +83,16 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     const activeTask = tasks.find(t => t.id === activeId)
     const selectedTask = tasks.find(t => t.id === selectedTaskId) ?? null
 
-    const handleChecklistSummaryChange = (taskId: string, total: number, done: number) => {
+    const handleChecklistSummaryChange = useCallback((taskId: string, total: number, done: number) => {
         setTasks(prev => prev.map(task => task.id === taskId
             ? { ...task, checklist_total: total, checklist_done: done }
             : task
         ))
-    }
+    }, [])
 
-    const handleDeleteTask = (taskId: string) => {
+    const handleDeleteTask = useCallback((taskId: string) => {
         setTasks(prev => prev.filter(task => task.id !== taskId))
-    }
+    }, [])
 
     return (
         <DndContext
