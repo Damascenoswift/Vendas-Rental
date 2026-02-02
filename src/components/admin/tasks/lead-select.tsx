@@ -18,7 +18,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { supabase } from "@/lib/supabase"
+import { getTaskLeadById, searchTaskContacts, searchTaskLeads } from "@/services/task-service"
 
 interface Lead {
     id: string
@@ -29,52 +29,70 @@ interface Lead {
     codigo_instalacao: string | null
 }
 
+interface Contact {
+    id: string
+    full_name: string | null
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    whatsapp: string | null
+    phone: string | null
+    mobile: string | null
+}
+
 interface LeadSelectProps {
     value?: string
-    onChange: (value: string) => void
-    onSelectLead?: (lead: Lead) => void
+    onChange: (value?: string) => void
+    onSelectLead?: (lead: Lead, source?: 'indicacao' | 'contact') => void
 }
 
 export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
     const [open, setOpen] = React.useState(false)
     const [leads, setLeads] = React.useState<Lead[]>([])
+    const [contacts, setContacts] = React.useState<Contact[]>([])
     const [search, setSearch] = React.useState("")
     const [selectedLead, setSelectedLead] = React.useState<Lead | null>(null)
+    const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null)
     const debouncedSearch = useDebounce(search, 300)
 
     // Fetch initial selected lead
     React.useEffect(() => {
         if (value && !selectedLead) {
-            supabase
-                .from('indicacoes')
-                .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
-                .eq('id', value)
-                .single()
-                .then(({ data }) => {
-                    if (data) setSelectedLead(data)
-                })
+            getTaskLeadById(value).then((data) => {
+                if (data) setSelectedLead(data)
+            })
         }
     }, [value, selectedLead])
 
     // Search leads
     React.useEffect(() => {
         async function fetchLeads() {
-            let query = supabase
-                .from('indicacoes')
-                .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
-                .limit(20)
-
-            if (debouncedSearch) {
-                query = query.ilike('nome', `%${debouncedSearch}%`)
-            } else {
-                query = query.order('created_at', { ascending: false })
-            }
-
-            const { data } = await query
-            if (data) setLeads(data)
+            const [leadData, contactData] = await Promise.all([
+                searchTaskLeads(debouncedSearch),
+                searchTaskContacts(debouncedSearch),
+            ])
+            if (leadData) setLeads(leadData)
+            if (contactData) setContacts(contactData)
         }
         fetchLeads()
     }, [debouncedSearch])
+
+    const selectedLabel = React.useMemo(() => {
+        if (selectedLead) {
+            return `${selectedLead.nome}${selectedLead.documento ? ` - ${selectedLead.documento}` : ''}`
+        }
+        if (selectedContact) {
+            const name = selectedContact.full_name
+                || [selectedContact.first_name, selectedContact.last_name].filter(Boolean).join(" ")
+                || selectedContact.email
+                || selectedContact.whatsapp
+                || selectedContact.phone
+                || selectedContact.mobile
+                || "Contato"
+            return name
+        }
+        return "Buscar cliente..."
+    }, [selectedLead, selectedContact])
 
     return (
         <Popover open={open} onOpenChange={setOpen} modal={true}>
@@ -85,9 +103,7 @@ export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
                     aria-expanded={open}
                     className="w-full justify-between"
                 >
-                    {selectedLead
-                        ? `${selectedLead.nome}${selectedLead.documento ? ` - ${selectedLead.documento}` : ''}`
-                        : "Buscar cliente..."}
+                    {selectedLabel}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
@@ -100,16 +116,16 @@ export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
                     />
                     <CommandList>
                         <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                        <CommandGroup>
+                        <CommandGroup heading="Indicações">
                             {leads.map((lead) => (
                                 <CommandItem
-                                    key={lead.id}
-                                    value={`${lead.nome} ${lead.id}`} // Ensure unique value for cmdk
+                                    key={`lead-${lead.id}`}
+                                    value={`lead-${lead.nome}-${lead.id}`}
                                     onSelect={() => {
-                                        console.log("Selected lead:", lead)
                                         onChange(lead.id)
-                                        onSelectLead?.(lead)
+                                        onSelectLead?.(lead, 'indicacao')
                                         setSelectedLead(lead)
+                                        setSelectedContact(null)
                                         setOpen(false)
                                     }}
                                 >
@@ -130,6 +146,62 @@ export function LeadSelect({ value, onChange, onSelectLead }: LeadSelectProps) {
                                     </div>
                                 </CommandItem>
                             ))}
+                            {leads.length === 0 && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground">
+                                    Nenhuma indicação encontrada.
+                                </div>
+                            )}
+                        </CommandGroup>
+
+                        <CommandGroup heading="Contatos">
+                            {contacts.map((contact) => {
+                                const name = contact.full_name
+                                    || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
+                                    || contact.email
+                                    || contact.whatsapp
+                                    || contact.phone
+                                    || contact.mobile
+                                    || "Contato"
+
+                                return (
+                                    <CommandItem
+                                        key={`contact-${contact.id}`}
+                                        value={`contact-${name}-${contact.id}`}
+                                        onSelect={() => {
+                                            onChange(undefined)
+                                            onSelectLead?.({
+                                                id: contact.id,
+                                                nome: name,
+                                                documento: null,
+                                                unidade_consumidora: null,
+                                                codigo_cliente: null,
+                                                codigo_instalacao: null,
+                                            }, 'contact')
+                                            setSelectedContact(contact)
+                                            setSelectedLead(null)
+                                            setOpen(false)
+                                        }}
+                                    >
+                                        <Check
+                                            className={cn(
+                                                "mr-2 h-4 w-4",
+                                                selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
+                                            )}
+                                        />
+                                        <div className="flex flex-col">
+                                            <span>{name}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {contact.email || contact.whatsapp || contact.phone || contact.mobile || ""}
+                                            </span>
+                                        </div>
+                                    </CommandItem>
+                                )
+                            })}
+                            {contacts.length === 0 && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground">
+                                    Nenhum contato encontrado.
+                                </div>
+                            )}
                         </CommandGroup>
                     </CommandList>
                 </Command>

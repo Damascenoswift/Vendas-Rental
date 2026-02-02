@@ -12,12 +12,12 @@ import {
     deleteTask,
     deleteTaskChecklistItem,
     getTaskChecklists,
+    getTaskAssignableUsers,
     getTaskObservers,
     removeTaskObserver,
     toggleTaskChecklistItem,
     updateTask,
 } from "@/services/task-service"
-import { supabase } from "@/lib/supabase"
 
 import {
     Dialog,
@@ -119,17 +119,7 @@ export function TaskDetailsDialog({
     useEffect(() => {
         if (!open) return
         const fetchUsers = async () => {
-            const { data, error } = await supabase
-                .from("users")
-                .select("id, name, department")
-                .in("status", ["active", "ATIVO"])
-                .order("name")
-
-            if (error) {
-                console.error("Error fetching users:", error)
-                return
-            }
-
+            const data = await getTaskAssignableUsers()
             setUsers(
                 (data ?? []).map((user) => ({
                     id: user.id,

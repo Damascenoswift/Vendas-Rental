@@ -35,8 +35,7 @@ import {
     SelectGroup,
     SelectLabel
 } from "@/components/ui/select"
-import { createTask, TaskPriority, Department } from "@/services/task-service"
-import { supabase } from "@/lib/supabase"
+import { createTask, TaskPriority, Department, getTaskAssignableUsers, getTaskLeadById } from "@/services/task-service"
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import { getProfile } from "@/lib/auth"
@@ -91,25 +90,12 @@ export function TaskDialog() {
     }, [open])
 
     async function fetchUsers() {
-        const { data, error } = await supabase
-            .from('users')
-            .select('id, name, department')
-            .in('status', ['active', 'ATIVO'])
-            .order('name')
-
-        if (error) {
-            console.error("Error fetching users:", error)
-            return
-        }
-
-        if (data) {
-            // Map null department to 'outro' or handle display logic
-            setUsers(data.map(u => ({
-                id: u.id,
-                name: u.name || "Sem Nome",
-                department: u.department
-            })))
-        }
+        const data = await getTaskAssignableUsers()
+        setUsers((data ?? []).map(u => ({
+            id: u.id,
+            name: u.name || "Sem Nome",
+            department: u.department
+        })))
     }
 
     async function onSubmit(data: TaskFormValues) {
@@ -119,8 +105,8 @@ export function TaskDialog() {
             const manualClientName = data.client_name?.trim()
             let clientName = manualClientName || undefined
             if (data.indicacao_id && !clientName) {
-                const { data: lead } = await supabase.from('indicacoes').select('nome').eq('id', data.indicacao_id).single()
-                if (lead) clientName = lead.nome
+                const lead = await getTaskLeadById(data.indicacao_id)
+                if (lead?.nome) clientName = lead.nome
             }
 
             const result = await createTask({
@@ -356,13 +342,16 @@ export function TaskDialog() {
                                 <FormItem>
                                     <FormLabel>Vincular Cliente (Opcional)</FormLabel>
                                     <FormControl>
-                                        <LeadSelect
-                                            value={field.value}
-                                            onChange={field.onChange}
-                                            onSelectLead={(lead) => {
-                                                form.setValue("client_name", lead.nome)
-                                            }}
-                                        />
+                                    <LeadSelect
+                                        value={field.value}
+                                        onChange={(value) => field.onChange(value ?? undefined)}
+                                        onSelectLead={(lead, source) => {
+                                            form.setValue("client_name", lead.nome)
+                                            if (source === 'contact') {
+                                                form.setValue("indicacao_id", undefined)
+                                            }
+                                        }}
+                                    />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>

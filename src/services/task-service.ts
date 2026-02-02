@@ -1,6 +1,7 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
@@ -48,6 +49,32 @@ export interface TaskObserver {
         name: string
         email: string
     } | null
+}
+
+export interface TaskUserOption {
+    id: string
+    name: string
+    department: string | null
+}
+
+export interface TaskLeadOption {
+    id: string
+    nome: string
+    documento: string | null
+    unidade_consumidora: string | null
+    codigo_cliente: string | null
+    codigo_instalacao: string | null
+}
+
+export interface TaskContactOption {
+    id: string
+    full_name: string | null
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    whatsapp: string | null
+    phone: string | null
+    mobile: string | null
 }
 
 export async function getTasks(filters?: {
@@ -125,6 +152,107 @@ export async function getTasks(filters?: {
             checklist_done: counts?.done ?? 0,
         }
     })
+}
+
+export async function getTaskAssignableUsers() {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('id, name, department, status')
+        .order('name')
+
+    if (error) {
+        console.error("Error fetching users for tasks:", error)
+        return []
+    }
+
+    return (data ?? []).map((row: any) => ({
+        id: row.id,
+        name: row.name || "Sem Nome",
+        department: row.department ?? null,
+        status: row.status ?? null,
+    })) as TaskUserOption[]
+}
+
+export async function searchTaskLeads(search?: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    let query = supabaseAdmin
+        .from('indicacoes')
+        .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
+        .limit(20)
+
+    if (search) {
+        query = query.ilike('nome', `%${search}%`)
+    } else {
+        query = query.order('created_at', { ascending: false })
+    }
+
+    const { data, error } = await query
+    if (error) {
+        console.error("Error fetching task leads:", error)
+        return []
+    }
+
+    return data as TaskLeadOption[]
+}
+
+export async function getTaskLeadById(leadId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
+        .from('indicacoes')
+        .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
+        .eq('id', leadId)
+        .maybeSingle()
+
+    if (error) {
+        console.error("Error fetching task lead:", error)
+        return null
+    }
+
+    return data as TaskLeadOption | null
+}
+
+export async function searchTaskContacts(search?: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    let query = supabaseAdmin
+        .from('contacts')
+        .select('id, full_name, first_name, last_name, email, whatsapp, phone, mobile')
+        .limit(20)
+
+    if (search) {
+        const sanitized = search.replace(/[(),']/g, " ").trim()
+        if (sanitized) {
+            query = query.or(
+                `full_name.ilike.%${sanitized}%,email.ilike.%${sanitized}%,whatsapp.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,mobile.ilike.%${sanitized}%`
+            )
+        }
+    } else {
+        query = query.order('created_at', { ascending: false })
+    }
+
+    const { data, error } = await query
+    if (error) {
+        console.error("Error fetching task contacts:", error)
+        return []
+    }
+
+    return data as TaskContactOption[]
 }
 
 export async function createTask(data: {
