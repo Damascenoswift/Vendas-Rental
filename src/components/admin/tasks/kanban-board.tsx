@@ -101,7 +101,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
         >
-            <div className="flex h-full gap-4 overflow-x-auto pb-4">
+            <div className="flex h-full min-h-0 gap-4 overflow-x-auto overflow-y-hidden pb-4">
                 {COLUMNS.map(col => (
                     <TaskColumn
                         key={col.id}

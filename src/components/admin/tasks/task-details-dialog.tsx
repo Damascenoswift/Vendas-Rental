@@ -62,6 +62,7 @@ export function TaskDetailsDialog({
     onOpenChange,
     onTaskDeleted,
     onChecklistSummaryChange,
+    onTaskUpdated,
 }: TaskDetailsDialogProps) {
     const [checklists, setChecklists] = useState<TaskChecklistItem[]>([])
     const [observers, setObservers] = useState<TaskObserver[]>([])
@@ -153,13 +154,13 @@ export function TaskDetailsDialog({
         setIsSavingChecklist(false)
     }
 
-    const handleToggleChecklist = async (item: TaskChecklistItem) => {
-        const result = await toggleTaskChecklistItem(item.id, !item.is_done)
+    const handleToggleChecklist = async (item: TaskChecklistItem, nextChecked: boolean) => {
+        const result = await toggleTaskChecklistItem(item.id, nextChecked)
         if (result?.error) {
             showToast({ title: "Erro ao atualizar checklist", description: result.error, variant: "error" })
             return
         }
-        setChecklists(prev => prev.map(i => (i.id === item.id ? { ...i, is_done: !i.is_done } : i)))
+        setChecklists(prev => prev.map(i => (i.id === item.id ? { ...i, is_done: nextChecked } : i)))
     }
 
     const handleDeleteChecklist = async (itemId: string) => {
@@ -232,7 +233,7 @@ export function TaskDetailsDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[720px]">
+            <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex flex-col gap-2">
                         <span className="text-xl">{task.title}</span>
@@ -301,7 +302,7 @@ export function TaskDetailsDialog({
                                     <label className="flex items-center gap-2 text-sm">
                                         <Checkbox
                                             checked={item.is_done}
-                                            onCheckedChange={() => handleToggleChecklist(item)}
+                                            onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked)}
                                         />
                                         <span className={item.is_done ? "line-through text-muted-foreground" : ""}>{item.title}</span>
                                     </label>

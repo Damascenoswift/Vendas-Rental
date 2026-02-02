@@ -139,7 +139,7 @@ export function TaskDialog() {
                     Nova Tarefa
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
+            <DialogContent className="sm:max-w-[560px] max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>Criar Nova Tarefa</DialogTitle>
                 </DialogHeader>
@@ -319,7 +319,8 @@ export function TaskDialog() {
                                     <label key={user.id} className="flex items-center gap-2 text-xs">
                                         <Checkbox
                                             checked={observerIds.includes(user.id)}
-                                            onCheckedChange={(checked) => {
+                                            onChange={(event) => {
+                                                const checked = event.currentTarget.checked
                                                 setObserverIds((prev) => {
                                                     if (checked) return [...prev, user.id]
                                                     return prev.filter((id) => id !== user.id)

@@ -16,7 +16,7 @@ export default async function TasksPage({ searchParams }: { searchParams: { bran
     const tasks = await getTasks({ showAll: true, brand })
 
     return (
-        <div className="flex flex-col h-[calc(100vh-4rem)]">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between p-6 pb-2 border-b bg-white">
                 <div>
@@ -31,7 +31,7 @@ export default async function TasksPage({ searchParams }: { searchParams: { bran
                 </div>
             </div>
 
-            <Tabs defaultValue="board" className="flex-1 flex flex-col">
+            <Tabs defaultValue="board" className="flex flex-1 min-h-0 flex-col">
                 <div className="px-6 py-2 bg-gray-50/50 border-b flex items-center justify-between">
                     <TabsList>
                         <TabsTrigger value="board">Quadro Kanban</TabsTrigger>
@@ -47,12 +47,12 @@ export default async function TasksPage({ searchParams }: { searchParams: { bran
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-hidden bg-gray-50/30">
-                    <TabsContent value="board" className="h-full overflow-x-auto p-6 m-0 data-[state=inactive]:hidden">
+                <div className="flex-1 min-h-0 overflow-hidden bg-gray-50/30">
+                    <TabsContent value="board" className="h-full min-h-0 overflow-hidden p-6 m-0 data-[state=inactive]:hidden">
                         <KanbanBoard initialTasks={tasks} />
                     </TabsContent>
 
-                    <TabsContent value="dashboard" className="h-full overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
+                    <TabsContent value="dashboard" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
                         <TaskDashboard tasks={tasks} />
                     </TabsContent>
                 </div>
