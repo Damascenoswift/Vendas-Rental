@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,23 +10,11 @@ import { importContacts } from "@/services/contacts-service"
 import { FileText, Loader2, Upload, X } from "lucide-react"
 
 export function ContactsImportCard() {
-    const [jsonText, setJsonText] = useState("")
-    const [source, setSource] = useState("importacao_json")
+    const [csvText, setCsvText] = useState("")
+    const [source, setSource] = useState("importacao_csv")
     const [fileName, setFileName] = useState<string | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     const { showToast } = useToast()
-
-    const preview = useMemo(() => {
-        const trimmed = jsonText.trim()
-        if (!trimmed) return null
-        try {
-            const parsed = JSON.parse(trimmed)
-            const count = Array.isArray(parsed) ? parsed.length : 1
-            return { count }
-        } catch (error) {
-            return { error: "JSON inválido. Verifique a formatação." }
-        }
-    }, [jsonText])
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0]
@@ -34,26 +22,21 @@ export function ContactsImportCard() {
 
         const reader = new FileReader()
         reader.onload = () => {
-            setJsonText(String(reader.result ?? ""))
+            setCsvText(String(reader.result ?? ""))
             setFileName(file.name)
         }
         reader.readAsText(file)
     }
 
     const handleImport = async () => {
-        if (!jsonText.trim()) {
-            showToast({ variant: "error", title: "Erro", description: "Cole ou envie um JSON válido." })
-            return
-        }
-
-        if (preview?.error) {
-            showToast({ variant: "error", title: "Erro", description: preview.error })
+        if (!csvText.trim()) {
+            showToast({ variant: "error", title: "Erro", description: "Cole ou envie um CSV válido." })
             return
         }
 
         setIsLoading(true)
         const result = await importContacts({
-            rawJson: jsonText,
+            rawCsv: csvText,
             source: source.trim() || undefined,
         })
         setIsLoading(false)
@@ -72,16 +55,16 @@ export function ContactsImportCard() {
     }
 
     const handleClear = () => {
-        setJsonText("")
+        setCsvText("")
         setFileName(null)
     }
 
     return (
         <Card>
             <CardHeader>
-                <CardTitle>Importar contatos (JSON)</CardTitle>
+                <CardTitle>Importar contatos (CSV)</CardTitle>
                 <CardDescription>
-                    Cole o JSON exportado ou faça upload de um arquivo .json com os contatos.
+                    Cole o CSV exportado ou faça upload de um arquivo .csv com os contatos.
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -95,8 +78,8 @@ export function ContactsImportCard() {
                 </div>
 
                 <div className="space-y-2">
-                    <label className="text-sm font-medium">Arquivo JSON</label>
-                    <Input type="file" accept=".json,application/json" onChange={handleFileChange} />
+                    <label className="text-sm font-medium">Arquivo CSV</label>
+                    <Input type="file" accept=".csv,text/csv" onChange={handleFileChange} />
                 </div>
 
                 {fileName && (
@@ -107,23 +90,14 @@ export function ContactsImportCard() {
                 )}
 
                 <div className="space-y-2">
-                    <label className="text-sm font-medium">JSON</label>
+                    <label className="text-sm font-medium">CSV</label>
                     <Textarea
-                        value={jsonText}
-                        onChange={(event) => setJsonText(event.target.value)}
+                        value={csvText}
+                        onChange={(event) => setCsvText(event.target.value)}
                         rows={10}
-                        placeholder='Ex: [{"id": 1, "firstname": "João", "lastname": "Silva", "email": "joao@email.com"}]'
+                        placeholder="Ex: id,firstname,lastname,email,whatsapp"
                     />
                 </div>
-
-                {preview?.count !== undefined && (
-                    <div className="text-sm text-muted-foreground">
-                        {preview.count} contato(s) detectado(s).
-                    </div>
-                )}
-                {preview?.error && (
-                    <div className="text-sm text-red-600">{preview.error}</div>
-                )}
 
                 <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={handleImport} disabled={isLoading}>

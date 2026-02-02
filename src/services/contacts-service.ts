@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
+import Papa from "papaparse"
 
 const allowedRoles = [
     "adm_mestre",
@@ -15,11 +16,11 @@ const allowedRoles = [
 ]
 
 type ImportContactsPayload = {
-    rawJson: string
+    rawCsv: string
     source?: string
 }
 
-export async function importContacts({ rawJson, source }: ImportContactsPayload) {
+export async function importContacts({ rawCsv, source }: ImportContactsPayload) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -34,21 +35,25 @@ export async function importContacts({ rawJson, source }: ImportContactsPayload)
         return { success: false, error: "Você não tem permissão para importar contatos." }
     }
 
-    const trimmed = rawJson?.trim()
+    const trimmed = rawCsv?.trim()
     if (!trimmed) {
-        return { success: false, error: "Cole ou envie um JSON válido para importar." }
+        return { success: false, error: "Cole ou envie um CSV válido para importar." }
     }
 
-    let parsed: unknown
-    try {
-        parsed = JSON.parse(trimmed)
-    } catch (error) {
-        return { success: false, error: "JSON inválido. Verifique a formatação." }
+    const delimiter = detectDelimiter(trimmed)
+    const parsed = Papa.parse<Record<string, unknown>>(trimmed, {
+        header: true,
+        skipEmptyLines: true,
+        delimiter,
+    })
+
+    if (parsed.errors?.length) {
+        return { success: false, error: `CSV inválido: ${parsed.errors[0]?.message}` }
     }
 
-    const items = Array.isArray(parsed) ? parsed : [parsed]
+    const items = parsed.data ?? []
     if (items.length === 0) {
-        return { success: false, error: "Nenhum contato encontrado no JSON." }
+        return { success: false, error: "Nenhum contato encontrado no CSV." }
     }
 
     const rows: Record<string, unknown>[] = []
@@ -94,44 +99,44 @@ function normalizeContact(
     importedBy: string,
     source?: string
 ) {
-    const firstName = getString(contact.firstname ?? contact.first_name)
-    const lastName = getString(contact.lastname ?? contact.last_name)
-    const nameFromPayload = getString(contact.name)
+    const firstName = getString(getField(contact, ["firstname", "first_name", "firstName"]))
+    const lastName = getString(getField(contact, ["lastname", "last_name", "lastName"]))
+    const nameFromPayload = getString(getField(contact, ["name"]))
     const fullName = getString([firstName, lastName].filter(Boolean).join(" ")) ?? nameFromPayload
 
-    const email = getString(contact.email)?.toLowerCase()
+    const email = getString(getField(contact, ["email", "e-mail", "e_mail"]))?.toLowerCase()
     const importSource =
-        getString(source) ?? getString(contact.source) ?? "importacao_json"
+        getString(source) ?? getString(contact.source) ?? "importacao_csv"
 
     const normalized: Record<string, unknown> = {
-        external_id: getString(contact.id),
+        external_id: getString(getField(contact, ["id", "external_id", "externalId"])),
         source: importSource,
         first_name: firstName,
         last_name: lastName,
         full_name: fullName,
         email,
-        phone: getString(contact.phone),
-        mobile: getString(contact.mobile),
-        whatsapp: getString(contact.whatsapp),
-        whatsapp_remote_lid: getString(contact.whatsapp_remote_lid),
-        address: getString(contact.address),
-        city: getString(contact.city),
-        state: getString(contact.state),
-        zipcode: getString(contact.zipcode),
-        country: getString(contact.country),
-        timezone: getString(contact.timezone),
-        preferred_locale: getString(contact.preferred_locale),
-        cm: getString(contact.cm),
-        uc: getString(contact.uc),
-        sh_status: getString(contact.sh_status),
-        star_score: toInt(contact.star_score) ?? 0,
-        created_by: getString(contact.createdBy ?? contact.created_by),
-        created_by_name: getString(contact.createdByName ?? contact.created_by_name),
-        created_by_type: getString(contact.createdByType ?? contact.created_by_type),
-        updated_by: getString(contact.updatedBy ?? contact.updated_by),
-        updated_by_name: getString(contact.updatedByName ?? contact.updated_by_name),
-        source_created_at: toIso(contact.createDate ?? contact.created_at ?? contact.createdAt),
-        source_updated_at: toIso(contact.updatedDate ?? contact.updated_at ?? contact.updatedAt),
+        phone: getString(getField(contact, ["phone", "telefone"])),
+        mobile: getString(getField(contact, ["mobile", "celular"])),
+        whatsapp: getString(getField(contact, ["whatsapp", "whatsappNumber"])),
+        whatsapp_remote_lid: getString(getField(contact, ["whatsapp_remote_lid"])),
+        address: getString(getField(contact, ["address", "endereco"])),
+        city: getString(getField(contact, ["city", "cidade"])),
+        state: getString(getField(contact, ["state", "estado", "uf"])),
+        zipcode: getString(getField(contact, ["zipcode", "cep"])),
+        country: getString(getField(contact, ["country", "pais"])),
+        timezone: getString(getField(contact, ["timezone"])),
+        preferred_locale: getString(getField(contact, ["preferred_locale", "preferredLocale"])),
+        cm: getString(getField(contact, ["cm"])),
+        uc: getString(getField(contact, ["uc"])),
+        sh_status: getString(getField(contact, ["sh_status"])),
+        star_score: toInt(getField(contact, ["star_score"])) ?? 0,
+        created_by: getString(getField(contact, ["createdBy", "created_by"])),
+        created_by_name: getString(getField(contact, ["createdByName", "created_by_name"])),
+        created_by_type: getString(getField(contact, ["createdByType", "created_by_type"])),
+        updated_by: getString(getField(contact, ["updatedBy", "updated_by"])),
+        updated_by_name: getString(getField(contact, ["updatedByName", "updated_by_name"])),
+        source_created_at: toIso(getField(contact, ["createDate", "created_at", "createdAt"])),
+        source_updated_at: toIso(getField(contact, ["updatedDate", "updated_at", "updatedAt"])),
         imported_by: importedBy,
         raw_payload: contact,
     }
@@ -148,6 +153,18 @@ function getString(value: unknown) {
     if (value === null || value === undefined) return null
     const str = String(value).trim()
     return str.length > 0 ? str : null
+}
+
+function getField(contact: Record<string, unknown>, keys: string[]) {
+    for (const key of keys) {
+        if (key in contact) {
+            const value = contact[key]
+            if (value !== undefined && value !== null && String(value).trim() !== "") {
+                return value
+            }
+        }
+    }
+    return null
 }
 
 function toIso(value: unknown) {
@@ -170,4 +187,12 @@ function chunkArray<T>(items: T[], size: number) {
         chunks.push(items.slice(i, i + size))
     }
     return chunks
+}
+
+function detectDelimiter(content: string) {
+    const firstLine = content.split(/\r?\n/, 1)[0] ?? ""
+    const commaCount = (firstLine.match(/,/g) ?? []).length
+    const semicolonCount = (firstLine.match(/;/g) ?? []).length
+    if (semicolonCount > commaCount) return ";"
+    return ","
 }
