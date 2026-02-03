@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useFieldArray, useForm } from "react-hook-form"
 
 import { Button } from "@/components/ui/button"
 import { Sparkles, Loader2 } from "lucide-react"
@@ -24,6 +24,7 @@ import {
   formatPhone,
   onlyDigits,
 } from "@/lib/formatters"
+import { numberToWordsPtBr } from "@/lib/number-to-words-ptbr"
 import { useToast } from "@/hooks/use-toast"
 import type { Brand } from "@/lib/auth"
 
@@ -61,11 +62,18 @@ const unifiedSchema = z.object({
   consumoMedioKwh: z.coerce.number().optional(),
   valorContaEnergia: z.coerce.number().optional(),
 
+  localizacaoUC: z.string().optional(),
 
   // New Contract Fields
   precoKwh: z.coerce.number().optional(), // Preço Energisa
   desconto: z.coerce.number().optional(), // % Desconto (20, 25...)
   consumos: z.array(z.coerce.number()).optional(), // Array de consumos mensais
+  prazoContrato: z.string().optional(),
+  avisoPrevio: z.string().optional(),
+  outrasUcs: z.array(z.object({
+    codigoInstalacao: z.string().optional(),
+    localizacaoUC: z.string().optional(),
+  })).optional(),
 
   // Rental PF Specific
   cpfCnpj: z.string().optional(),
@@ -74,9 +82,6 @@ const unifiedSchema = z.object({
   telefoneCobrancaPF: z.string().optional(),
   emailBoletos: z.string().optional(),
   dataVendaPF: z.coerce.date().optional(),
-  vendedorNomePF: z.string().optional(),
-  vendedorTelefonePF: z.string().optional(),
-  vendedorCPF: z.string().optional(),
   consumoMedioPF: z.coerce.number().optional(),
 
   // Rental PJ Specific
@@ -92,11 +97,7 @@ const unifiedSchema = z.object({
   telefoneCobranca: z.string().optional(),
   whatsappSignatario: z.string().optional(),
   codigoInstalacao: z.string().optional(),
-  localizacaoUC: z.string().optional(),
   dataVenda: z.coerce.date().optional(),
-  vendedorNome: z.string().optional(),
-  vendedorTelefone: z.string().optional(),
-  vendedorCNPJ: z.string().optional(),
 
   // Dorata Specific
   producaoDesejada: z.string().optional(),
@@ -197,6 +198,7 @@ export function IndicacaoForm({
       marca: initialBrand,
       codigoClienteEnergia: "",
       codigoInstalacao: "",
+      localizacaoUC: "",
       vendedorId: userId,
       status: "EM_ANALISE",
       // PF defaults
@@ -215,10 +217,29 @@ export function IndicacaoForm({
       tipoEstrutura: undefined,
       precoKwh: 0.95, // Default Value
       desconto: 20,   // Default Value 20%
+      prazoContrato: "",
+      avisoPrevio: "",
+      outrasUcs: [],
     },
   })
 
+  const {
+    fields: outrasUcsFields,
+    append: appendOutraUc,
+    remove: removeOutraUc,
+  } = useFieldArray({
+    control: form.control,
+    name: "outrasUcs",
+  })
+
   const tipoPessoa = form.watch("tipoPessoa")
+  const precoKwh = Number(form.watch("precoKwh") ?? 0)
+  const desconto = Number(form.watch("desconto") ?? 0)
+  const consumoMedioPF = Number(form.watch("consumoMedioPF") ?? 0)
+  const descontoPercent = Number.isFinite(desconto) ? Math.min(Math.max(desconto, 0), 100) : 0
+  const valorLocacaoTotalPreview = Math.floor(Math.max(0, consumoMedioPF) * Math.max(0, precoKwh) * (1 - descontoPercent / 100))
+  const valorLocacaoExtensoPreview =
+    consumoMedioPF > 0 && precoKwh > 0 ? numberToWordsPtBr(valorLocacaoTotalPreview) : ""
 
   useEffect(() => {
     if (!allowedBrands.includes(form.getValues("marca"))) {
@@ -337,7 +358,7 @@ export function IndicacaoForm({
       user_id: values.vendedorId, // Use the selected salesperson ID
       marca: values.marca,
       documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
-      unidade_consumidora: values.tipoPessoa === "PF" ? null : values.localizacaoUC,
+      unidade_consumidora: values.localizacaoUC || null,
       codigo_cliente: values.codigoClienteEnergia,
       codigo_instalacao: values.codigoInstalacao,
     }
@@ -526,6 +547,21 @@ export function IndicacaoForm({
                 )}
               />
             )}
+            {form.watch('marca') === 'rental' && (
+              <FormField
+                control={form.control}
+                name="localizacaoUC"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Localização UC</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Endereço da unidade consumidora" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </div>
 
           {/* ========================== */}
@@ -700,11 +736,28 @@ export function IndicacaoForm({
                   <div className="grid gap-4 md:grid-cols-3">
                     <FormField control={form.control} name="endereco" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Endereço</FormLabel>
+                        <FormLabel>Logradouro</FormLabel>
                         <FormControl><Input {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
+                    <FormField control={form.control} name="numero" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Número</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <FormField control={form.control} name="bairro" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Bairro</FormLabel>
+                        <FormControl><Input {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
                     <FormField control={form.control} name="cidade" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Cidade</FormLabel>
@@ -746,6 +799,31 @@ export function IndicacaoForm({
                           <FormMessage />
                         </FormItem>
                       )} />
+                      <FormField control={form.control} name="prazoContrato" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Prazo de contrato</FormLabel>
+                          <FormControl><Input placeholder="Ex: 60 meses" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <FormField control={form.control} name="avisoPrevio" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Aviso prévio</FormLabel>
+                          <FormControl><Input placeholder="Ex: 60 dias" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <div className="grid gap-2 md:col-span-2">
+                        <label className="text-sm font-medium text-foreground">Valor locação (por extenso)</label>
+                        <Input
+                          value={valorLocacaoExtensoPreview}
+                          placeholder="Preencha consumo e preço para gerar"
+                          readOnly
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -773,28 +851,62 @@ export function IndicacaoForm({
                     )} />
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <FormField control={form.control} name="vendedorNomePF" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendedor (nome)</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="vendedorTelefonePF" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendedor (telefone)</FormLabel>
-                        <FormControl><Input {...field} placeholder="(11) 99999-9999" onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="vendedorCPF" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendedor (CPF)</FormLabel>
-                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatCpf(e.target.value))} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                  <div className="rounded-md border p-4 bg-slate-50 mb-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-blue-700">Outras UCs (opcional)</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => appendOutraUc({ codigoInstalacao: "", localizacaoUC: "" })}
+                        disabled={outrasUcsFields.length >= 9}
+                      >
+                        Adicionar UC
+                      </Button>
+                    </div>
+
+                    {outrasUcsFields.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Adicione outras unidades consumidoras se houver.
+                      </p>
+                    ) : (
+                      <div className="grid gap-4">
+                        {outrasUcsFields.map((field, index) => (
+                          <div key={field.id} className="grid gap-4 md:grid-cols-3 items-end">
+                            <FormField
+                              control={form.control}
+                              name={`outrasUcs.${index}.codigoInstalacao` as any}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Código da instalação</FormLabel>
+                                  <FormControl><Input {...field} /></FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name={`outrasUcs.${index}.localizacaoUC` as any}
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Localização UC</FormLabel>
+                                  <FormControl><Input {...field} /></FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-9"
+                              onClick={() => removeOutraUc(index)}
+                            >
+                              Remover
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -960,41 +1072,10 @@ export function IndicacaoForm({
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <FormField control={form.control} name="localizacaoUC" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Localização UC</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
                     <FormField control={form.control} name="dataVenda" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Data da venda</FormLabel>
                         <FormControl><Input type="date" value={field.value ? new Date(field.value).toISOString().slice(0, 10) : ""} onChange={(e) => field.onChange(e.target.value)} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <FormField control={form.control} name="vendedorNome" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendedor (nome)</FormLabel>
-                        <FormControl><Input {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="vendedorTelefone" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendedor (telefone)</FormLabel>
-                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="vendedorCNPJ" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendedor (CNPJ)</FormLabel>
-                        <FormControl><Input {...field} onChange={(e) => field.onChange(formatCnpj(e.target.value))} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />

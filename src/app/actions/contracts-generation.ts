@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { loadTemplateDocx } from "@/lib/template-loader"
+import { numberToWordsPtBr } from "@/lib/number-to-words-ptbr"
 
 import PizZip from "pizzip"
 import Docxtemplater from "docxtemplater"
@@ -118,51 +119,98 @@ export async function generateContractFromIndication(indicacaoId: string) {
     // Mapping rules:
     // 1. Existing lowercase keys (for compatibility with other templates)
     // 2. Uppercase keys (as seen in User's template image: {{NOME}}, {{CPF}}, {{RG}}, etc.)
+    const enderecoLogradouro = metadata.logradouro || metadata.endereco || ""
+    const numeroEndereco = metadata.numero || ""
+    const bairro = metadata.bairro || ""
+    const cidade = metadata.cidade || indicacao.cidade || ""
+    const estado = metadata.estado || indicacao.estado || ""
+    const cep = metadata.cep || ""
+    const dataHoje = new Date().toLocaleDateString("pt-BR")
+    const valorLocacaoFormatado = valorLocacaoTotal.toLocaleString("pt-BR")
+    const valorLocacaoExtenso = numberToWordsPtBr(valorLocacaoTotal)
+    const cmTotalFormatado = cmTotal.toFixed(0)
+    const outrasUcs = Array.isArray(metadata.outrasUcs) ? metadata.outrasUcs : []
+
     const templateData = {
         // --- Lowercase (standard) ---
         cliente_nome: indicacao.nome,
         cliente_doc: indicacao.documento,
-        cliente_endereco: metadata.endereco || "",
-        cliente_cidade: metadata.cidade || "",
-        cliente_estado: metadata.estado || "",
-        cliente_cep: metadata.cep || "",
+        cliente_endereco: enderecoLogradouro,
+        cliente_cidade: cidade,
+        cliente_estado: estado,
+        cliente_cep: cep,
 
         // --- Uppercase (from User Image) ---
         NOME: indicacao.nome,
         CPF: indicacao.documento, // Assuming document is CPF for PF
         CNPJ: indicacao.documento, // Provided for PJ templates just in case
         RG: metadata.rg || "", // RG might not be in base table, check metadata
-        LOGRADOURO: metadata.logradouro || metadata.endereco || "", // Try specific then generic
-        "NÚMERO ENDEREÇO": metadata.numero || "",
+        LOGRADOURO: enderecoLogradouro, // Try specific then generic
+        Logradouro: enderecoLogradouro,
+        "NÚMERO ENDEREÇO": numeroEndereco,
+        "Número Endereço": numeroEndereco,
         "NÚMERO": metadata.numero || "", // Variation
-        BAIRRO: metadata.bairro || "",
-        CIDADE: metadata.cidade || indicacao.cidade || "",
-        Estado: metadata.estado || indicacao.estado || "", // Note: Image had "Estado" (Title Case)
-        ESTADO: metadata.estado || indicacao.estado || "", // Provide UPPER too
-        CEP: metadata.cep || "",
+        BAIRRO: bairro,
+        Bairro: bairro,
+        CIDADE: cidade,
+        Cidade: cidade,
+        Estado: estado, // Note: Image had "Estado" (Title Case)
+        ESTADO: estado, // Provide UPPER too
+        CEP: cep,
         "E-mail do Signatário": indicacao.email,
         EMAIL: indicacao.email,
         TELEFONE: indicacao.telefone,
 
         // --- Calculated Values (Uppercased for consistency) ---
         // Image didn't show these, but good to have
-        CM_TOTAL: cmTotal.toFixed(0),
+        CM_TOTAL: cmTotalFormatado,
         PRECO_KWH: priceKwh.toFixed(2),
         DESCONTO_PERCENT: discountPercent,
-        VALOR_LOCACAO_TOTAL: valorLocacaoTotal.toLocaleString('pt-BR'),
+        VALOR_LOCACAO_TOTAL: valorLocacaoFormatado,
         PLACAS_TOTAL: placasTotal,
 
         // --- Original Calculated ---
-        CM_total: cmTotal.toFixed(0),
+        CM_total: cmTotalFormatado,
         preco_kwh: priceKwh.toFixed(2),
         desconto_percent: discountPercent,
-        valor_locacao_total: valorLocacaoTotal.toLocaleString('pt-BR'),
+        valor_locacao_total: valorLocacaoFormatado,
         placas_total: placasTotal,
 
         // Dates
-        data_hoje: new Date().toLocaleDateString('pt-BR'),
-        DATA_HOJE: new Date().toLocaleDateString('pt-BR'),
+        data_hoje: dataHoje,
+        DATA_HOJE: dataHoje,
         ANO_ATUAL: new Date().getFullYear(),
+
+        // --- Rental PF Template Fields ---
+        "CONSUMO MEDIO": cmTotalFormatado,
+        "QTD MODULOS": placasTotal,
+        "VALOR LOCAÇÃO": valorLocacaoFormatado,
+        "VALOR LOCAÇÃO EXTENSO": valorLocacaoExtenso,
+        "PRAZO DE CONTRATO": metadata.prazoContrato || "",
+        "Aviso Prévio": metadata.avisoPrevio || "",
+        "CODIGO INSTALAÇAO": metadata.codigoInstalacao || indicacao.codigo_instalacao || "",
+        "LOCALIZAÇÃO UC": metadata.localizacaoUC || indicacao.unidade_consumidora || "",
+        Data: dataHoje,
+
+        // --- Extra UCs (2..10) ---
+        CODINST2: outrasUcs[0]?.codigoInstalacao || "",
+        CODINST3: outrasUcs[1]?.codigoInstalacao || "",
+        CODINST4: outrasUcs[2]?.codigoInstalacao || "",
+        CODINST5: outrasUcs[3]?.codigoInstalacao || "",
+        CODINST6: outrasUcs[4]?.codigoInstalacao || "",
+        CODINST7: outrasUcs[5]?.codigoInstalacao || "",
+        CODINST8: outrasUcs[6]?.codigoInstalacao || "",
+        CODINST9: outrasUcs[7]?.codigoInstalacao || "",
+        CODINST10: outrasUcs[8]?.codigoInstalacao || "",
+        LOCALUC2: outrasUcs[0]?.localizacaoUC || "",
+        LOCALUC3: outrasUcs[1]?.localizacaoUC || "",
+        LOCALUC4: outrasUcs[2]?.localizacaoUC || "",
+        LOCALUC5: outrasUcs[3]?.localizacaoUC || "",
+        LOCALUC6: outrasUcs[4]?.localizacaoUC || "",
+        LOCALUC7: outrasUcs[5]?.localizacaoUC || "",
+        LOCALUC8: outrasUcs[6]?.localizacaoUC || "",
+        LOCALUC9: outrasUcs[7]?.localizacaoUC || "",
+        LOCALUC10: outrasUcs[8]?.localizacaoUC || "",
     }
 
     // G. Generate DOCX
