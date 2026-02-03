@@ -43,6 +43,12 @@ type SelectedContact = {
     mobile: string | null
 }
 
+type ManualContactState = {
+    first_name: string
+    last_name: string
+    whatsapp: string
+}
+
 function toNumber(value: string) {
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : 0
@@ -112,7 +118,7 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(null)
     const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(null)
     const [contactSelectKey, setContactSelectKey] = useState(0)
-    const [manualContact, setManualContact] = useState({
+    const [manualContact, setManualContact] = useState<ManualContactState>({
         first_name: "",
         last_name: "",
         whatsapp: "",
@@ -166,6 +172,8 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     const [loading, setLoading] = useState(false)
 
     const calculated = useMemo(() => calculateProposal(input), [input])
+    const selectedContactPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
+    const isContactPhoneLocked = Boolean(selectedContact && selectedContactPhone)
 
     const updateDimensioning = (patch: Partial<ProposalCalcInput["dimensioning"]>) => {
         setInput((prev) => ({ ...prev, dimensioning: { ...prev.dimensioning, ...patch } }))
@@ -189,6 +197,26 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
 
     const updateFinance = (patch: Partial<ProposalCalcInput["finance"]>) => {
         setInput((prev) => ({ ...prev, finance: { ...prev.finance, ...patch } }))
+    }
+
+    const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
+        const safeName = (fullName ?? "").trim()
+        if (!safeName) {
+            return { first_name: "", last_name: "", whatsapp: "" }
+        }
+        const [firstName, ...rest] = safeName.split(" ")
+        return { first_name: firstName ?? "", last_name: rest.join(" "), whatsapp: "" }
+    }
+
+    const applyContactToManual = (contact: SelectedContact): ManualContactState => {
+        const fullName =
+            contact.full_name?.trim() ||
+            [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim()
+        const base = buildManualFromName(fullName)
+        return {
+            ...base,
+            whatsapp: (contact.whatsapp || contact.phone || contact.mobile || "").trim(),
+        }
     }
 
     const clearClientSelection = () => {
@@ -326,7 +354,7 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
             return
         }
 
-        if (!hasIndicacao && selectedContact && !selectedPhone) {
+        if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
             showToast({
                 variant: "error",
                 title: "Contato sem WhatsApp",
@@ -396,20 +424,28 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                 calculation: calculated,
             }
 
+            const contactPayload = selectedIndicacaoId
+                ? null
+                : selectedContact
+                    ? {
+                        ...selectedContact,
+                        whatsapp: selectedContact.whatsapp || manualWhatsapp || null,
+                        phone: selectedContact.phone || manualWhatsapp || null,
+                    }
+                    : {
+                        first_name: manualFirstName,
+                        last_name: manualLastName || null,
+                        full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
+                        whatsapp: manualWhatsapp,
+                        email: null,
+                        phone: null,
+                        mobile: null,
+                    }
+
             await createProposal(proposalData, items, {
                 client: {
                     indicacao_id: selectedIndicacaoId,
-                    contact: selectedIndicacaoId
-                        ? null
-                        : (selectedContact ?? {
-                            first_name: manualFirstName,
-                            last_name: manualLastName || null,
-                            full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
-                            whatsapp: manualWhatsapp,
-                            email: null,
-                            phone: null,
-                            mobile: null,
-                        }),
+                    contact: contactPayload,
                 },
                 crm_brand: "dorata",
             })
@@ -454,13 +490,13 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                                             if (source === 'indicacao') {
                                                 setSelectedIndicacaoId(lead.id)
                                                 setSelectedContact(null)
-                                                setManualContact({ first_name: "", last_name: "", whatsapp: "" })
+                                                setManualContact(buildManualFromName(lead.nome))
                                             }
                                         }}
                                         onSelectContact={(contact) => {
                                             setSelectedContact(contact)
                                             setSelectedIndicacaoId(null)
-                                            setManualContact({ first_name: "", last_name: "", whatsapp: "" })
+                                            setManualContact(applyContactToManual(contact))
                                         }}
                                     />
                                 </div>
@@ -505,10 +541,17 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                                     type="text"
                                     value={manualContact.whatsapp}
                                     onChange={(e) => updateManualContact({ whatsapp: e.target.value })}
-                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                    disabled={Boolean(selectedIndicacaoId) || isContactPhoneLocked}
                                 />
                             </div>
                         </div>
+                        {(selectedContact || selectedIndicacaoId) && (
+                            <p className="text-xs text-muted-foreground">
+                                {selectedContact
+                                    ? "Contato selecionado dos importados."
+                                    : "Indicação selecionada no CRM Dorata."}
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
 

@@ -124,14 +124,15 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                         {showLeads && (
                             <CommandGroup heading="Indicações">
                                 {leads.map((lead) => (
-                                    <CommandItem
-                                        key={`lead-${lead.id}`}
-                                        value={`lead-${lead.nome}-${lead.id}`}
-                                        onSelect={() => {
-                                            onChange(lead.id)
-                                            onSelectLead?.(lead, 'indicacao')
-                                            setSelectedLead(lead)
-                                            setSelectedContact(null)
+                                <CommandItem
+                                    key={`lead-${lead.id}`}
+                                    value={`lead-${lead.nome}-${lead.id}`}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onSelect={() => {
+                                        onChange(lead.id)
+                                        onSelectLead?.(lead, 'indicacao')
+                                        setSelectedLead(lead)
+                                        setSelectedContact(null)
                                             setOpen(false)
                                         }}
                                     >
@@ -172,13 +173,14 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                         || "Contato"
 
                                     return (
-                                        <CommandItem
-                                            key={`contact-${contact.id}`}
-                                            value={`contact-${name}-${contact.id}`}
-                                            onSelect={() => {
-                                                onChange(undefined)
-                                                onSelectLead?.({
-                                                    id: contact.id,
+                                    <CommandItem
+                                        key={`contact-${contact.id}`}
+                                        value={`contact-${name}-${contact.id}`}
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onSelect={() => {
+                                            onChange(undefined)
+                                            onSelectLead?.({
+                                                id: contact.id,
                                                     nome: name,
                                                     documento: null,
                                                     unidade_consumidora: null,
