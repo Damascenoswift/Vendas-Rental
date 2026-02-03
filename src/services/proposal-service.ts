@@ -1,9 +1,11 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { Database } from "@/types/database"
 import { revalidatePath } from "next/cache"
 import { calculateProposal, type ProposalCalcInput, type ProposalCalculation } from "@/lib/proposal-calculation"
+import { ensureCrmCardForIndication, type CrmBrand } from "@/services/crm-card-service"
 
 export type PricingRule = Database['public']['Tables']['pricing_rules']['Row']
 export type PricingRuleUpdate = Database['public']['Tables']['pricing_rules']['Update']
@@ -12,6 +14,40 @@ export type Proposal = Database['public']['Tables']['proposals']['Row']
 export type ProposalInsert = Database['public']['Tables']['proposals']['Insert']
 export type ProposalItem = Database['public']['Tables']['proposal_items']['Row']
 export type ProposalItemInsert = Database['public']['Tables']['proposal_items']['Insert']
+
+type ProposalContactInput = {
+    id?: string | null
+    first_name?: string | null
+    last_name?: string | null
+    full_name?: string | null
+    email?: string | null
+    whatsapp?: string | null
+    phone?: string | null
+    mobile?: string | null
+}
+
+type ProposalCreateOptions = {
+    client?: {
+        indicacao_id?: string | null
+        contact?: ProposalContactInput | null
+    } | null
+    crm_brand?: CrmBrand
+    create_crm_card?: boolean
+}
+
+function buildFullName(contact?: ProposalContactInput | null) {
+    if (!contact) return ""
+    const fullName = contact.full_name?.trim()
+    if (fullName) return fullName
+    const first = contact.first_name?.trim() ?? ""
+    const last = contact.last_name?.trim() ?? ""
+    return [first, last].filter(Boolean).join(" ").trim()
+}
+
+function sanitizeText(value?: string | null) {
+    if (!value) return ""
+    return String(value).trim()
+}
 
 // Pricing Rules
 export async function getPricingRules() {
@@ -46,15 +82,194 @@ export async function updatePricingRule(id: string, updates: PricingRuleUpdate) 
 // Proposals
 export async function createProposal(
     proposalData: ProposalInsert,
-    items: ProposalItemInsert[]
+    items: ProposalItemInsert[],
+    options?: ProposalCreateOptions
 ) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+        throw new Error("Unauthorized")
+    }
     const commissionPercent = await getCommissionPercent(supabase)
+    const supabaseAdmin = createSupabaseServiceClient()
+    const brand: CrmBrand = options?.crm_brand ?? "dorata"
+
+    let clientId = proposalData.client_id ?? options?.client?.indicacao_id ?? null
+    const contact = options?.client?.contact ?? null
+    let crmCreated = false
+
+    if (!clientId && contact) {
+        let contactRecord = contact
+
+        const contactWhatsapp = sanitizeText(contact.whatsapp)
+        const contactEmail = sanitizeText(contact.email).toLowerCase()
+
+        if (!contactRecord.id) {
+            let existingContact: ProposalContactInput | null = null
+
+            if (contactWhatsapp) {
+                const { data: foundByWhatsapp } = await supabaseAdmin
+                    .from("contacts")
+                    .select("id, first_name, last_name, full_name, email, whatsapp, phone, mobile")
+                    .eq("whatsapp", contactWhatsapp)
+                    .maybeSingle()
+                if (foundByWhatsapp) {
+                    existingContact = foundByWhatsapp
+                }
+            }
+
+            if (!existingContact && contactEmail) {
+                const { data: foundByEmail } = await supabaseAdmin
+                    .from("contacts")
+                    .select("id, first_name, last_name, full_name, email, whatsapp, phone, mobile")
+                    .eq("email", contactEmail)
+                    .maybeSingle()
+                if (foundByEmail) {
+                    existingContact = foundByEmail
+                }
+            }
+
+            if (existingContact) {
+                contactRecord = existingContact
+            } else {
+                const fullName = buildFullName(contact)
+                const { data: createdContact, error: contactError } = await supabaseAdmin
+                    .from("contacts")
+                    .insert({
+                        first_name: sanitizeText(contact.first_name) || null,
+                        last_name: sanitizeText(contact.last_name) || null,
+                        full_name: fullName || null,
+                        email: contactEmail || null,
+                        whatsapp: contactWhatsapp || null,
+                        phone: sanitizeText(contact.phone) || null,
+                        mobile: sanitizeText(contact.mobile) || null,
+                        source: "orcamento",
+                        imported_by: user.id,
+                        raw_payload: contact,
+                    })
+                    .select("id, first_name, last_name, full_name, email, whatsapp, phone, mobile")
+                    .single()
+
+                if (contactError) {
+                    console.error("Error creating contact:", contactError)
+                    throw new Error("Failed to create contact")
+                }
+
+                contactRecord = createdContact
+            }
+        }
+
+        const nome = buildFullName(contactRecord) || "Cliente"
+        const telefone = sanitizeText(
+            contactRecord.whatsapp || contactRecord.phone || contactRecord.mobile
+        )
+        const email = sanitizeText(contactRecord.email)
+
+        let reusedIndicacao: { id: string } | null = null
+
+        if (telefone) {
+            const { data: indicacaoByPhone } = await supabaseAdmin
+                .from("indicacoes")
+                .select("id")
+                .eq("marca", brand)
+                .eq("telefone", telefone)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            if (indicacaoByPhone) {
+                reusedIndicacao = indicacaoByPhone
+            }
+        }
+
+        if (!reusedIndicacao && email) {
+            const { data: indicacaoByEmail } = await supabaseAdmin
+                .from("indicacoes")
+                .select("id")
+                .eq("marca", brand)
+                .eq("email", email)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle()
+            if (indicacaoByEmail) {
+                reusedIndicacao = indicacaoByEmail
+            }
+        }
+
+        if (reusedIndicacao) {
+            clientId = reusedIndicacao.id
+        } else {
+            const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+                .from("indicacoes")
+                .insert({
+                    tipo: "PF",
+                    nome,
+                    email: email || "",
+                    telefone: telefone || "",
+                    status: "EM_ANALISE",
+                    user_id: user.id,
+                    marca: brand,
+                    valor: proposalData.total_value ?? 0,
+                })
+                .select("id")
+                .single()
+
+            if (indicacaoError || !indicacao) {
+                console.error("Error creating indicacao for proposal:", indicacaoError)
+                throw new Error("Failed to create lead")
+            }
+
+            clientId = indicacao.id
+
+            if (options?.create_crm_card !== false) {
+                const crmResult = await ensureCrmCardForIndication({
+                    indicacaoId: indicacao.id,
+                    title: nome,
+                    assigneeId: proposalData.seller_id ?? user.id,
+                    createdBy: user.id,
+                    brand,
+                    status: "EM_ANALISE",
+                })
+                if (crmResult?.error) {
+                    console.error("Erro ao criar card CRM:", crmResult.error)
+                }
+                crmCreated = true
+            }
+        }
+    }
+
+    if (clientId && proposalData.total_value != null) {
+        await supabaseAdmin
+            .from("indicacoes")
+            .update({ valor: proposalData.total_value })
+            .eq("id", clientId)
+    }
+
+    if (clientId && options?.create_crm_card !== false && !crmCreated) {
+        const { data: indicacaoInfo } = await supabaseAdmin
+            .from("indicacoes")
+            .select("id, nome, marca")
+            .eq("id", clientId)
+            .maybeSingle()
+
+        const crmBrand = (indicacaoInfo?.marca as CrmBrand) ?? brand
+        const crmTitle = indicacaoInfo?.nome ?? null
+
+        const crmResult = await ensureCrmCardForIndication({
+            indicacaoId: clientId,
+            title: crmTitle,
+            assigneeId: proposalData.seller_id ?? user.id,
+            createdBy: user.id,
+            brand: crmBrand,
+        })
+        if (crmResult?.error) {
+            console.error("Erro ao criar card CRM:", crmResult.error)
+        }
+    }
 
     // 1. Create Proposal
     const proposalPayload: ProposalInsert = {
         ...proposalData,
+        client_id: clientId ?? proposalData.client_id ?? null,
         seller_id: proposalData.seller_id ?? user?.id ?? null
     }
 

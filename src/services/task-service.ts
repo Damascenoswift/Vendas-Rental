@@ -92,6 +92,7 @@ export interface TaskLeadOption {
     unidade_consumidora: string | null
     codigo_cliente: string | null
     codigo_instalacao: string | null
+    marca?: Brand | null
 }
 
 export interface TaskContactOption {
@@ -206,7 +207,7 @@ export async function getTaskAssignableUsers() {
     })) as TaskUserOption[]
 }
 
-export async function searchTaskLeads(search?: string) {
+export async function searchTaskLeads(search?: string, brand?: Brand) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return []
@@ -214,8 +215,12 @@ export async function searchTaskLeads(search?: string) {
     const supabaseAdmin = createSupabaseServiceClient()
     let query = supabaseAdmin
         .from('indicacoes')
-        .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao')
+        .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao, marca')
         .limit(20)
+
+    if (brand) {
+        query = query.eq('marca', brand)
+    }
 
     if (search) {
         query = query.ilike('nome', `%${search}%`)

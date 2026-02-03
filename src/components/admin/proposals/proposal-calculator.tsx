@@ -21,6 +21,7 @@ import {
 import { Loader2, Calculator, Plus, Trash2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
+import { LeadSelect } from "@/components/admin/tasks/lead-select"
 
 interface ProposalCalculatorProps {
     products: Product[]
@@ -30,6 +31,17 @@ interface ProposalCalculatorProps {
 type ExtraItem = { id: string; name: string; value: number }
 
 type RuleMap = Record<string, number>
+
+type SelectedContact = {
+    id: string
+    full_name: string | null
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    whatsapp: string | null
+    phone: string | null
+    mobile: string | null
+}
 
 function toNumber(value: string) {
     const parsed = Number(value)
@@ -96,6 +108,15 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     const [stringQuantity, setStringQuantity] = useState<number>(1)
     const [structureSoloProductId, setStructureSoloProductId] = useState<string>("")
     const [structureTelhadoProductId, setStructureTelhadoProductId] = useState<string>("")
+
+    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(null)
+    const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(null)
+    const [contactSelectKey, setContactSelectKey] = useState(0)
+    const [manualContact, setManualContact] = useState({
+        first_name: "",
+        last_name: "",
+        whatsapp: "",
+    })
 
     const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">("sent")
     const [input, setInput] = useState<ProposalCalcInput>(() => ({
@@ -168,6 +189,22 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
 
     const updateFinance = (patch: Partial<ProposalCalcInput["finance"]>) => {
         setInput((prev) => ({ ...prev, finance: { ...prev.finance, ...patch } }))
+    }
+
+    const clearClientSelection = () => {
+        setSelectedIndicacaoId(null)
+        setSelectedContact(null)
+        setManualContact({ first_name: "", last_name: "", whatsapp: "" })
+        setContactSelectKey((prev) => prev + 1)
+    }
+
+    const updateManualContact = (patch: Partial<typeof manualContact>) => {
+        setManualContact((prev) => ({ ...prev, ...patch }))
+        if (selectedContact || selectedIndicacaoId) {
+            setSelectedContact(null)
+            setSelectedIndicacaoId(null)
+            setContactSelectKey((prev) => prev + 1)
+        }
     }
 
     const handleModuleSelect = (value: string) => {
@@ -265,6 +302,39 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
             return
         }
 
+        const manualFirstName = manualContact.first_name.trim()
+        const manualLastName = manualContact.last_name.trim()
+        const manualWhatsapp = manualContact.whatsapp.trim()
+        const selectedPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
+        const hasIndicacao = Boolean(selectedIndicacaoId)
+
+        if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
+            showToast({
+                variant: "error",
+                title: "Cliente obrigatório",
+                description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
+            })
+            return
+        }
+
+        if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
+            showToast({
+                variant: "error",
+                title: "Dados do cliente incompletos",
+                description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
+            })
+            return
+        }
+
+        if (!hasIndicacao && selectedContact && !selectedPhone) {
+            showToast({
+                variant: "error",
+                title: "Contato sem WhatsApp",
+                description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
+            })
+            return
+        }
+
         setLoading(true)
         try {
             const items: ProposalItemInsert[] = []
@@ -326,7 +396,23 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                 calculation: calculated,
             }
 
-            await createProposal(proposalData, items)
+            await createProposal(proposalData, items, {
+                client: {
+                    indicacao_id: selectedIndicacaoId,
+                    contact: selectedIndicacaoId
+                        ? null
+                        : (selectedContact ?? {
+                            first_name: manualFirstName,
+                            last_name: manualLastName || null,
+                            full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
+                            whatsapp: manualWhatsapp,
+                            email: null,
+                            phone: null,
+                            mobile: null,
+                        }),
+                },
+                crm_brand: "dorata",
+            })
 
             showToast({
                 title: "Orçamento criado",
@@ -349,6 +435,83 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Cliente</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Buscar cliente (contatos ou indicações)</Label>
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                    <LeadSelect
+                                        key={contactSelectKey}
+                                        mode="both"
+                                        leadBrand="dorata"
+                                        value={selectedIndicacaoId ?? undefined}
+                                        onChange={(value) => setSelectedIndicacaoId(value ?? null)}
+                                        onSelectLead={(lead, source) => {
+                                            if (source === 'indicacao') {
+                                                setSelectedIndicacaoId(lead.id)
+                                                setSelectedContact(null)
+                                                setManualContact({ first_name: "", last_name: "", whatsapp: "" })
+                                            }
+                                        }}
+                                        onSelectContact={(contact) => {
+                                            setSelectedContact(contact)
+                                            setSelectedIndicacaoId(null)
+                                            setManualContact({ first_name: "", last_name: "", whatsapp: "" })
+                                        }}
+                                    />
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={clearClientSelection}
+                                >
+                                    Limpar
+                                </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Selecione um contato/indicação existente ou preencha abaixo para criar um novo.
+                            </p>
+                        </div>
+
+                        <Separator />
+
+                        <div className="grid gap-4 md:grid-cols-3">
+                            <div className="space-y-2">
+                                <Label>Nome</Label>
+                                <Input
+                                    type="text"
+                                    value={manualContact.first_name}
+                                    onChange={(e) => updateManualContact({ first_name: e.target.value })}
+                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Sobrenome</Label>
+                                <Input
+                                    type="text"
+                                    value={manualContact.last_name}
+                                    onChange={(e) => updateManualContact({ last_name: e.target.value })}
+                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>WhatsApp</Label>
+                                <Input
+                                    type="text"
+                                    value={manualContact.whatsapp}
+                                    onChange={(e) => updateManualContact({ whatsapp: e.target.value })}
+                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                />
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card>
                     <CardHeader>
                         <CardTitle>Dimensionamento</CardTitle>

@@ -23,7 +23,8 @@ export default async function ProposalsPage() {
         .from('proposals')
         .select(`
             *,
-            seller:users(name)
+            seller:users(name),
+            cliente:indicacoes(nome)
         `)
         .order('created_at', { ascending: false })
 
@@ -46,6 +47,7 @@ export default async function ProposalsPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Data</TableHead>
+                            <TableHead>Cliente</TableHead>
                             <TableHead>Vendedor</TableHead>
                             <TableHead>Validade</TableHead>
                             <TableHead>Status</TableHead>
@@ -55,7 +57,7 @@ export default async function ProposalsPage() {
                     <TableBody>
                         {!proposals || proposals.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
+                                <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                                     Nenhum orçamento encontrado.
                                 </TableCell>
                             </TableRow>
@@ -63,6 +65,7 @@ export default async function ProposalsPage() {
                             proposals.map((proposal) => (
                                 <TableRow key={proposal.id}>
                                     <TableCell>{format(new Date(proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
+                                    <TableCell>{proposal.cliente?.nome || '-'}</TableCell>
                                     <TableCell>{proposal.seller?.name || 'Sistema'}</TableCell>
                                     <TableCell>{proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}</TableCell>
                                     <TableCell className="capitalize">{proposal.status}</TableCell>
