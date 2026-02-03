@@ -75,6 +75,11 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
                                 {task.client_name}
                             </p>
                         )}
+                        {task.codigo_instalacao && (
+                            <p className="text-[11px] text-muted-foreground mt-1">
+                                Inst: {task.codigo_instalacao}
+                            </p>
+                        )}
                     </div>
 
                     {shouldShowProgress && (

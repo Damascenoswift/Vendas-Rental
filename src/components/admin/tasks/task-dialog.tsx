@@ -50,6 +50,7 @@ const taskSchema = z.object({
     assignee_id: z.string().optional(),
     indicacao_id: z.string().optional(), // Linked lead
     client_name: z.string().optional(),
+    codigo_instalacao: z.string().optional(),
     status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
     brand: z.enum(["rental", "dorata"]),
 })
@@ -350,6 +351,9 @@ export function TaskDialog() {
                                             form.setValue("client_name", lead.nome)
                                             if (source === 'contact') {
                                                 form.setValue("indicacao_id", undefined)
+                                                form.setValue("codigo_instalacao", undefined)
+                                            } else {
+                                                form.setValue("codigo_instalacao", lead.codigo_instalacao ?? undefined)
                                             }
                                         }}
                                     />

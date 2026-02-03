@@ -8,6 +8,24 @@ export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
 export type Brand = 'rental' | 'dorata'
+export type TaskChecklistPhase = 'cadastro' | 'energisa' | 'geral'
+
+const CADASTRO_CHECKLIST_TEMPLATE = [
+    { title: 'Concluir contrato', days: 1, sort_order: 1 },
+    { title: 'Enviar contrato', days: 1, sort_order: 2 },
+    { title: 'Contrato assinado', days: 4, sort_order: 3 },
+]
+
+const ENERGISA_CHECKLIST_TEMPLATE = [
+    { title: 'Pedido de transferência na energia feito', days: 10, sort_order: 1 },
+    { title: 'Transferido', days: 10, sort_order: 2 },
+]
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+function addDays(base: Date, days: number) {
+    return new Date(base.getTime() + days * MS_PER_DAY)
+}
 
 export interface Task {
     id: string
@@ -20,6 +38,8 @@ export interface Task {
     creator_id: string | null
     indicacao_id: string | null
     client_name: string | null
+    codigo_instalacao: string | null
+    energisa_activated_at: string | null
     department: Department | null
     created_at: string
     brand: Brand
@@ -41,6 +61,14 @@ export interface TaskChecklistItem {
     is_done: boolean
     sort_order: number
     created_at: string
+    due_date: string | null
+    completed_at: string | null
+    completed_by: string | null
+    phase: string | null
+    completed_by_user?: {
+        name: string | null
+        email: string | null
+    } | null
 }
 
 export interface TaskObserver {
@@ -264,6 +292,7 @@ export async function createTask(data: {
     department?: Department
     indicacao_id?: string
     client_name?: string
+    codigo_instalacao?: string
     status?: TaskStatus
     brand?: Brand
     observer_ids?: string[]
@@ -304,6 +333,203 @@ export async function createTask(data: {
 
     revalidatePath('/admin/tarefas')
     return { success: true }
+}
+
+async function insertChecklistTemplate(params: {
+    taskId: string
+    phase: TaskChecklistPhase
+    baseDate: Date
+    template: { title: string; days: number; sort_order: number }[]
+}) {
+    const supabaseAdmin = createSupabaseServiceClient()
+    const payload = params.template.map((item) => ({
+        task_id: params.taskId,
+        title: item.title,
+        phase: params.phase,
+        sort_order: item.sort_order,
+        due_date: addDays(params.baseDate, item.days).toISOString(),
+    }))
+
+    const { error } = await supabaseAdmin
+        .from('task_checklists')
+        .insert(payload)
+
+    if (error) {
+        console.error("Error inserting checklist template:", error)
+        return { error: error.message }
+    }
+
+    return { success: true }
+}
+
+export async function createRentalTasksForIndication(params: {
+    indicacaoId: string
+    nome?: string | null
+    codigoInstalacao?: string | null
+    creatorId: string
+}) {
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const codes = new Set<string>()
+    const normalizedCode = params.codigoInstalacao?.trim()
+    if (normalizedCode) codes.add(normalizedCode)
+
+    const { data: ucs } = await supabaseAdmin
+        .from('energia_ucs')
+        .select('codigo_instalacao')
+        .eq('cliente_id', params.indicacaoId)
+
+    ;(ucs ?? []).forEach((uc: { codigo_instalacao: string | null }) => {
+        const code = uc.codigo_instalacao?.trim()
+        if (code) codes.add(code)
+    })
+
+    const codeList = codes.size > 0 ? Array.from(codes) : [null]
+    const baseDate = new Date()
+    let created = 0
+
+    for (const code of codeList) {
+        const titleParts = [
+            'Cadastro',
+            params.nome?.trim() || 'Cliente',
+            code || undefined,
+        ].filter(Boolean)
+
+        const { data: taskRow, error } = await supabaseAdmin
+            .from('tasks')
+            .insert({
+                title: titleParts.join(' • '),
+                status: 'TODO',
+                priority: 'MEDIUM',
+                department: 'cadastro',
+                indicacao_id: params.indicacaoId,
+                client_name: params.nome ?? null,
+                codigo_instalacao: code,
+                brand: 'rental',
+                creator_id: params.creatorId,
+            })
+            .select('id')
+            .single()
+
+        if (error) {
+            console.error("Error creating rental task:", error)
+            continue
+        }
+
+        created += 1
+
+        const checklistResult = await insertChecklistTemplate({
+            taskId: taskRow.id,
+            phase: 'cadastro',
+            baseDate,
+            template: CADASTRO_CHECKLIST_TEMPLATE,
+        })
+
+        if (checklistResult?.error) {
+            console.error("Error creating cadastro checklist:", checklistResult.error)
+        }
+    }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true, created }
+}
+
+export async function activateTaskEnergisa(taskId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
+
+    const { data: task, error: taskError } = await supabase
+        .from('tasks')
+        .select('id, energisa_activated_at')
+        .eq('id', taskId)
+        .single()
+
+    if (taskError) {
+        console.error("Error fetching task for Energisa activation:", taskError)
+        return { error: taskError.message }
+    }
+
+    if (task?.energisa_activated_at) {
+        return { success: true, alreadyActive: true, activatedAt: task.energisa_activated_at }
+    }
+
+    const activatedAt = new Date()
+
+    const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ energisa_activated_at: activatedAt.toISOString() })
+        .eq('id', taskId)
+
+    if (updateError) {
+        console.error("Error activating Energisa:", updateError)
+        return { error: updateError.message }
+    }
+
+    const { data: existing } = await supabase
+        .from('task_checklists')
+        .select('id')
+        .eq('task_id', taskId)
+        .eq('phase', 'energisa')
+        .limit(1)
+
+    if (!existing || existing.length === 0) {
+        const checklistResult = await insertChecklistTemplate({
+            taskId,
+            phase: 'energisa',
+            baseDate: activatedAt,
+            template: ENERGISA_CHECKLIST_TEMPLATE,
+        })
+
+        if (checklistResult?.error) {
+            return { error: checklistResult.error }
+        }
+    }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true, activatedAt: activatedAt.toISOString() }
+}
+
+export async function backfillRentalTasksFromIndicacoes() {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: profile } = await supabaseAdmin
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+    if (!profile || !['adm_mestre', 'adm_dorata', 'supervisor'].includes(profile.role)) {
+        return { error: "Sem permissão para backfill." }
+    }
+
+    const { data: indicacoes, error } = await supabaseAdmin
+        .from('indicacoes')
+        .select('id, nome, codigo_instalacao, marca')
+        .eq('marca', 'rental')
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error("Error fetching indicacoes for backfill:", error)
+        return { error: error.message }
+    }
+
+    let createdTotal = 0
+    for (const indicacao of indicacoes ?? []) {
+        const result = await createRentalTasksForIndication({
+            indicacaoId: indicacao.id,
+            nome: indicacao.nome,
+            codigoInstalacao: indicacao.codigo_instalacao,
+            creatorId: user.id,
+        })
+        createdTotal += result?.created ?? 0
+    }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true, created: createdTotal }
 }
 
 export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
@@ -354,7 +580,7 @@ export async function getTaskChecklists(taskId: string) {
 
     const { data, error } = await supabase
         .from('task_checklists')
-        .select('id, task_id, title, is_done, sort_order, created_at')
+        .select('id, task_id, title, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase, completed_by_user:users!task_checklists_completed_by_fkey(name, email)')
         .eq('task_id', taskId)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true })
@@ -367,14 +593,25 @@ export async function getTaskChecklists(taskId: string) {
     return data as TaskChecklistItem[]
 }
 
-export async function addTaskChecklistItem(taskId: string, title: string) {
+export async function addTaskChecklistItem(
+    taskId: string,
+    title: string,
+    options?: {
+        dueDate?: string | null
+        phase?: TaskChecklistPhase | null
+        sortOrder?: number
+    }
+) {
     const supabase = await createClient()
 
     const { error } = await supabase
         .from('task_checklists')
         .insert({
             task_id: taskId,
-            title: title.trim()
+            title: title.trim(),
+            due_date: options?.dueDate ?? null,
+            phase: options?.phase ?? null,
+            sort_order: options?.sortOrder ?? 0,
         })
 
     if (error) return { error: error.message }
@@ -385,10 +622,16 @@ export async function addTaskChecklistItem(taskId: string, title: string) {
 
 export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
 
     const { error } = await supabase
         .from('task_checklists')
-        .update({ is_done: isDone })
+        .update({
+            is_done: isDone,
+            completed_at: isDone ? new Date().toISOString() : null,
+            completed_by: isDone ? user.id : null,
+        })
         .eq('id', itemId)
 
     if (error) return { error: error.message }

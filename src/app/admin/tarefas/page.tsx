@@ -3,6 +3,7 @@ import { getTasks, Brand } from "@/services/task-service"
 import { KanbanBoard } from "@/components/admin/tasks/kanban-board"
 import { TaskDialog } from "@/components/admin/tasks/task-dialog"
 import { TaskBrandFilter } from "@/components/admin/tasks/task-brand-filter"
+import { TaskBackfillButton } from "@/components/admin/tasks/task-backfill-button"
 import { Button } from "@/components/ui/button"
 import { Filter } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -27,6 +28,7 @@ export default async function TasksPage({ searchParams }: { searchParams: { bran
                 </div>
                 <div className="flex items-center gap-2">
                     <TaskBrandFilter />
+                    <TaskBackfillButton />
                     <TaskDialog />
                 </div>
             </div>

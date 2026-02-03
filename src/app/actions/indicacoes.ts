@@ -4,6 +4,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { ensureCrmCardForIndication } from '@/services/crm-card-service'
+import { createRentalTasksForIndication } from '@/services/task-service'
 
 export async function createIndicationAction(payload: any) {
     const supabase = await createClient()
@@ -70,6 +71,18 @@ export async function createIndicationAction(payload: any) {
         })
         if (crmResult?.error) {
             console.error('CRM Auto Create Error:', crmResult.error)
+        }
+    }
+
+    if (brand === 'rental') {
+        const taskResult = await createRentalTasksForIndication({
+            indicacaoId: data.id,
+            nome: finalPayload.nome ?? null,
+            codigoInstalacao: finalPayload.codigo_instalacao ?? null,
+            creatorId: user.id,
+        })
+        if (taskResult?.error) {
+            console.error('Rental task auto-create error:', taskResult.error)
         }
     }
 

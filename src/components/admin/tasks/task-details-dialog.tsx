@@ -9,6 +9,7 @@ import type { Task, TaskChecklistItem, TaskObserver } from "@/services/task-serv
 import {
     addTaskChecklistItem,
     addTaskObserver,
+    activateTaskEnergisa,
     deleteTask,
     deleteTaskChecklistItem,
     getTaskChecklists,
@@ -56,6 +57,38 @@ type UserOption = {
     department: string | null
 }
 
+const formatDateTime = (value?: string | null) => {
+    if (!value) return ""
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return ""
+    return format(parsed, "dd/MM/yyyy HH:mm", { locale: ptBR })
+}
+
+const formatDateOnly = (value?: string | null) => {
+    if (!value) return ""
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return ""
+    return format(parsed, "dd/MM/yyyy", { locale: ptBR })
+}
+
+const getInitials = (name: string) =>
+    name
+        .split(" ")
+        .filter(Boolean)
+        .map((part) => part[0])
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+
+const stringToHsl = (str: string) => {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash)
+    }
+    const h = hash % 360
+    return `hsl(${h}, 70%, 50%)`
+}
+
 export function TaskDetailsDialog({
     task,
     open,
@@ -73,6 +106,7 @@ export function TaskDetailsDialog({
     const [isSavingChecklist, setIsSavingChecklist] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
     const [isSavingDetails, setIsSavingDetails] = useState(false)
+    const [isActivatingEnergisa, setIsActivatingEnergisa] = useState(false)
     const [editDescription, setEditDescription] = useState("")
     const [editDueDate, setEditDueDate] = useState("")
     const { showToast } = useToast()
@@ -83,12 +117,29 @@ export function TaskDetailsDialog({
         return { total, done }
     }, [checklists])
 
+    const cadastroChecklists = useMemo(
+        () => checklists.filter((item) => item.phase === 'cadastro'),
+        [checklists]
+    )
+    const energisaChecklists = useMemo(
+        () => checklists.filter((item) => item.phase === 'energisa'),
+        [checklists]
+    )
+    const generalChecklists = useMemo(
+        () => checklists.filter((item) => !item.phase),
+        [checklists]
+    )
+
     const formattedDueDate = useMemo(() => {
         if (!task?.due_date) return "Sem prazo"
         const parsed = new Date(task.due_date)
         if (Number.isNaN(parsed.getTime())) return "Sem prazo"
         return format(parsed, "dd 'de' MMM 'de' yyyy", { locale: ptBR })
     }, [task?.due_date])
+
+    const formattedEnergisaActivatedAt = useMemo(() => {
+        return formatDateTime(task?.energisa_activated_at) || (task?.energisa_activated_at ?? "")
+    }, [task?.energisa_activated_at])
 
     useEffect(() => {
         if (!open || !task) return
@@ -140,6 +191,61 @@ export function TaskDetailsDialog({
 
     if (!task) return null
 
+    const headerMeta = [
+        task.client_name ? `Cliente: ${task.client_name}` : null,
+        task.codigo_instalacao ? `Instalação: ${task.codigo_instalacao}` : null,
+    ].filter(Boolean).join(" • ")
+
+    const renderChecklistItems = (items: TaskChecklistItem[]) => (
+        <div className="space-y-2">
+            {items.map((item) => {
+                const completedByName = item.completed_by_user?.name || item.completed_by_user?.email || ""
+                const completedAtLabel = formatDateTime(item.completed_at)
+                const dueDateLabel = formatDateOnly(item.due_date)
+                return (
+                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
+                        <div className="flex items-start gap-2">
+                            <Checkbox
+                                checked={item.is_done}
+                                onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked)}
+                            />
+                            <div className="space-y-1">
+                                <span className={`text-sm ${item.is_done ? "line-through text-muted-foreground" : ""}`}>
+                                    {item.title}
+                                </span>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    {dueDateLabel && <span>Prazo: {dueDateLabel}</span>}
+                                    {item.is_done && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
+                                    {completedByName && (
+                                        <span className="flex items-center gap-2">
+                                            <span
+                                                className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                                                style={{ backgroundColor: stringToHsl(completedByName) }}
+                                            >
+                                                {getInitials(completedByName)}
+                                            </span>
+                                            <span>{completedByName}</span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteChecklist(item.id)}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )
+            })}
+            {!isLoading && items.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhum checklist cadastrado.</p>
+            )}
+        </div>
+    )
+
     const handleAddChecklist = async () => {
         if (!newChecklistTitle.trim()) return
         setIsSavingChecklist(true)
@@ -160,7 +266,8 @@ export function TaskDetailsDialog({
             showToast({ title: "Erro ao atualizar checklist", description: result.error, variant: "error" })
             return
         }
-        setChecklists(prev => prev.map(i => (i.id === item.id ? { ...i, is_done: nextChecked } : i)))
+        const updated = await getTaskChecklists(task.id)
+        setChecklists(updated)
     }
 
     const handleDeleteChecklist = async (itemId: string) => {
@@ -231,6 +338,22 @@ export function TaskDetailsDialog({
         setIsSavingDetails(false)
     }
 
+    const handleActivateEnergisa = async () => {
+        setIsActivatingEnergisa(true)
+        const result = await activateTaskEnergisa(task.id)
+        if (result?.error) {
+            showToast({ title: "Erro ao ativar Energisa", description: result.error, variant: "error" })
+        } else {
+            if (!result?.alreadyActive && result?.activatedAt) {
+                onTaskUpdated?.(task.id, { energisa_activated_at: result.activatedAt })
+            }
+            const updated = await getTaskChecklists(task.id)
+            setChecklists(updated)
+            showToast({ title: "Processo Energisa ativado", variant: "success" })
+        }
+        setIsActivatingEnergisa(false)
+    }
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
@@ -242,7 +365,7 @@ export function TaskDetailsDialog({
                         </span>
                     </DialogTitle>
                     <DialogDescription>
-                        {task.client_name ? `Cliente: ${task.client_name}` : ""}
+                        {headerMeta}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -284,40 +407,54 @@ export function TaskDetailsDialog({
 
                     <Separator />
 
-                    <div className="grid gap-3">
-                        <h4 className="text-sm font-semibold">Checklist</h4>
-                        <div className="flex gap-2">
-                            <Input
-                                value={newChecklistTitle}
-                                onChange={(event) => setNewChecklistTitle(event.target.value)}
-                                placeholder="Adicionar item"
-                            />
-                            <Button onClick={handleAddChecklist} disabled={isSavingChecklist || !newChecklistTitle.trim()}>
-                                Adicionar
-                            </Button>
+                    <div className="grid gap-4">
+                        <div className="grid gap-3">
+                            <h4 className="text-sm font-semibold">Checklist Cadastro</h4>
+                            {renderChecklistItems(cadastroChecklists)}
                         </div>
-                        <div className="space-y-2">
-                            {checklists.map((item) => (
-                                <div key={item.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2">
-                                    <label className="flex items-center gap-2 text-sm">
-                                        <Checkbox
-                                            checked={item.is_done}
-                                            onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked)}
-                                        />
-                                        <span className={item.is_done ? "line-through text-muted-foreground" : ""}>{item.title}</span>
-                                    </label>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => handleDeleteChecklist(item.id)}
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
+
+                        {task.brand === 'rental' && (
+                            <div className="grid gap-3 rounded-md border bg-muted/20 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <h4 className="text-sm font-semibold">Processo Energisa</h4>
+                                    {task.energisa_activated_at ? (
+                                        <span className="text-xs text-muted-foreground">
+                                            Ativado em: {formattedEnergisaActivatedAt}
+                                        </span>
+                                    ) : (
+                                        <Button
+                                            size="sm"
+                                            onClick={handleActivateEnergisa}
+                                            disabled={isActivatingEnergisa}
+                                        >
+                                            Ativar Processo Energisa
+                                        </Button>
+                                    )}
                                 </div>
-                            ))}
-                            {!isLoading && checklists.length === 0 && (
-                                <p className="text-xs text-muted-foreground">Nenhum checklist cadastrado.</p>
-                            )}
+
+                                {task.energisa_activated_at ? (
+                                    renderChecklistItems(energisaChecklists)
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">
+                                        Ative o processo para liberar o checklist de Energisa.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+
+                        <div className="grid gap-3">
+                            <h4 className="text-sm font-semibold">Checklist adicional</h4>
+                            <div className="flex gap-2">
+                                <Input
+                                    value={newChecklistTitle}
+                                    onChange={(event) => setNewChecklistTitle(event.target.value)}
+                                    placeholder="Adicionar item"
+                                />
+                                <Button onClick={handleAddChecklist} disabled={isSavingChecklist || !newChecklistTitle.trim()}>
+                                    Adicionar
+                                </Button>
+                            </div>
+                            {renderChecklistItems(generalChecklists)}
                         </div>
                     </div>
 
