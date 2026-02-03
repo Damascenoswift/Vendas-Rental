@@ -165,7 +165,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const valorEstruturaTelhado = qtdPlacasTelhado * valorUnitTelhado
     const valorEstruturaTotal = valorEstruturaSolo + valorEstruturaTelhado
 
-    const somaComEstrutura = (custoKit + valorEstruturaSolo) * 2
+    const somaComEstrutura = (custoKit + valorEstruturaSolo) * 2 + valorEstruturaTelhado
     const margemPercentual = Number(input.margin.margem_percentual || 0)
     const margemValor = somaComEstrutura * margemPercentual
 
@@ -224,7 +224,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             total_a_vista: totalAVista,
             views: {
                 view_valor_kit: custoKit,
-                view_material: custoModulosTotal + valorEstruturaSolo
+                view_material: custoModulosTotal + valorEstruturaTotal
             }
         },
         finance: {

@@ -849,6 +849,10 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                                 <span>{formatCurrency(calculated.output.structure.valor_estrutura_solo)}</span>
                             </div>
                             <div className="flex justify-between">
+                                <span className="text-muted-foreground">Estrutura (telhado)</span>
+                                <span>{formatCurrency(calculated.output.structure.valor_estrutura_telhado)}</span>
+                            </div>
+                            <div className="flex justify-between">
                                 <span className="text-muted-foreground">Soma base</span>
                                 <span>{formatCurrency(calculated.output.totals.soma_com_estrutura)}</span>
                             </div>
