@@ -152,14 +152,17 @@ export async function generateContractFromIndication(indicacaoId: string) {
         "NÚMERO": metadata.numero || "", // Variation
         BAIRRO: bairro,
         Bairro: bairro,
+        Cep: cep,
         CIDADE: cidade,
         Cidade: cidade,
         Estado: estado, // Note: Image had "Estado" (Title Case)
         ESTADO: estado, // Provide UPPER too
         CEP: cep,
         "E-mail do Signatário": indicacao.email,
+        "e-mail do Signatário": indicacao.email,
         EMAIL: indicacao.email,
         TELEFONE: indicacao.telefone,
+        telefone: indicacao.telefone,
 
         // --- Calculated Values (Uppercased for consistency) ---
         // Image didn't show these, but good to have
@@ -183,6 +186,7 @@ export async function generateContractFromIndication(indicacaoId: string) {
 
         // --- Rental PF Template Fields ---
         "CONSUMO MEDIO": cmTotalFormatado,
+        "Consumo Médio": cmTotalFormatado,
         "QTD MODULOS": placasTotal,
         "VALOR LOCAÇÃO": valorLocacaoFormatado,
         "VALOR LOCAÇÃO EXTENSO": valorLocacaoExtenso,
