@@ -11,6 +11,7 @@ import {
     useSensors,
     DragStartEvent,
     DragOverEvent,
+    DragCancelEvent,
     DragEndEvent,
 } from "@dnd-kit/core"
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
@@ -35,6 +36,7 @@ type Props = {
 export function CrmBoard({ stages, cards }: Props) {
     const [items, setItems] = useState<CrmCardData[]>(cards)
     const [activeId, setActiveId] = useState<string | null>(null)
+    const [activeOriginalStageId, setActiveOriginalStageId] = useState<string | null>(null)
     const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
     const [isDetailsOpen, setIsDetailsOpen] = useState(false)
     const { showToast } = useToast()
@@ -45,7 +47,10 @@ export function CrmBoard({ stages, cards }: Props) {
     )
 
     function handleDragStart(event: DragStartEvent) {
-        setActiveId(event.active.id as string)
+        const draggedId = event.active.id as string
+        const activeItem = items.find((item) => item.id === draggedId)
+        setActiveId(draggedId)
+        setActiveOriginalStageId(activeItem?.stage_id ?? null)
     }
 
     function handleDragOver(event: DragOverEvent) {
@@ -68,16 +73,43 @@ export function CrmBoard({ stages, cards }: Props) {
         }
     }
 
+    function handleDragCancel(_event: DragCancelEvent) {
+        if (!activeId || !activeOriginalStageId) {
+            setActiveId(null)
+            setActiveOriginalStageId(null)
+            return
+        }
+
+        setItems((prev) =>
+            prev.map((item) =>
+                item.id === activeId ? { ...item, stage_id: activeOriginalStageId } : item
+            )
+        )
+        setActiveId(null)
+        setActiveOriginalStageId(null)
+    }
+
     async function handleDragEnd(event: DragEndEvent) {
         const { active, over } = event
+        const draggedId = active.id as string
+        const originalStageId = activeOriginalStageId
         setActiveId(null)
+        setActiveOriginalStageId(null)
 
-        if (!over) return
+        if (!originalStageId) return
 
-        const activeId = active.id as string
+        if (!over) {
+            setItems((prev) =>
+                prev.map((item) =>
+                    item.id === draggedId ? { ...item, stage_id: originalStageId } : item
+                )
+            )
+            return
+        }
+
         const overId = over.id as string
 
-        const activeItem = items.find((i) => i.id === activeId)
+        const activeItem = items.find((i) => i.id === draggedId)
         if (!activeItem) return
 
         let newStageId = activeItem.stage_id
@@ -91,19 +123,19 @@ export function CrmBoard({ stages, cards }: Props) {
             }
         }
 
-        if (activeItem.stage_id !== newStageId) {
-            const previousStageId = activeItem.stage_id
+        if (originalStageId !== newStageId) {
+            const previousStageId = originalStageId
             setItems((prev) =>
                 prev.map((item) =>
-                    item.id === activeId ? { ...item, stage_id: newStageId } : item
+                    item.id === draggedId ? { ...item, stage_id: newStageId } : item
                 )
             )
 
-            const result = await updateCrmCardStage(activeId, newStageId)
+            const result = await updateCrmCardStage(draggedId, newStageId)
             if (result?.error) {
                 setItems((prev) =>
                     prev.map((item) =>
-                        item.id === activeId ? { ...item, stage_id: previousStageId } : item
+                        item.id === draggedId ? { ...item, stage_id: previousStageId } : item
                     )
                 )
                 showToast({
@@ -138,6 +170,7 @@ export function CrmBoard({ stages, cards }: Props) {
             collisionDetection={closestCorners}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
+            onDragCancel={handleDragCancel}
             onDragEnd={handleDragEnd}
         >
             <div className="flex h-full gap-4 overflow-x-auto pb-4">

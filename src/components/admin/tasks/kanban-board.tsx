@@ -11,6 +11,7 @@ import {
     useSensors,
     DragStartEvent,
     DragOverEvent,
+    DragCancelEvent,
     DragEndEvent,
 } from "@dnd-kit/core"
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
@@ -34,6 +35,7 @@ const COLUMNS: { id: TaskStatus; title: string }[] = [
 export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     const [tasks, setTasks] = useState<Task[]>(initialTasks)
     const [activeId, setActiveId] = useState<string | null>(null)
+    const [activeOriginalStatus, setActiveOriginalStatus] = useState<TaskStatus | null>(null)
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
     const { showToast } = useToast()
 
@@ -43,7 +45,10 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     )
 
     const handleDragStart = (event: DragStartEvent) => {
-        setActiveId(event.active.id as string)
+        const draggedId = event.active.id as string
+        const activeTask = tasks.find((task) => task.id === draggedId)
+        setActiveId(draggedId)
+        setActiveOriginalStatus(activeTask?.status ?? null)
     }
 
     const handleDragOver = (event: DragOverEvent) => {
@@ -61,13 +66,38 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
         }
     }
 
+    const handleDragCancel = (_event: DragCancelEvent) => {
+        if (!activeId || !activeOriginalStatus) {
+            setActiveId(null)
+            setActiveOriginalStatus(null)
+            return
+        }
+
+        setTasks((prev) =>
+            prev.map((task) => (task.id === activeId ? { ...task, status: activeOriginalStatus } : task))
+        )
+        setActiveId(null)
+        setActiveOriginalStatus(null)
+    }
+
     const handleDragEnd = async (event: DragEndEvent) => {
         const { active, over } = event
+
+        const activeTaskId = active.id as string
+        const originalStatus = activeOriginalStatus
         setActiveId(null)
+        setActiveOriginalStatus(null)
 
-        if (!over) return
+        if (!originalStatus) return
 
-        const activeTask = tasks.find(t => t.id === active.id)
+        if (!over) {
+            setTasks((prev) =>
+                prev.map((task) => (task.id === activeTaskId ? { ...task, status: originalStatus } : task))
+            )
+            return
+        }
+
+        const activeTask = tasks.find(t => t.id === activeTaskId)
         if (!activeTask) return
 
         let newStatus = activeTask.status
@@ -83,19 +113,19 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
             }
         }
 
-        if (activeTask.status !== newStatus) {
-            const previousStatus = activeTask.status
+        if (originalStatus !== newStatus) {
+            const previousStatus = originalStatus
 
             // Optimistic UI update
             setTasks(prev =>
-                prev.map(t => (t.id === activeTask.id ? { ...t, status: newStatus } : t))
+                prev.map(t => (t.id === activeTaskId ? { ...t, status: newStatus } : t))
             )
 
-            const result = await updateTaskStatus(activeTask.id, newStatus)
+            const result = await updateTaskStatus(activeTaskId, newStatus)
             if (result.error) {
                 // Revert on error
                 setTasks(prev =>
-                    prev.map(t => (t.id === activeTask.id ? { ...t, status: previousStatus } : t))
+                    prev.map(t => (t.id === activeTaskId ? { ...t, status: previousStatus } : t))
                 )
                 showToast({
                     title: "Erro ao mover tarefa",
@@ -127,6 +157,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
             collisionDetection={closestCorners}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
+            onDragCancel={handleDragCancel}
             onDragEnd={handleDragEnd}
         >
             <div className="flex h-full min-h-0 gap-4 overflow-x-auto overflow-y-hidden pb-4">
