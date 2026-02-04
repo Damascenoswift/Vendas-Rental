@@ -349,6 +349,7 @@ export function IndicacaoForm({
     const displayEmail = values.tipoPessoa === "PF" ? values.emailCliente : values.emailSignatario
     const displayPhone = values.tipoPessoa === "PF" ? values.telefoneCliente : values.telefoneCobranca
 
+    const codigoInstalacao = values.codigoInstalacao?.trim()
     const payload = {
       tipo: values.tipoPessoa,
       nome: (displayName ?? "").trim(),
@@ -360,7 +361,7 @@ export function IndicacaoForm({
       documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
       unidade_consumidora: values.localizacaoUC || null,
       codigo_cliente: values.codigoClienteEnergia,
-      codigo_instalacao: values.codigoInstalacao,
+      ...(codigoInstalacao ? { codigo_instalacao: codigoInstalacao } : {}),
     }
 
     const { success, id: indicationId, message } = await createIndicationAction(payload)

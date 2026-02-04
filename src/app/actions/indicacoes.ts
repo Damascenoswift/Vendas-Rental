@@ -6,6 +6,15 @@ import { revalidatePath } from 'next/cache'
 import { ensureCrmCardForIndication } from '@/services/crm-card-service'
 import { createRentalTasksForIndication } from '@/services/task-service'
 
+function parseMissingColumnError(message?: string | null) {
+    if (!message) return null
+
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (!match) return null
+
+    return { column: match[1], table: match[2] }
+}
+
 export async function createIndicationAction(payload: any) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -47,22 +56,59 @@ export async function createIndicationAction(payload: any) {
         }
     }
 
-    // Insert the indication
-    const { data, error } = await supabaseAdmin
-        .from('indicacoes')
-        .insert(finalPayload)
-        .select('id')
-        .single()
+    const insertPayload = { ...finalPayload }
+    if (typeof insertPayload.codigo_instalacao === 'string') {
+        const trimmedInstallationCode = insertPayload.codigo_instalacao.trim()
+        if (trimmedInstallationCode.length === 0) {
+            delete insertPayload.codigo_instalacao
+        } else {
+            insertPayload.codigo_instalacao = trimmedInstallationCode
+        }
+    }
+
+    const insertIndication = async (candidatePayload: any) =>
+        supabaseAdmin
+            .from('indicacoes')
+            .insert(candidatePayload)
+            .select('id')
+            .single()
+
+    let { data, error } = await insertIndication(insertPayload)
+    const droppedColumns: string[] = []
+
+    while (error) {
+        const missingColumn = parseMissingColumnError(error.message)
+        if (!missingColumn || missingColumn.table !== 'indicacoes') break
+        if (!(missingColumn.column in insertPayload)) break
+
+        droppedColumns.push(missingColumn.column)
+        delete insertPayload[missingColumn.column]
+
+        const retry = await insertIndication(insertPayload)
+        data = retry.data
+        error = retry.error
+    }
+
+    if (droppedColumns.length > 0) {
+        console.warn(
+            `[createIndicationAction] Insert fallback for missing indicacoes columns: ${droppedColumns.join(', ')}`
+        )
+    }
 
     if (error) {
         console.error('Erro ao criar indicação:', error)
         return { success: false, message: error.message }
     }
 
+    const indicationId = data?.id
+    if (!indicationId) {
+        return { success: false, message: 'Não foi possível criar indicação.' }
+    }
+
     const brand = String(finalPayload.marca ?? '').toLowerCase()
     if (brand === 'dorata' || brand === 'rental') {
         const crmResult = await ensureCrmCardForIndication({
-            indicacaoId: data.id,
+            indicacaoId: indicationId,
             title: finalPayload.nome ?? null,
             assigneeId: finalPayload.user_id ?? null,
             createdBy: user.id,
@@ -76,12 +122,12 @@ export async function createIndicationAction(payload: any) {
 
     if (brand === 'rental') {
         const taskResult = await createRentalTasksForIndication({
-            indicacaoId: data.id,
+            indicacaoId: indicationId,
             nome: finalPayload.nome ?? null,
             codigoInstalacao: finalPayload.codigo_instalacao ?? null,
             creatorId: user.id,
         })
-        if (taskResult?.error) {
+        if (taskResult && 'error' in taskResult && taskResult.error) {
             console.error('Rental task auto-create error:', taskResult.error)
         }
     }
@@ -89,5 +135,5 @@ export async function createIndicationAction(payload: any) {
     revalidatePath('/indicacoes')
     revalidatePath('/admin/indicacoes')
 
-    return { success: true, id: data.id }
+    return { success: true, id: indicationId }
 }
