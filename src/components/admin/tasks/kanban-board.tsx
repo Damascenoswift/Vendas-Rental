@@ -55,26 +55,38 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
         const activeTask = tasks.find(t => t.id === active.id)
         if (!activeTask) return
 
+        let newStatus = activeTask.status
+
         // Drop on a Column
         if (COLUMNS.some(col => col.id === over.id)) {
-            const newStatus = over.id as TaskStatus
+            newStatus = over.id as TaskStatus
+        } else {
+            // Drop on another card
+            const overTask = tasks.find(t => t.id === over.id)
+            if (overTask) {
+                newStatus = overTask.status
+            }
+        }
 
-            if (activeTask.status !== newStatus) {
-                // Optimistic UI update
-                const previousStatus = activeTask.status
-                setTasks(tasks.map(t =>
-                    t.id === activeTask.id ? { ...t, status: newStatus } : t
-                ))
+        if (activeTask.status !== newStatus) {
+            const previousStatus = activeTask.status
 
-                // Server action
-                const result = await updateTaskStatus(activeTask.id, newStatus)
-                if (result.error) {
-                    // Revert on error
-                    setTasks(tasks.map(t =>
-                        t.id === activeTask.id ? { ...t, status: previousStatus } : t
-                    ))
-                    showToast({ title: "Erro ao mover tarefa", variant: "error" })
-                }
+            // Optimistic UI update
+            setTasks(prev =>
+                prev.map(t => (t.id === activeTask.id ? { ...t, status: newStatus } : t))
+            )
+
+            const result = await updateTaskStatus(activeTask.id, newStatus)
+            if (result.error) {
+                // Revert on error
+                setTasks(prev =>
+                    prev.map(t => (t.id === activeTask.id ? { ...t, status: previousStatus } : t))
+                )
+                showToast({
+                    title: "Erro ao mover tarefa",
+                    description: result.error,
+                    variant: "error",
+                })
             }
         }
     }

@@ -9,11 +9,21 @@ export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
 export type Brand = 'rental' | 'dorata'
 export type TaskChecklistPhase = 'cadastro' | 'energisa' | 'geral'
+export type TaskChecklistEventKey =
+    | 'DOCS_APPROVED'
+    | 'DOCS_INCOMPLETE'
+    | 'DOCS_REJECTED'
+    | 'CONTRACT_SENT'
+    | 'CONTRACT_SIGNED'
+    | null
 
 const CADASTRO_CHECKLIST_TEMPLATE = [
-    { title: 'Concluir contrato', days: 1, sort_order: 1 },
-    { title: 'Enviar contrato', days: 1, sort_order: 2 },
-    { title: 'Contrato assinado', days: 4, sort_order: 3 },
+    { title: 'Documentação aprovada', days: 0, sort_order: 1, event_key: 'DOCS_APPROVED' as const },
+    { title: 'Documentação incompleta', days: 0, sort_order: 2, event_key: 'DOCS_INCOMPLETE' as const },
+    { title: 'Documentação rejeitada', days: 0, sort_order: 3, event_key: 'DOCS_REJECTED' as const },
+    { title: 'Concluir contrato', days: 1, sort_order: 4, event_key: null },
+    { title: 'Enviar contrato', days: 1, sort_order: 5, event_key: 'CONTRACT_SENT' as const },
+    { title: 'Contrato assinado', days: 4, sort_order: 6, event_key: 'CONTRACT_SIGNED' as const },
 ]
 
 const ENERGISA_CHECKLIST_TEMPLATE = [
@@ -22,6 +32,27 @@ const ENERGISA_CHECKLIST_TEMPLATE = [
 ]
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
+const DOC_EVENT_KEYS: Exclude<TaskChecklistEventKey, null>[] = [
+    'DOCS_APPROVED',
+    'DOCS_INCOMPLETE',
+    'DOCS_REJECTED',
+]
+
+const TASK_BOARD_ALLOWED_ROLES = [
+    'adm_mestre',
+    'adm_dorata',
+    'supervisor',
+    'suporte_tecnico',
+    'suporte_limitado',
+    'funcionario_n1',
+    'funcionario_n2',
+    'vendedor_interno',
+    'vendedor_externo',
+] as const
+
+function canManageTaskBoard(role?: string | null) {
+    return Boolean(role && TASK_BOARD_ALLOWED_ROLES.includes(role as (typeof TASK_BOARD_ALLOWED_ROLES)[number]))
+}
 
 function addDays(base: Date, days: number) {
     return new Date(base.getTime() + days * MS_PER_DAY)
@@ -62,6 +93,60 @@ function toLegacyDepartmentValue(department: string) {
     return map[department] ?? department
 }
 
+function inferEventKey(title?: string | null): TaskChecklistEventKey {
+    if (!title) return null
+    const normalized = title.toLowerCase()
+
+    if (normalized.includes('document') && normalized.includes('aprov')) return 'DOCS_APPROVED'
+    if (normalized.includes('document') && (normalized.includes('incomplet') || normalized.includes('penden'))) {
+        return 'DOCS_INCOMPLETE'
+    }
+    if (normalized.includes('document') && (normalized.includes('rejeit') || normalized.includes('reprov'))) {
+        return 'DOCS_REJECTED'
+    }
+    if (normalized.includes('enviar contrato') || normalized.includes('contrato enviado')) return 'CONTRACT_SENT'
+    if (normalized.includes('contrato assinado')) return 'CONTRACT_SIGNED'
+
+    return null
+}
+
+function buildInteractionFromChecklistEvent(eventKey: Exclude<TaskChecklistEventKey, null>) {
+    if (eventKey === 'DOCS_APPROVED') {
+        return {
+            type: 'DOC_APPROVAL',
+            content: 'Documentação marcada como APROVADA via checklist de tarefas.',
+            metadata: { new_status: 'APPROVED', source: 'task_checklist' },
+        }
+    }
+    if (eventKey === 'DOCS_INCOMPLETE') {
+        return {
+            type: 'DOC_APPROVAL',
+            content: 'Documentação marcada como INCOMPLETA via checklist de tarefas.',
+            metadata: { new_status: 'INCOMPLETE', source: 'task_checklist' },
+        }
+    }
+    if (eventKey === 'DOCS_REJECTED') {
+        return {
+            type: 'DOC_APPROVAL',
+            content: 'Documentação marcada como REJEITADA via checklist de tarefas.',
+            metadata: { new_status: 'REJECTED', source: 'task_checklist' },
+        }
+    }
+    if (eventKey === 'CONTRACT_SENT') {
+        return {
+            type: 'STATUS_CHANGE',
+            content: 'Contrato enviado para assinatura via checklist de tarefas.',
+            metadata: { new_status: 'AGUARDANDO_ASSINATURA', source: 'task_checklist' },
+        }
+    }
+
+    return {
+        type: 'STATUS_CHANGE',
+        content: 'Contrato marcado como assinado via checklist de tarefas.',
+        metadata: { new_status: 'CONCLUIDA', source: 'task_checklist' },
+    }
+}
+
 export interface Task {
     id: string
     title: string
@@ -93,6 +178,7 @@ export interface TaskChecklistItem {
     id: string
     task_id: string
     title: string
+    event_key?: TaskChecklistEventKey
     is_done: boolean
     sort_order: number
     created_at: string
@@ -380,19 +466,34 @@ async function insertChecklistTemplate(params: {
     taskId: string
     phase: TaskChecklistPhase
     baseDate: Date
-    template: { title: string; days: number; sort_order: number }[]
+    template: {
+        title: string
+        days: number
+        sort_order: number
+        event_key?: TaskChecklistEventKey
+    }[]
 }) {
     const payload = params.template.map((item) => ({
         task_id: params.taskId,
         title: item.title,
         phase: params.phase,
         sort_order: item.sort_order,
+        event_key: item.event_key ?? null,
         due_date: addDays(params.baseDate, item.days).toISOString(),
     }))
 
-    const { error } = await params.supabase
+    let { error } = await params.supabase
         .from('task_checklists')
         .insert(payload)
+
+    const missingColumn = parseMissingColumnError(error?.message)
+    if (error && missingColumn && missingColumn.table === 'task_checklists' && missingColumn.column === 'event_key') {
+        const fallbackPayload = payload.map(({ event_key: _eventKey, ...rest }) => rest)
+        const fallbackResult = await params.supabase
+            .from('task_checklists')
+            .insert(fallbackPayload)
+        error = fallbackResult.error
+    }
 
     if (error) {
         console.error("Error inserting checklist template:", error)
@@ -686,9 +787,22 @@ export async function backfillRentalTasksFromIndicacoes() {
 
 export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
 
-    // Authorization check is handled by RLS, but good to be safe
-    const { error } = await supabase
+    const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+
+    if (profileError) return { error: profileError.message }
+    if (!canManageTaskBoard((profile as any)?.role ?? null)) {
+        return { error: "Sem permissão para mover tarefas." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { error } = await supabaseAdmin
         .from('tasks')
         .update({ status: newStatus })
         .eq('id', taskId)
@@ -732,7 +846,7 @@ export async function getTaskChecklists(taskId: string) {
 
     const { data, error } = await supabase
         .from('task_checklists')
-        .select('id, task_id, title, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase, completed_by_user:users!task_checklists_completed_by_fkey(name, email)')
+        .select('id, task_id, title, event_key, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase, completed_by_user:users!task_checklists_completed_by_fkey(name, email)')
         .eq('task_id', taskId)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true })
@@ -752,6 +866,7 @@ export async function addTaskChecklistItem(
         dueDate?: string | null
         phase?: TaskChecklistPhase | null
         sortOrder?: number
+        eventKey?: TaskChecklistEventKey
     }
 ) {
     const supabase = await createClient()
@@ -764,6 +879,7 @@ export async function addTaskChecklistItem(
             due_date: options?.dueDate ?? null,
             phase: options?.phase ?? null,
             sort_order: options?.sortOrder ?? 0,
+            event_key: options?.eventKey ?? null,
         })
 
     if (error) return { error: error.message }
@@ -777,6 +893,46 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { error: "Unauthorized" }
 
+    let eventKeyColumnAvailable = true
+    const { data: itemWithTaskData, error: itemFetchError } = await supabase
+        .from('task_checklists')
+        .select('id, task_id, title, event_key, task:tasks!inner(indicacao_id, brand)')
+        .eq('id', itemId)
+        .maybeSingle()
+
+    let fallbackItemWithTaskData: any = null
+    if (itemFetchError) {
+        const missingColumn = parseMissingColumnError(itemFetchError.message)
+        if (missingColumn && missingColumn.table === 'task_checklists' && missingColumn.column === 'event_key') {
+            eventKeyColumnAvailable = false
+            const fallback = await supabase
+                .from('task_checklists')
+                .select('id, task_id, title, task:tasks!inner(indicacao_id, brand)')
+                .eq('id', itemId)
+                .maybeSingle()
+
+            if (fallback.error) {
+                return { error: fallback.error.message }
+            }
+            fallbackItemWithTaskData = fallback.data
+        } else {
+            return { error: itemFetchError.message }
+        }
+    }
+
+    const itemWithTask = (itemWithTaskData ?? fallbackItemWithTaskData) as {
+        id: string
+        task_id: string
+        title: string | null
+        event_key?: string | null
+        task?: { indicacao_id: string | null; brand: Brand | null } | null
+    } | null
+
+    const rawEventKey = itemWithTask?.event_key ?? null
+    const eventKey =
+        (rawEventKey as TaskChecklistEventKey) ??
+        inferEventKey(itemWithTask?.title)
+
     const { error } = await supabase
         .from('task_checklists')
         .update({
@@ -788,7 +944,98 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
 
     if (error) return { error: error.message }
 
+    // Keep doc commands mutually exclusive in the same task
+    if (
+        isDone &&
+        eventKey &&
+        DOC_EVENT_KEYS.includes(eventKey) &&
+        itemWithTask?.task_id &&
+        eventKeyColumnAvailable
+    ) {
+        const { error: clearDocError } = await supabase
+            .from('task_checklists')
+            .update({
+                is_done: false,
+                completed_at: null,
+                completed_by: null,
+            })
+            .eq('task_id', itemWithTask.task_id)
+            .in('event_key', DOC_EVENT_KEYS as string[])
+            .neq('id', itemId)
+
+        if (clearDocError) {
+            console.error("Error clearing other doc checklist events:", clearDocError)
+        }
+    }
+
+    // Reflect key milestones/doc commands to the lead of the seller
+    if (isDone && eventKey && itemWithTask?.task?.indicacao_id) {
+        const indicacaoId = itemWithTask.task.indicacao_id
+        const supabaseAdmin = createSupabaseServiceClient()
+
+        const { data: indicacaoAtual } = await supabaseAdmin
+            .from('indicacoes')
+            .select('id, contrato_enviado_em, assinada_em')
+            .eq('id', indicacaoId)
+            .maybeSingle()
+
+        const now = new Date().toISOString()
+        const updates: Record<string, string> = {}
+
+        if (eventKey === 'DOCS_APPROVED') {
+            updates.doc_validation_status = 'APPROVED'
+            updates.status = 'APROVADA'
+        } else if (eventKey === 'DOCS_INCOMPLETE') {
+            updates.doc_validation_status = 'INCOMPLETE'
+            updates.status = 'FALTANDO_DOCUMENTACAO'
+        } else if (eventKey === 'DOCS_REJECTED') {
+            updates.doc_validation_status = 'REJECTED'
+            updates.status = 'REJEITADA'
+        } else if (eventKey === 'CONTRACT_SENT') {
+            updates.status = 'AGUARDANDO_ASSINATURA'
+            if (!indicacaoAtual?.contrato_enviado_em) {
+                updates.contrato_enviado_em = now
+            }
+        } else if (eventKey === 'CONTRACT_SIGNED') {
+            updates.status = 'CONCLUIDA'
+            if (!indicacaoAtual?.contrato_enviado_em) {
+                updates.contrato_enviado_em = now
+            }
+            if (!indicacaoAtual?.assinada_em) {
+                updates.assinada_em = now
+            }
+        }
+
+        if (Object.keys(updates).length > 0) {
+            const { error: updateLeadError } = await supabaseAdmin
+                .from('indicacoes')
+                .update(updates)
+                .eq('id', indicacaoId)
+
+            if (updateLeadError) {
+                console.error("Error syncing lead from checklist event:", updateLeadError)
+            } else {
+                const interaction = buildInteractionFromChecklistEvent(eventKey)
+                const { error: interactionError } = await supabaseAdmin
+                    .from('indicacao_interactions' as any)
+                    .insert({
+                        indicacao_id: indicacaoId,
+                        user_id: user.id,
+                        type: interaction.type,
+                        content: interaction.content,
+                        metadata: interaction.metadata,
+                    } as any)
+
+                if (interactionError) {
+                    console.error("Error logging checklist interaction:", interactionError)
+                }
+            }
+        }
+    }
+
     revalidatePath('/admin/tarefas')
+    revalidatePath('/indicacoes')
+    revalidatePath('/dashboard')
     return { success: true }
 }
 

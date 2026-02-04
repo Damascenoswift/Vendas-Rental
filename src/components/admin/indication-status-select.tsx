@@ -26,6 +26,7 @@ import { Loader2 } from "lucide-react"
 type IndicationStatusSelectProps = {
     id: string
     initialStatus: string
+    brand?: string | null
 }
 
 const statusOptions = [
@@ -39,7 +40,7 @@ const statusOptions = [
     { value: "REJEITADA", label: "Rejeitada" },
 ]
 
-export function IndicationStatusSelect({ id, initialStatus }: IndicationStatusSelectProps) {
+export function IndicationStatusSelect({ id, initialStatus, brand }: IndicationStatusSelectProps) {
     const [status, setStatus] = useState(initialStatus)
     const [tempStatus, setTempStatus] = useState<string | null>(null)
     const [comment, setComment] = useState("")
@@ -82,11 +83,12 @@ export function IndicationStatusSelect({ id, initialStatus }: IndicationStatusSe
     }
 
     const currentLabel = statusOptions.find(opt => opt.value === status)?.label || status
+    const isRental = brand === "rental"
 
     return (
         <>
             <Select value={status} onValueChange={handleValueChange}>
-                <SelectTrigger className="w-full h-8 text-xs">
+                <SelectTrigger className="w-full h-8 text-xs" disabled={isRental}>
                     <SelectValue>{currentLabel}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -97,6 +99,11 @@ export function IndicationStatusSelect({ id, initialStatus }: IndicationStatusSe
                     ))}
                 </SelectContent>
             </Select>
+            {isRental ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                    Fluxo Rental: mova o card no CRM/Tarefas.
+                </p>
+            ) : null}
 
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogContent>

@@ -1,9 +1,14 @@
 "use client"
 
+import { type MouseEvent, useState } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { FileText, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/hooks/use-toast"
+import { generateContractFromIndication } from "@/app/actions/contracts-generation"
 
 export type CrmCardData = {
     id: string
@@ -43,6 +48,8 @@ export function CrmCard({
     isOverlay?: boolean
     onClick?: (item: CrmCardData) => void
 }) {
+    const { showToast } = useToast()
+    const [isGeneratingContract, setIsGeneratingContract] = useState(false)
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: item.id,
     })
@@ -58,6 +65,44 @@ export function CrmCard({
         item.indicacoes?.nome ||
         item.title ||
         `Indicacao ${item.indicacao_id.slice(0, 8)}`
+    const isRental = (item.indicacoes?.marca ?? "dorata") === "rental"
+
+    const handleGenerateContract = async (event: MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (isGeneratingContract) return
+
+        setIsGeneratingContract(true)
+        try {
+            const result = await generateContractFromIndication(item.indicacao_id)
+            if (!result.success) {
+                showToast({
+                    variant: "error",
+                    title: "Erro ao gerar contrato",
+                    description: result.message,
+                })
+                return
+            }
+
+            showToast({
+                variant: "success",
+                title: "Contrato gerado",
+                description: "O download será aberto em nova aba.",
+            })
+
+            if (result.url) {
+                window.open(result.url, "_blank", "noopener,noreferrer")
+            }
+        } catch {
+            showToast({
+                variant: "error",
+                title: "Erro ao gerar contrato",
+                description: "Falha inesperada ao gerar o contrato.",
+            })
+        } finally {
+            setIsGeneratingContract(false)
+        }
+    }
 
     if (isOverlay) {
         return (
@@ -96,6 +141,21 @@ export function CrmCard({
                     <Badge variant={brand === "RENTAL" ? "default" : "secondary"} className="mb-2 text-[10px] px-1 h-5">
                         {brand}
                     </Badge>
+                    {isRental ? (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={handleGenerateContract}
+                            onPointerDown={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                            }}
+                            title="Gerar contrato"
+                        >
+                            {isGeneratingContract ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                        </Button>
+                    ) : null}
                 </div>
                 <div className="font-semibold text-sm line-clamp-2">{displayName}</div>
             </CardHeader>

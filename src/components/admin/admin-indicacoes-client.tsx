@@ -168,7 +168,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                                         </TableCell>
                                         <TableCell>
                                             <div className="w-[180px]">
-                                                <IndicationStatusSelect id={ind.id} initialStatus={ind.status} />
+                                                <IndicationStatusSelect id={ind.id} initialStatus={ind.status} brand={ind.marca} />
                                             </div>
                                         </TableCell>
                                         <TableCell className="text-right">

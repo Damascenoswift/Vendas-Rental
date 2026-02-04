@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 
-const statusMap: Record<string, 'EM_ANALISE' | 'AGUARDANDO_ASSINATURA' | 'CONCLUIDA' | 'REJEITADA'> = {
+const statusMap: Record<string, 'EM_ANALISE' | 'AGUARDANDO_ASSINATURA' | 'REJEITADA'> = {
   sent: 'AGUARDANDO_ASSINATURA',
   requested: 'AGUARDANDO_ASSINATURA',
-  signed: 'CONCLUIDA',
-  completed: 'CONCLUIDA',
   cancelled: 'REJEITADA',
   error: 'REJEITADA',
 }
@@ -22,6 +20,11 @@ export async function POST(req: Request) {
 
     if (!indicacaoId || !sourceStatus) {
       return NextResponse.json({ error: 'missing_fields' }, { status: 400 })
+    }
+
+    // Signed/completed is now handled manually by task checklist commands.
+    if (sourceStatus === 'signed' || sourceStatus === 'completed') {
+      return NextResponse.json({ ok: true, ignored: true, reason: 'manual_contract_signed_control' })
     }
 
     const mapped = statusMap[sourceStatus] || 'EM_ANALISE'
@@ -45,15 +48,6 @@ export async function POST(req: Request) {
 
     if (['sent', 'requested'].includes(sourceStatus) && !indicacaoAtual?.contrato_enviado_em) {
       updates.contrato_enviado_em = now
-    }
-
-    if (['signed', 'completed'].includes(sourceStatus)) {
-      if (!indicacaoAtual?.contrato_enviado_em) {
-        updates.contrato_enviado_em = now
-      }
-      if (!indicacaoAtual?.assinada_em) {
-        updates.assinada_em = now
-      }
     }
 
     const { error } = await supabase

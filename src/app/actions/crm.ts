@@ -15,7 +15,16 @@ export async function updateCrmCardStage(cardId: string, newStageId: string) {
         return { error: "Não autorizado" }
     }
 
-    const { data: card, error: fetchError } = await supabase
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+
+    if (!role || !crmAllowedRoles.includes(role)) {
+        return { error: "Sem permissão para mover cards no CRM." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: card, error: fetchError } = await supabaseAdmin
         .from("crm_cards")
         .select("id, stage_id")
         .eq("id", cardId)
@@ -29,7 +38,7 @@ export async function updateCrmCardStage(cardId: string, newStageId: string) {
         return { success: true }
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
         .from("crm_cards")
         .update({
             stage_id: newStageId,
@@ -41,7 +50,7 @@ export async function updateCrmCardStage(cardId: string, newStageId: string) {
         return { error: updateError.message }
     }
 
-    const { error: historyError } = await supabase
+    const { error: historyError } = await supabaseAdmin
         .from("crm_stage_history")
         .insert({
             card_id: cardId,
