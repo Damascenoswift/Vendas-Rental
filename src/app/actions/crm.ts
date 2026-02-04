@@ -72,6 +72,7 @@ const crmAllowedRoles = [
     "adm_mestre",
     "adm_dorata",
     "supervisor",
+    "suporte",
     "suporte_tecnico",
     "suporte_limitado",
     "funcionario_n1",

@@ -38,12 +38,27 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     const { showToast } = useToast()
 
     const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), // Fix click vs drag
+        useSensor(PointerSensor, { activationConstraint: { distance: 3 } }), // Easier drag start on cards
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
 
     const handleDragStart = (event: DragStartEvent) => {
         setActiveId(event.active.id as string)
+    }
+
+    const handleDragOver = (event: DragOverEvent) => {
+        const { active, over } = event
+        if (!over) return
+
+        const activeTask = tasks.find((task) => task.id === active.id)
+        if (!activeTask) return
+
+        const overId = over.id as string
+        if (COLUMNS.some((col) => col.id === overId) && activeTask.status !== overId) {
+            setTasks((prev) =>
+                prev.map((task) => (task.id === activeTask.id ? { ...task, status: overId as TaskStatus } : task))
+            )
+        }
     }
 
     const handleDragEnd = async (event: DragEndEvent) => {
@@ -111,6 +126,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
             sensors={sensors}
             collisionDetection={closestCorners}
             onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
         >
             <div className="flex h-full min-h-0 gap-4 overflow-x-auto overflow-y-hidden pb-4">

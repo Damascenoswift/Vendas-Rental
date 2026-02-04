@@ -19,11 +19,9 @@ export type TaskChecklistEventKey =
 
 const CADASTRO_CHECKLIST_TEMPLATE = [
     { title: 'Documentação aprovada', days: 0, sort_order: 1, event_key: 'DOCS_APPROVED' as const },
-    { title: 'Documentação incompleta', days: 0, sort_order: 2, event_key: 'DOCS_INCOMPLETE' as const },
-    { title: 'Documentação rejeitada', days: 0, sort_order: 3, event_key: 'DOCS_REJECTED' as const },
-    { title: 'Concluir contrato', days: 1, sort_order: 4, event_key: null },
-    { title: 'Enviar contrato', days: 1, sort_order: 5, event_key: 'CONTRACT_SENT' as const },
-    { title: 'Contrato assinado', days: 4, sort_order: 6, event_key: 'CONTRACT_SIGNED' as const },
+    { title: 'Concluir contrato', days: 1, sort_order: 2, event_key: null },
+    { title: 'Enviar contrato', days: 1, sort_order: 3, event_key: 'CONTRACT_SENT' as const },
+    { title: 'Contrato assinado', days: 4, sort_order: 4, event_key: 'CONTRACT_SIGNED' as const },
 ]
 
 const ENERGISA_CHECKLIST_TEMPLATE = [
@@ -42,6 +40,7 @@ const TASK_BOARD_ALLOWED_ROLES = [
     'adm_mestre',
     'adm_dorata',
     'supervisor',
+    'suporte',
     'suporte_tecnico',
     'suporte_limitado',
     'funcionario_n1',
@@ -108,6 +107,15 @@ function inferEventKey(title?: string | null): TaskChecklistEventKey {
     if (normalized.includes('contrato assinado')) return 'CONTRACT_SIGNED'
 
     return null
+}
+
+function isDocAlertEventKey(eventKey: TaskChecklistEventKey) {
+    return eventKey === 'DOCS_INCOMPLETE' || eventKey === 'DOCS_REJECTED'
+}
+
+function isChecklistAlertOnlyItem(item: { event_key?: string | null; title?: string | null }) {
+    const inferred = ((item.event_key as TaskChecklistEventKey | undefined) ?? inferEventKey(item.title)) ?? null
+    return isDocAlertEventKey(inferred)
 }
 
 function buildInteractionFromChecklistEvent(eventKey: Exclude<TaskChecklistEventKey, null>) {
@@ -276,10 +284,22 @@ export async function getTasks(filters?: {
 
     const taskIds = rows.map(task => task.id)
 
-    const { data: checklistRows, error: checklistError } = await supabase
+    let { data: checklistRows, error: checklistError } = await supabase
         .from('task_checklists')
-        .select('task_id, is_done')
+        .select('task_id, is_done, event_key, title')
         .in('task_id', taskIds)
+
+    if (checklistError) {
+        const missingColumn = parseMissingColumnError(checklistError.message)
+        if (missingColumn && missingColumn.table === 'task_checklists' && missingColumn.column === 'event_key') {
+            const fallback = await supabase
+                .from('task_checklists')
+                .select('task_id, is_done, title')
+                .in('task_id', taskIds)
+            checklistRows = fallback.data as any
+            checklistError = fallback.error
+        }
+    }
 
     if (checklistError) {
         console.error("Error fetching task checklists:", checklistError)
@@ -288,6 +308,7 @@ export async function getTasks(filters?: {
 
     const summary = new Map<string, { total: number; done: number }>()
     ;(checklistRows ?? []).forEach((item: any) => {
+        if (isChecklistAlertOnlyItem(item)) return
         const current = summary.get(item.task_id) ?? { total: 0, done: 0 }
         current.total += 1
         if (item.is_done) current.done += 1
@@ -790,6 +811,22 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { error: "Unauthorized" }
 
+    // Prefer user-scoped update to avoid dependency on service key and keep RLS behavior.
+    const { error: userScopedError } = await supabase
+        .from('tasks')
+        .update({ status: newStatus })
+        .eq('id', taskId)
+
+    if (!userScopedError) {
+        revalidatePath('/admin/tarefas')
+        return { success: true }
+    }
+
+    // Fallback for environments with restrictive/legacy RLS policies.
+    if (!isPermissionDenied(userScopedError)) {
+        return { error: userScopedError.message }
+    }
+
     const { data: profile, error: profileError } = await supabase
         .from('users')
         .select('role')
@@ -802,12 +839,12 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { error } = await supabaseAdmin
+    const { error: adminError } = await supabaseAdmin
         .from('tasks')
         .update({ status: newStatus })
         .eq('id', taskId)
 
-    if (error) return { error: error.message }
+    if (adminError) return { error: adminError.message }
 
     revalidatePath('/admin/tarefas')
     return { success: true }
@@ -885,6 +922,88 @@ export async function addTaskChecklistItem(
     if (error) return { error: error.message }
 
     revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function triggerTaskDocAlert(taskId: string, alertType: 'DOCS_INCOMPLETE' | 'DOCS_REJECTED') {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
+
+    const { data: task, error: taskError } = await supabase
+        .from('tasks')
+        .select('id, indicacao_id')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    if (taskError) return { error: taskError.message }
+    if (!task?.indicacao_id) {
+        return { error: "Esta tarefa não está vinculada a uma indicação." }
+    }
+
+    const updates =
+        alertType === 'DOCS_INCOMPLETE'
+            ? { doc_validation_status: 'INCOMPLETE', status: 'FALTANDO_DOCUMENTACAO' }
+            : { doc_validation_status: 'REJECTED', status: 'REJEITADA' }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { error: updateLeadError } = await supabaseAdmin
+        .from('indicacoes')
+        .update(updates)
+        .eq('id', task.indicacao_id)
+
+    if (updateLeadError) return { error: updateLeadError.message }
+
+    const interaction = buildInteractionFromChecklistEvent(alertType)
+    const { error: interactionError } = await supabaseAdmin
+        .from('indicacao_interactions' as any)
+        .insert({
+            indicacao_id: task.indicacao_id,
+            user_id: user.id,
+            type: interaction.type,
+            content: interaction.content,
+            metadata: interaction.metadata,
+        } as any)
+
+    if (interactionError) {
+        console.error("Error logging doc alert interaction:", interactionError)
+    }
+
+    // If docs were previously approved in checklist, clear that marker to avoid contradiction.
+    let { error: clearApprovedError } = await supabase
+        .from('task_checklists')
+        .update({
+            is_done: false,
+            completed_at: null,
+            completed_by: null,
+        })
+        .eq('task_id', taskId)
+        .eq('event_key', 'DOCS_APPROVED')
+
+    if (clearApprovedError) {
+        const missingColumn = parseMissingColumnError(clearApprovedError.message)
+        if (missingColumn && missingColumn.table === 'task_checklists' && missingColumn.column === 'event_key') {
+            const fallback = await supabase
+                .from('task_checklists')
+                .update({
+                    is_done: false,
+                    completed_at: null,
+                    completed_by: null,
+                })
+                .eq('task_id', taskId)
+                .ilike('title', '%document%')
+                .ilike('title', '%aprov%')
+            clearApprovedError = fallback.error
+        }
+    }
+
+    if (clearApprovedError) {
+        console.error("Error clearing approved doc checklist after alert:", clearApprovedError)
+    }
+
+    revalidatePath('/admin/tarefas')
+    revalidatePath('/indicacoes')
+    revalidatePath('/dashboard')
     return { success: true }
 }
 

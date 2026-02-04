@@ -1,6 +1,7 @@
 "use client"
 
 import { useDroppable } from "@dnd-kit/core"
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { Task, TaskStatus } from "@/services/task-service"
 import { TaskCard } from "./task-card"
 
@@ -27,11 +28,14 @@ export function TaskColumn({ id, title, tasks, onTaskClick }: TaskColumnProps) {
 
             <div
                 ref={setNodeRef}
-                className="flex-1 min-h-0 overflow-y-auto bg-gray-50/50 rounded-lg p-2 space-y-2 border border-transparent hover:border-gray-200 transition-colors"
+                className="flex-1 min-h-[160px] overflow-y-auto bg-gray-50/50 rounded-lg p-2 space-y-2 border border-transparent hover:border-gray-200 transition-colors"
+                data-column-id={id}
             >
-                {tasks.map(task => (
-                    <TaskCard key={task.id} task={task} onClick={() => onTaskClick?.(task.id)} />
-                ))}
+                <SortableContext items={tasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
+                    {tasks.map(task => (
+                        <TaskCard key={task.id} task={task} onClick={() => onTaskClick?.(task.id)} />
+                    ))}
+                </SortableContext>
             </div>
         </div>
     )

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { Trash2, UserPlus, X } from "lucide-react"
+import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
 
 import type { Task, TaskChecklistItem, TaskObserver } from "@/services/task-service"
 import {
@@ -16,6 +16,7 @@ import {
     getTaskAssignableUsers,
     getTaskObservers,
     removeTaskObserver,
+    triggerTaskDocAlert,
     toggleTaskChecklistItem,
     updateTask,
 } from "@/services/task-service"
@@ -89,6 +90,19 @@ const stringToHsl = (str: string) => {
     return `hsl(${h}, 70%, 50%)`
 }
 
+const inferChecklistEvent = (item: TaskChecklistItem): string | null => {
+    if (item.event_key) return item.event_key
+    const normalized = (item.title ?? "").toLowerCase()
+    if (normalized.includes("document") && normalized.includes("incomplet")) return "DOCS_INCOMPLETE"
+    if (normalized.includes("document") && (normalized.includes("rejeit") || normalized.includes("reprov"))) return "DOCS_REJECTED"
+    return null
+}
+
+const isDocAlertChecklist = (item: TaskChecklistItem) => {
+    const key = inferChecklistEvent(item)
+    return key === "DOCS_INCOMPLETE" || key === "DOCS_REJECTED"
+}
+
 export function TaskDetailsDialog({
     task,
     open,
@@ -107,6 +121,7 @@ export function TaskDetailsDialog({
     const [isDeleting, setIsDeleting] = useState(false)
     const [isSavingDetails, setIsSavingDetails] = useState(false)
     const [isActivatingEnergisa, setIsActivatingEnergisa] = useState(false)
+    const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
     const [editDescription, setEditDescription] = useState("")
     const [editDueDate, setEditDueDate] = useState("")
     const { showToast } = useToast()
@@ -118,7 +133,7 @@ export function TaskDetailsDialog({
     }, [checklists])
 
     const cadastroChecklists = useMemo(
-        () => checklists.filter((item) => item.phase === 'cadastro'),
+        () => checklists.filter((item) => item.phase === 'cadastro' && !isDocAlertChecklist(item)),
         [checklists]
     )
     const energisaChecklists = useMemo(
@@ -354,6 +369,23 @@ export function TaskDetailsDialog({
         setIsActivatingEnergisa(false)
     }
 
+    const handleDocAlert = async (alertType: 'DOCS_INCOMPLETE' | 'DOCS_REJECTED') => {
+        setActiveDocAlert(alertType)
+        const result = await triggerTaskDocAlert(task.id, alertType)
+        if (result?.error) {
+            showToast({ title: "Erro ao registrar alerta", description: result.error, variant: "error" })
+        } else {
+            const updated = await getTaskChecklists(task.id)
+            setChecklists(updated)
+            showToast({
+                title: "Alerta registrado",
+                description: "O vendedor foi atualizado com o novo status da documentação.",
+                variant: "success",
+            })
+        }
+        setActiveDocAlert(null)
+    }
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-[720px] max-h-[85vh] overflow-y-auto">
@@ -408,6 +440,36 @@ export function TaskDetailsDialog({
                     <Separator />
 
                     <div className="grid gap-4">
+                        <div className="grid gap-3 rounded-md border border-red-200 bg-red-50/50 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <h4 className="flex items-center gap-2 text-sm font-semibold text-red-700">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    Alertas de documentação
+                                </h4>
+                                <span className="text-[11px] text-red-700/80">
+                                    Atualiza o vendedor em tempo real
+                                </span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDocAlert('DOCS_INCOMPLETE')}
+                                    disabled={activeDocAlert !== null}
+                                >
+                                    {activeDocAlert === 'DOCS_INCOMPLETE' ? 'Enviando...' : 'Documentação incompleta'}
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => handleDocAlert('DOCS_REJECTED')}
+                                    disabled={activeDocAlert !== null}
+                                >
+                                    {activeDocAlert === 'DOCS_REJECTED' ? 'Enviando...' : 'Documentação rejeitada'}
+                                </Button>
+                            </div>
+                        </div>
+
                         <div className="grid gap-3">
                             <h4 className="text-sm font-semibold">Checklist Cadastro</h4>
                             {renderChecklistItems(cadastroChecklists)}
