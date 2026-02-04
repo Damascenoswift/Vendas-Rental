@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast"
 import { LeadInteractions } from "./interactions/lead-interactions"
 import { EnergisaActions } from "./interactions/energisa-actions"
 import { DocChecklist } from "./interactions/doc-checklist"
+import type { ReactNode } from "react"
 
 
 
@@ -23,6 +24,10 @@ import { DocChecklist } from "./interactions/doc-checklist"
 interface IndicationDetailsDialogProps {
     indicationId: string
     userId: string
+    open?: boolean
+    onOpenChange?: (open: boolean) => void
+    hideDefaultTrigger?: boolean
+    trigger?: ReactNode
 }
 
 interface FileItem {
@@ -30,12 +35,21 @@ interface FileItem {
     url: string | null
 }
 
-export function IndicationDetailsDialog({ indicationId, userId }: IndicationDetailsDialogProps) {
-    const [isOpen, setIsOpen] = useState(false)
+export function IndicationDetailsDialog({
+    indicationId,
+    userId,
+    open,
+    onOpenChange,
+    hideDefaultTrigger = false,
+    trigger,
+}: IndicationDetailsDialogProps) {
+    const [internalOpen, setInternalOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [metadata, setMetadata] = useState<any>(null)
     const [files, setFiles] = useState<FileItem[]>([])
     const { showToast } = useToast()
+    const isControlled = typeof open === "boolean"
+    const isOpen = isControlled ? open : internalOpen
 
     const fetchDetails = async () => {
         setIsLoading(true)
@@ -88,7 +102,10 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
     }
 
     const handleOpenChange = (open: boolean) => {
-        setIsOpen(open)
+        if (!isControlled) {
+            setInternalOpen(open)
+        }
+        onOpenChange?.(open)
         if (open && !metadata && files.length === 0) {
             fetchDetails()
         }
@@ -115,11 +132,15 @@ export function IndicationDetailsDialog({ indicationId, userId }: IndicationDeta
 
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-            <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                    <Eye className="h-4 w-4" />
-                </Button>
-            </DialogTrigger>
+            {!hideDefaultTrigger ? (
+                <DialogTrigger asChild>
+                    {trigger ?? (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                            <Eye className="h-4 w-4" />
+                        </Button>
+                    )}
+                </DialogTrigger>
+            ) : null}
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
                 <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2 border-b">
                     <DialogTitle>Detalhes da Indicação</DialogTitle>

@@ -16,6 +16,7 @@ export type CrmCardData = {
         nome?: string | null
         valor?: number | null
         marca?: string | null
+        user_id?: string | null
     } | null
 }
 
@@ -24,7 +25,15 @@ function formatCurrency(value?: number | null) {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 }
 
-export function CrmCard({ item, isOverlay }: { item: CrmCardData; isOverlay?: boolean }) {
+export function CrmCard({
+    item,
+    isOverlay,
+    onClick,
+}: {
+    item: CrmCardData
+    isOverlay?: boolean
+    onClick?: (item: CrmCardData) => void
+}) {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: item.id,
     })
@@ -68,6 +77,10 @@ export function CrmCard({ item, isOverlay }: { item: CrmCardData; isOverlay?: bo
             {...attributes}
             {...listeners}
             className="w-full cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow bg-background"
+            onClick={() => {
+                if (isDragging) return
+                onClick?.(item)
+            }}
         >
             <CardHeader className="p-3 pb-0 space-y-0">
                 <div className="flex items-start justify-between">

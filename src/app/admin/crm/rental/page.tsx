@@ -94,7 +94,7 @@ export default async function AdminCrmRentalPage() {
     let cards: any[] = []
     const { data: cardsData, error: cardsError } = await supabaseAdmin
         .from("crm_cards")
-        .select("id, stage_id, indicacao_id, title, created_at, indicacoes ( id, nome, valor, marca )")
+        .select("id, stage_id, indicacao_id, title, created_at, indicacoes ( id, nome, valor, marca, user_id )")
         .eq("pipeline_id", pipeline.id)
         .order("created_at", { ascending: false })
 

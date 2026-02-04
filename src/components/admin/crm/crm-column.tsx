@@ -10,9 +10,10 @@ type Props = {
     title: string
     isClosed?: boolean
     items: CrmCardData[]
+    onCardClick?: (item: CrmCardData) => void
 }
 
-export function CrmColumn({ id, title, isClosed, items }: Props) {
+export function CrmColumn({ id, title, isClosed, items, onCardClick }: Props) {
     const { setNodeRef } = useDroppable({ id })
 
     return (
@@ -34,7 +35,7 @@ export function CrmColumn({ id, title, isClosed, items }: Props) {
             <div ref={setNodeRef} className="flex-1 p-2 space-y-2 min-h-[150px]" data-column-id={id}>
                 <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                     {items.map((item) => (
-                        <CrmCard key={item.id} item={item} />
+                        <CrmCard key={item.id} item={item} onClick={onCardClick} />
                     ))}
                 </SortableContext>
             </div>

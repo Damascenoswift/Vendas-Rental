@@ -18,6 +18,7 @@ import { CrmColumn } from "./crm-column"
 import { CrmCard, type CrmCardData } from "./crm-card"
 import { updateCrmCardStage } from "@/app/actions/crm"
 import { useToast } from "@/hooks/use-toast"
+import { IndicationDetailsDialog } from "@/components/admin/indication-details-dialog"
 
 type Stage = {
     id: string
@@ -34,6 +35,8 @@ type Props = {
 export function CrmBoard({ stages, cards }: Props) {
     const [items, setItems] = useState<CrmCardData[]>(cards)
     const [activeId, setActiveId] = useState<string | null>(null)
+    const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
+    const [isDetailsOpen, setIsDetailsOpen] = useState(false)
     const { showToast } = useToast()
 
     const sensors = useSensors(
@@ -113,6 +116,21 @@ export function CrmBoard({ stages, cards }: Props) {
     }
 
     const activeCard = items.find((i) => i.id === activeId)
+    const selectedCard = items.find((i) => i.id === selectedCardId) ?? null
+
+    function handleCardClick(item: CrmCardData) {
+        if (!item.indicacoes?.user_id) {
+            showToast({
+                variant: "error",
+                title: "Detalhes indisponíveis",
+                description: "Não foi possível identificar o usuário da indicação para abrir os detalhes.",
+            })
+            return
+        }
+
+        setSelectedCardId(item.id)
+        setIsDetailsOpen(true)
+    }
 
     return (
         <DndContext
@@ -130,6 +148,7 @@ export function CrmBoard({ stages, cards }: Props) {
                         title={stage.name}
                         isClosed={stage.is_closed}
                         items={items.filter((card) => card.stage_id === stage.id)}
+                        onCardClick={handleCardClick}
                     />
                 ))}
             </div>
@@ -137,6 +156,16 @@ export function CrmBoard({ stages, cards }: Props) {
             <DragOverlay>
                 {activeCard ? <CrmCard item={activeCard} isOverlay /> : null}
             </DragOverlay>
+
+            {selectedCard?.indicacoes?.user_id ? (
+                <IndicationDetailsDialog
+                    indicationId={selectedCard.indicacao_id}
+                    userId={selectedCard.indicacoes.user_id}
+                    open={isDetailsOpen}
+                    onOpenChange={setIsDetailsOpen}
+                    hideDefaultTrigger
+                />
+            ) : null}
         </DndContext>
     )
 }

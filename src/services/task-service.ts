@@ -27,6 +27,41 @@ function addDays(base: Date, days: number) {
     return new Date(base.getTime() + days * MS_PER_DAY)
 }
 
+function parseMissingColumnError(message?: string | null) {
+    if (!message) return null
+
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (!match) return null
+
+    return { column: match[1], table: match[2] }
+}
+
+function isPermissionDenied(error?: { code?: string | null; message?: string | null } | null) {
+    if (!error) return false
+    return error.code === '42501' || /permission denied/i.test(error.message ?? '')
+}
+
+function isLegacyDepartmentConstraintError(error?: { code?: string | null; message?: string | null } | null) {
+    if (!error) return false
+    const message = error.message ?? ''
+    return error.code === '23514' && /tasks_department_check/i.test(message)
+}
+
+function toLegacyDepartmentValue(department: string) {
+    const map: Record<string, string> = {
+        vendas: 'VENDAS',
+        cadastro: 'CADASTRO',
+        energia: 'ENERGIA',
+        juridico: 'JURIDICO',
+        financeiro: 'FINANCEIRO',
+        outro: 'OUTRO',
+        ti: 'OUTRO',
+        diretoria: 'OUTRO',
+    }
+
+    return map[department] ?? department
+}
+
 export interface Task {
     id: string
     title: string
@@ -341,12 +376,12 @@ export async function createTask(data: {
 }
 
 async function insertChecklistTemplate(params: {
+    supabase: any
     taskId: string
     phase: TaskChecklistPhase
     baseDate: Date
     template: { title: string; days: number; sort_order: number }[]
 }) {
-    const supabaseAdmin = createSupabaseServiceClient()
     const payload = params.template.map((item) => ({
         task_id: params.taskId,
         title: item.title,
@@ -355,13 +390,13 @@ async function insertChecklistTemplate(params: {
         due_date: addDays(params.baseDate, item.days).toISOString(),
     }))
 
-    const { error } = await supabaseAdmin
+    const { error } = await params.supabase
         .from('task_checklists')
         .insert(payload)
 
     if (error) {
         console.error("Error inserting checklist template:", error)
-        return { error: error.message }
+        return { error: error.message, permissionDenied: isPermissionDenied(error) }
     }
 
     return { success: true }
@@ -374,15 +409,31 @@ export async function createRentalTasksForIndication(params: {
     creatorId: string
 }) {
     const supabaseAdmin = createSupabaseServiceClient()
+    const supabaseUser = await createClient()
+    let writeClient: any = supabaseAdmin
 
     const codes = new Set<string>()
     const normalizedCode = params.codigoInstalacao?.trim()
     if (normalizedCode) codes.add(normalizedCode)
 
-    const { data: ucs } = await supabaseAdmin
+    let { data: ucs, error: ucsError } = await supabaseAdmin
         .from('energia_ucs')
         .select('codigo_instalacao')
         .eq('cliente_id', params.indicacaoId)
+
+    if (ucsError && isPermissionDenied(ucsError)) {
+        const fallback = await supabaseUser
+            .from('energia_ucs')
+            .select('codigo_instalacao')
+            .eq('cliente_id', params.indicacaoId)
+
+        ucs = fallback.data
+        ucsError = fallback.error
+    }
+
+    if (ucsError) {
+        console.error("Error fetching energia_ucs for rental task generation:", ucsError)
+    }
 
     ;(ucs ?? []).forEach((uc: { codigo_instalacao: string | null }) => {
         const code = uc.codigo_instalacao?.trim()
@@ -400,35 +451,88 @@ export async function createRentalTasksForIndication(params: {
             code || undefined,
         ].filter(Boolean)
 
-        const { data: taskRow, error } = await supabaseAdmin
-            .from('tasks')
-            .insert({
-                title: titleParts.join(' • '),
-                status: 'TODO',
-                priority: 'MEDIUM',
-                department: 'cadastro',
-                indicacao_id: params.indicacaoId,
-                client_name: params.nome ?? null,
-                codigo_instalacao: code,
-                brand: 'rental',
-                creator_id: params.creatorId,
-            })
-            .select('id')
-            .single()
+        const taskPayload: Record<string, string | null> = {
+            title: titleParts.join(' • '),
+            status: 'TODO',
+            priority: 'MEDIUM',
+            department: 'cadastro',
+            indicacao_id: params.indicacaoId,
+            client_name: params.nome ?? null,
+            codigo_instalacao: code,
+            brand: 'rental',
+            creator_id: params.creatorId,
+        }
 
-        if (error) {
-            console.error("Error creating rental task:", error)
+        const insertPayload: Record<string, string | null> = { ...taskPayload }
+        const droppedColumns: string[] = []
+        let retriedLegacyDepartment = false
+        let taskRow: { id: string } | null = null
+        let taskError: { code?: string | null; message?: string | null } | null = null
+
+        while (true) {
+            const result = await writeClient
+                .from('tasks')
+                .insert(insertPayload)
+                .select('id')
+                .single()
+
+            taskRow = result.data
+            taskError = result.error
+
+            if (!taskError) break
+
+            if (isPermissionDenied(taskError) && writeClient === supabaseAdmin) {
+                writeClient = supabaseUser
+                continue
+            }
+
+            const missingColumn = parseMissingColumnError(taskError.message)
+            if (missingColumn && missingColumn.table === 'tasks' && missingColumn.column in insertPayload) {
+                droppedColumns.push(missingColumn.column)
+                delete insertPayload[missingColumn.column]
+                continue
+            }
+
+            if (!retriedLegacyDepartment && isLegacyDepartmentConstraintError(taskError)) {
+                insertPayload.department = toLegacyDepartmentValue(insertPayload.department ?? '')
+                retriedLegacyDepartment = true
+                continue
+            }
+
+            break
+        }
+
+        if (taskError || !taskRow) {
+            console.error("Error creating rental task:", taskError)
             continue
+        }
+
+        if (droppedColumns.length > 0) {
+            console.warn(
+                `[createRentalTasksForIndication] Insert fallback for missing tasks columns: ${droppedColumns.join(', ')}`
+            )
         }
 
         created += 1
 
-        const checklistResult = await insertChecklistTemplate({
+        let checklistResult = await insertChecklistTemplate({
+            supabase: writeClient,
             taskId: taskRow.id,
             phase: 'cadastro',
             baseDate,
             template: CADASTRO_CHECKLIST_TEMPLATE,
         })
+
+        if (checklistResult?.permissionDenied && writeClient === supabaseAdmin) {
+            writeClient = supabaseUser
+            checklistResult = await insertChecklistTemplate({
+                supabase: writeClient,
+                taskId: taskRow.id,
+                phase: 'cadastro',
+                baseDate,
+                template: CADASTRO_CHECKLIST_TEMPLATE,
+            })
+        }
 
         if (checklistResult?.error) {
             console.error("Error creating cadastro checklist:", checklistResult.error)
@@ -480,6 +584,7 @@ export async function activateTaskEnergisa(taskId: string) {
 
     if (!existing || existing.length === 0) {
         const checklistResult = await insertChecklistTemplate({
+            supabase,
             taskId,
             phase: 'energisa',
             baseDate: activatedAt,
