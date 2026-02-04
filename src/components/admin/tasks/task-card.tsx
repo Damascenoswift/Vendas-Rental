@@ -2,20 +2,29 @@
 
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { Task } from "@/services/task-service"
+import { Task, TaskStatus } from "@/services/task-service"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Calendar, Clock, User, AlertCircle } from "lucide-react"
+import { Clock, User } from "lucide-react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface TaskCardProps {
     task: Task
     onClick?: () => void
+    onStatusChange?: (status: TaskStatus) => void | Promise<void>
 }
 
-export function TaskCard({ task, onClick }: TaskCardProps) {
+const TASK_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+    { value: "TODO", label: "A Fazer" },
+    { value: "IN_PROGRESS", label: "Em Andamento" },
+    { value: "REVIEW", label: "Revisão" },
+    { value: "DONE", label: "Concluído" },
+]
+
+export function TaskCard({ task, onClick, onStatusChange }: TaskCardProps) {
     const {
         attributes,
         listeners,
@@ -99,6 +108,32 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
 
                     <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                         <div className="flex items-center gap-2">
+                            {onStatusChange ? (
+                                <div
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => event.stopPropagation()}
+                                >
+                                    <Select
+                                        value={task.status}
+                                        onValueChange={(value) => {
+                                            if (value !== task.status) {
+                                                onStatusChange(value as TaskStatus)
+                                            }
+                                        }}
+                                    >
+                                        <SelectTrigger className="h-6 w-[128px] text-[10px] px-2 py-0">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {TASK_STATUS_OPTIONS.map((option) => (
+                                                <SelectItem key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            ) : null}
                             {task.due_date && (
                                 <div className={`flex items-center gap-1 text-[10px] ${isOverdue ? "text-red-600 font-medium" : "text-gray-500"}`}>
                                     <Clock className="h-3 w-3" />

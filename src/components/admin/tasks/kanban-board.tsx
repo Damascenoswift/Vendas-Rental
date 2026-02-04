@@ -44,6 +44,29 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
 
+    const persistTaskStatusChange = useCallback(
+        async (taskId: string, previousStatus: TaskStatus, newStatus: TaskStatus) => {
+            if (previousStatus === newStatus) return
+
+            setTasks((prev) =>
+                prev.map((task) => (task.id === taskId ? { ...task, status: newStatus } : task))
+            )
+
+            const result = await updateTaskStatus(taskId, newStatus)
+            if (result.error) {
+                setTasks((prev) =>
+                    prev.map((task) => (task.id === taskId ? { ...task, status: previousStatus } : task))
+                )
+                showToast({
+                    title: "Erro ao mover tarefa",
+                    description: result.error,
+                    variant: "error",
+                })
+            }
+        },
+        [showToast]
+    )
+
     const handleDragStart = (event: DragStartEvent) => {
         const draggedId = event.active.id as string
         const activeTask = tasks.find((task) => task.id === draggedId)
@@ -113,27 +136,7 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
             }
         }
 
-        if (originalStatus !== newStatus) {
-            const previousStatus = originalStatus
-
-            // Optimistic UI update
-            setTasks(prev =>
-                prev.map(t => (t.id === activeTaskId ? { ...t, status: newStatus } : t))
-            )
-
-            const result = await updateTaskStatus(activeTaskId, newStatus)
-            if (result.error) {
-                // Revert on error
-                setTasks(prev =>
-                    prev.map(t => (t.id === activeTaskId ? { ...t, status: previousStatus } : t))
-                )
-                showToast({
-                    title: "Erro ao mover tarefa",
-                    description: result.error,
-                    variant: "error",
-                })
-            }
-        }
+        await persistTaskStatusChange(activeTaskId, originalStatus, newStatus)
     }
 
     // Just to find the Active Task for the Overlay
@@ -168,6 +171,11 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
                         title={col.title}
                         tasks={tasks.filter(t => t.status === col.id)}
                         onTaskClick={(taskId) => setSelectedTaskId(taskId)}
+                        onTaskStatusChange={async (taskId, status) => {
+                            const task = tasks.find((item) => item.id === taskId)
+                            if (!task) return
+                            await persistTaskStatusChange(taskId, task.status, status)
+                        }}
                     />
                 ))}
             </div>

@@ -7,6 +7,7 @@ import { FileText, Loader2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/hooks/use-toast"
 import { generateContractFromIndication } from "@/app/actions/contracts-generation"
 
@@ -43,10 +44,14 @@ export function CrmCard({
     item,
     isOverlay,
     onClick,
+    stageOptions,
+    onStageChange,
 }: {
     item: CrmCardData
     isOverlay?: boolean
     onClick?: (item: CrmCardData) => void
+    stageOptions?: Array<{ id: string; name: string }>
+    onStageChange?: (stageId: string) => void | Promise<void>
 }) {
     const { showToast } = useToast()
     const [isGeneratingContract, setIsGeneratingContract] = useState(false)
@@ -163,6 +168,33 @@ export function CrmCard({
                 <div className="text-xs font-medium text-green-600">
                     {formatCurrency(item.indicacoes?.valor)}
                 </div>
+                {stageOptions && onStageChange ? (
+                    <div
+                        className="mt-2"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <Select
+                            value={item.stage_id}
+                            onValueChange={(value) => {
+                                if (value !== item.stage_id) {
+                                    onStageChange(value)
+                                }
+                            }}
+                        >
+                            <SelectTrigger className="h-6 text-[10px] px-2 py-0">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {stageOptions.map((stage) => (
+                                    <SelectItem key={stage.id} value={stage.id}>
+                                        {stage.name}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                ) : null}
                 <div className="mt-2 text-[10px] text-muted-foreground">
                     ID: {item.indicacao_id.slice(0, 8)}
                 </div>

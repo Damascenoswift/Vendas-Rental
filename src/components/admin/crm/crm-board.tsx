@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
     DndContext,
     DragOverlay,
@@ -44,6 +44,38 @@ export function CrmBoard({ stages, cards }: Props) {
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    )
+
+    const stageOptions = useMemo(
+        () => stages.map((stage) => ({ id: stage.id, name: stage.name })),
+        [stages]
+    )
+
+    const persistCardStageChange = useCallback(
+        async (cardId: string, previousStageId: string, newStageId: string) => {
+            if (previousStageId === newStageId) return
+
+            setItems((prev) =>
+                prev.map((item) =>
+                    item.id === cardId ? { ...item, stage_id: newStageId } : item
+                )
+            )
+
+            const result = await updateCrmCardStage(cardId, newStageId)
+            if (result?.error) {
+                setItems((prev) =>
+                    prev.map((item) =>
+                        item.id === cardId ? { ...item, stage_id: previousStageId } : item
+                    )
+                )
+                showToast({
+                    variant: "error",
+                    title: "Erro ao mover card",
+                    description: result.error,
+                })
+            }
+        },
+        [showToast]
     )
 
     function handleDragStart(event: DragStartEvent) {
@@ -123,28 +155,7 @@ export function CrmBoard({ stages, cards }: Props) {
             }
         }
 
-        if (originalStageId !== newStageId) {
-            const previousStageId = originalStageId
-            setItems((prev) =>
-                prev.map((item) =>
-                    item.id === draggedId ? { ...item, stage_id: newStageId } : item
-                )
-            )
-
-            const result = await updateCrmCardStage(draggedId, newStageId)
-            if (result?.error) {
-                setItems((prev) =>
-                    prev.map((item) =>
-                        item.id === draggedId ? { ...item, stage_id: previousStageId } : item
-                    )
-                )
-                showToast({
-                    variant: "error",
-                    title: "Erro ao mover card",
-                    description: result.error,
-                })
-            }
-        }
+        await persistCardStageChange(draggedId, originalStageId, newStageId)
     }
 
     const activeCard = items.find((i) => i.id === activeId)
@@ -181,7 +192,13 @@ export function CrmBoard({ stages, cards }: Props) {
                         title={stage.name}
                         isClosed={stage.is_closed}
                         items={items.filter((card) => card.stage_id === stage.id)}
+                        stageOptions={stageOptions}
                         onCardClick={handleCardClick}
+                        onCardStageChange={async (cardId, stageId) => {
+                            const card = items.find((item) => item.id === cardId)
+                            if (!card) return
+                            await persistCardStageChange(cardId, card.stage_id, stageId)
+                        }}
                     />
                 ))}
             </div>
