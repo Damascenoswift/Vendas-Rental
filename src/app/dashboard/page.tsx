@@ -45,12 +45,24 @@ type RecentIndicacao = {
   assinada_em: string | null
 }
 
+type DashboardActivity = {
+  id: string
+  indicacao_id: string
+  indicacao_nome: string
+  title: string
+  description: string
+  actor: string
+  created_at: string
+  kind: "MILESTONE" | "INTERACTION" | "ENERGISA"
+}
+
 type DashboardMetrics = {
   total: number
   porStatus: Record<StatusKey, number>
   ultimaIndicacao: string | null
   porMarca: Record<Brand, number>
   recentes: RecentIndicacao[]
+  activity: DashboardActivity[]
 }
 
 const emptyMetrics: DashboardMetrics = {
@@ -67,6 +79,7 @@ const emptyMetrics: DashboardMetrics = {
     dorata: 0,
   },
   recentes: [],
+  activity: [],
 }
 
 const statusBadgeConfig: Record<string, { label: string; className: string }> = {
@@ -79,6 +92,23 @@ const statusBadgeConfig: Record<string, { label: string; className: string }> = 
   APROVADA: { label: "Aprovada", className: "bg-emerald-100/80 text-emerald-700" },
   REJEITADA: { label: "Rejeitada", className: "bg-rose-100/80 text-rose-700" },
   CONCLUIDA: { label: "Concluída", className: "bg-sky-100/80 text-sky-700" },
+}
+
+const interactionTypeLabels: Record<string, string> = {
+  STATUS_CHANGE: "Status atualizado",
+  DOC_APPROVAL: "Validação de documentação",
+  DOC_REQUEST: "Solicitação de documentação",
+  COMMENT: "Comentário interno",
+}
+
+const energisaActionLabels: Record<string, string> = {
+  DOC_SUBMITTED: "Energisa: Protocolo de entrada",
+  PENDING_INFO: "Energisa: Pendência de informação",
+  REJECTION: "Energisa: Rejeição / indeferimento",
+  RESUBMISSION: "Energisa: Reentrada / recurso",
+  APPROVED: "Energisa: Aprovação / parecer",
+  METER_CHANGE: "Energisa: Troca de medidor",
+  TRANSFER_SUCCESS: "Energisa: Titularidade concluída",
 }
 
 const getMetricBucket = (status: string): StatusKey => {
@@ -109,6 +139,41 @@ const getCurrentStepLabel = (indicacao: {
     return "Documentação aprovada"
   }
   return "Em análise"
+}
+
+const normalizeActor = (user: { name?: string | null; email?: string | null } | null | undefined) => {
+  return user?.name ?? user?.email ?? "Sistema"
+}
+
+const getJourneyProgress = (indicacao: {
+  status: string
+  doc_validation_status: DocValidationStatus
+  contrato_enviado_em: string | null
+  assinada_em: string | null
+}) => {
+  const total = 5
+  let done = 1 // Indicação registrada
+
+  const docsDone = indicacao.doc_validation_status === "APPROVED"
+  const docsBlocked =
+    indicacao.doc_validation_status === "INCOMPLETE" ||
+    indicacao.doc_validation_status === "REJECTED" ||
+    indicacao.status === "FALTANDO_DOCUMENTACAO" ||
+    indicacao.status === "REJEITADA"
+
+  if (docsDone || docsBlocked) done += 1
+  if (indicacao.contrato_enviado_em || indicacao.status === "AGUARDANDO_ASSINATURA" || indicacao.status === "CONCLUIDA") {
+    done += 1
+  }
+  if (indicacao.assinada_em || indicacao.status === "CONCLUIDA") {
+    done += 1
+  }
+  if (indicacao.status === "CONCLUIDA" || indicacao.status === "REJEITADA") {
+    done += 1
+  }
+
+  const percent = Math.min(100, Math.round((done / total) * 100))
+  return { done, total, percent }
 }
 
 export default function DashboardPage() {
@@ -166,6 +231,31 @@ export default function DashboardPage() {
         assinada_em: string | null
       }
 
+      type InteractionFeedRow = {
+        id: string
+        indicacao_id: string
+        type: string
+        content: string | null
+        created_at: string
+        metadata?: Record<string, unknown> | null
+        user?: {
+          name: string | null
+          email: string | null
+        } | null
+      }
+
+      type EnergisaFeedRow = {
+        id: string
+        indicacao_id: string
+        action_type: string
+        notes: string | null
+        created_at: string
+        user?: {
+          name: string | null
+          email: string | null
+        } | null
+      }
+
       let query = supabase
         .from("indicacoes")
         .select("id, nome, status, created_at, updated_at, marca, doc_validation_status, contrato_enviado_em, assinada_em")
@@ -192,6 +282,8 @@ export default function DashboardPage() {
         setMetrics(emptyMetrics)
       } else {
         const rows = (data ?? []) as IndicacaoResumoRow[]
+        const latestRows = rows.slice(0, 30)
+        const nameById = new Map(latestRows.map((row) => [row.id, row.nome]))
         const porStatus: Record<StatusKey, number> = {
           EM_ANALISE: 0,
           APROVADA: 0,
@@ -209,12 +301,102 @@ export default function DashboardPage() {
           porMarca[row.marca] += 1
         })
 
+        const activity: DashboardActivity[] = []
+
+        for (const row of latestRows) {
+          activity.push({
+            id: `milestone-created-${row.id}`,
+            indicacao_id: row.id,
+            indicacao_nome: row.nome,
+            title: "Indicação registrada",
+            description: "Cadastro inicial recebido.",
+            actor: "Sistema",
+            created_at: row.created_at,
+            kind: "MILESTONE",
+          })
+
+          if (row.contrato_enviado_em) {
+            activity.push({
+              id: `milestone-contract-sent-${row.id}`,
+              indicacao_id: row.id,
+              indicacao_nome: row.nome,
+              title: "Contrato enviado",
+              description: "Contrato enviado para assinatura.",
+              actor: "Sistema",
+              created_at: row.contrato_enviado_em,
+              kind: "MILESTONE",
+            })
+          }
+
+          if (row.assinada_em) {
+            activity.push({
+              id: `milestone-contract-signed-${row.id}`,
+              indicacao_id: row.id,
+              indicacao_nome: row.nome,
+              title: "Contrato assinado",
+              description: "Assinatura do contrato concluída.",
+              actor: "Sistema",
+              created_at: row.assinada_em,
+              kind: "MILESTONE",
+            })
+          }
+        }
+
+        const indicacaoIds = latestRows.map((row) => row.id)
+        if (indicacaoIds.length > 0) {
+          const [{ data: interactionsData }, { data: energisaData }] = await Promise.all([
+            supabase
+              .from("indicacao_interactions")
+              .select("id, indicacao_id, type, content, metadata, created_at, user:users(name, email)")
+              .in("indicacao_id", indicacaoIds)
+              .order("created_at", { ascending: false })
+              .limit(100),
+            supabase
+              .from("energisa_logs")
+              .select("id, indicacao_id, action_type, notes, created_at, user:users(name, email)")
+              .in("indicacao_id", indicacaoIds)
+              .order("created_at", { ascending: false })
+              .limit(100),
+          ])
+
+          for (const interaction of (interactionsData ?? []) as unknown as InteractionFeedRow[]) {
+            activity.push({
+              id: `interaction-${interaction.id}`,
+              indicacao_id: interaction.indicacao_id,
+              indicacao_nome: nameById.get(interaction.indicacao_id) ?? "Indicação",
+              title: interactionTypeLabels[interaction.type] ?? "Atualização interna",
+              description: interaction.content || "Atualização registrada pela equipe.",
+              actor: normalizeActor(interaction.user),
+              created_at: interaction.created_at,
+              kind: "INTERACTION",
+            })
+          }
+
+          for (const log of (energisaData ?? []) as unknown as EnergisaFeedRow[]) {
+            activity.push({
+              id: `energisa-${log.id}`,
+              indicacao_id: log.indicacao_id,
+              indicacao_nome: nameById.get(log.indicacao_id) ?? "Indicação",
+              title: energisaActionLabels[log.action_type] ?? `Energisa: ${log.action_type}`,
+              description: log.notes || "Ação Energisa registrada sem observações.",
+              actor: normalizeActor(log.user),
+              created_at: log.created_at,
+              kind: "ENERGISA",
+            })
+          }
+        }
+
+        const recentActivity = activity
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 20)
+
         setMetrics({
           total: rows.length,
           porStatus,
           ultimaIndicacao: rows[0]?.created_at ?? null,
           porMarca,
           recentes: rows.slice(0, 6),
+          activity: recentActivity,
         })
         setMetricsError(null)
       }
@@ -250,6 +432,28 @@ export default function DashboardPage() {
           filter: ['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')
             ? undefined
             : `user_id=eq.${userId}`,
+        },
+        () => {
+          void loadMetrics({ showLoading: false })
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "indicacao_interactions",
+        },
+        () => {
+          void loadMetrics({ showLoading: false })
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "energisa_logs",
         },
         () => {
           void loadMetrics({ showLoading: false })
@@ -421,6 +625,7 @@ export default function DashboardPage() {
                 {metrics.recentes.map((indicacao) => {
                   const status =
                     statusBadgeConfig[indicacao.status] ?? statusBadgeConfig.EM_ANALISE
+                  const progress = getJourneyProgress(indicacao)
 
                   return (
                     <div
@@ -436,11 +641,60 @@ export default function DashboardPage() {
                           <span>Etapa: {getCurrentStepLabel(indicacao)}</span>
                           <span>Atualizado: {formatDateTime(indicacao.updated_at)}</span>
                         </div>
+                        <div className="pt-1">
+                          <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={`h-full rounded-full ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
+                              style={{ width: `${progress.percent}%` }}
+                            />
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {progress.done} de {progress.total} etapas concluídas
+                          </p>
+                        </div>
                       </div>
                       <IndicationProgressDialog indication={indicacao} />
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Movimentações da equipe</CardTitle>
+            <CardDescription>
+              Últimas ações registradas em tarefas, documentação e Energisa.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {metrics.activity.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Ainda não há movimentações registradas.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {metrics.activity.slice(0, 10).map((event) => (
+                  <div key={event.id} className="rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium">{event.title}</p>
+                      <Badge variant="outline" className="text-[11px]">
+                        {event.kind === "ENERGISA" ? "Energisa" : event.kind === "INTERACTION" ? "Equipe" : "Marco"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDateTime(event.created_at)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">{event.description}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Cliente: {event.indicacao_nome} • Registrado por: {event.actor}
+                    </p>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
