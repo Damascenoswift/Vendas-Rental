@@ -55,6 +55,7 @@ interface TaskDetailsDialogProps {
 type UserOption = {
     id: string
     name: string
+    email: string | null
     department: string | null
 }
 
@@ -124,6 +125,7 @@ export function TaskDetailsDialog({
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
     const [editDescription, setEditDescription] = useState("")
     const [editDueDate, setEditDueDate] = useState("")
+    const [editAssigneeId, setEditAssigneeId] = useState("")
     const { showToast } = useToast()
 
     const checklistSummary = useMemo(() => {
@@ -162,6 +164,7 @@ export function TaskDetailsDialog({
         setChecklists([])
         setObservers([])
         setEditDescription(task.description ?? "")
+        setEditAssigneeId(task.assignee_id ?? "")
         if (task.due_date) {
             const parsed = new Date(task.due_date)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
@@ -191,6 +194,7 @@ export function TaskDetailsDialog({
                 (data ?? []).map((user) => ({
                     id: user.id,
                     name: user.name || "Sem Nome",
+                    email: user.email,
                     department: user.department,
                 }))
             )
@@ -341,6 +345,7 @@ export function TaskDetailsDialog({
         const updates: Partial<Task> = {
             description: editDescription.trim() ? editDescription.trim() : null,
             due_date: dueDateIso,
+            assignee_id: editAssigneeId || null,
         }
 
         const result = await updateTask(task.id, updates)
@@ -348,7 +353,11 @@ export function TaskDetailsDialog({
             showToast({ title: "Erro ao atualizar tarefa", description: result.error, variant: "error" })
         } else {
             showToast({ title: "Tarefa atualizada", variant: "success" })
-            onTaskUpdated?.(task.id, updates)
+            const assignee = users.find((item) => item.id === editAssigneeId)
+            onTaskUpdated?.(task.id, {
+                ...updates,
+                assignee: assignee ? { name: assignee.name, email: assignee.email ?? "" } : undefined,
+            })
         }
         setIsSavingDetails(false)
     }
@@ -428,6 +437,25 @@ export function TaskDetailsDialog({
                                     value={editDueDate}
                                     onChange={(event) => setEditDueDate(event.target.value)}
                                 />
+                            </div>
+                            <div className="grid gap-1">
+                                <label className="text-xs text-muted-foreground">Responsável</label>
+                                <Select
+                                    value={editAssigneeId || "__unassigned__"}
+                                    onValueChange={(value) => setEditAssigneeId(value === "__unassigned__" ? "" : value)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione um responsável" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__unassigned__">Sem responsável</SelectItem>
+                                        {users.map((user) => (
+                                            <SelectItem key={user.id} value={user.id}>
+                                                {user.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="flex justify-end">
                                 <Button onClick={handleSaveDetails} disabled={isSavingDetails}>

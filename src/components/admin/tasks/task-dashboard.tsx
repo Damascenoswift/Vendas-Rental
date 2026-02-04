@@ -4,82 +4,187 @@ import { useMemo } from "react"
 import { Task } from "@/services/task-service"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, Clock, CheckCircle2, CircleDashed } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 interface TaskDashboardProps {
     tasks: Task[]
 }
 
+const PRODUCTIVITY_TIMEZONE = "America/Cuiaba"
+
+type EmployeeProductivity = {
+    key: string
+    name: string
+    todo: number
+    inProgress: number
+    delayed: number
+    doneToday: number
+}
+
+function getDateKeyInTimeZone(value: Date, timeZone: string) {
+    try {
+        return new Intl.DateTimeFormat("en-CA", {
+            timeZone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(value)
+    } catch {
+        return new Intl.DateTimeFormat("en-CA", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+        }).format(value)
+    }
+}
+
 export function TaskDashboard({ tasks }: TaskDashboardProps) {
     const metrics = useMemo(() => {
         const now = new Date()
-        now.setHours(0, 0, 0, 0)
+        const todayKey = getDateKeyInTimeZone(now, PRODUCTIVITY_TIMEZONE)
 
         const urgent = tasks.filter(t => t.priority === 'URGENT' && t.status !== 'DONE').length
         const todo = tasks.filter(t => t.status === 'TODO').length
-        const inProgress = tasks.filter(t => t.status === 'IN_PROGRESS').length
+        const inProgress = tasks.filter(t => ['IN_PROGRESS', 'REVIEW', 'BLOCKED'].includes(t.status)).length
 
         const delayed = tasks.filter(t => {
             if (!t.due_date || t.status === 'DONE') return false
             const dueDate = new Date(t.due_date)
-            // Adjust due date comparison logic as needed, assuming string YYYY-MM-DD
-            // Using flexible date comparison
-            return new Date(t.due_date) < now
+            if (Number.isNaN(dueDate.getTime())) return false
+            return dueDate.getTime() < now.getTime()
         }).length
 
-        return { urgent, todo, inProgress, delayed }
+        const perEmployeeMap = new Map<string, EmployeeProductivity>()
+        for (const task of tasks) {
+            const key = task.assignee_id ?? "__unassigned__"
+            const name = task.assignee?.name ?? "Sem responsável"
+
+            const current = perEmployeeMap.get(key) ?? {
+                key,
+                name,
+                todo: 0,
+                inProgress: 0,
+                delayed: 0,
+                doneToday: 0,
+            }
+
+            if (task.status === "TODO") current.todo += 1
+            if (["IN_PROGRESS", "REVIEW", "BLOCKED"].includes(task.status)) current.inProgress += 1
+            if (task.due_date && task.status !== "DONE" && new Date(task.due_date).getTime() < now.getTime()) {
+                current.delayed += 1
+            }
+
+            if (task.completed_at) {
+                const completedAt = new Date(task.completed_at)
+                if (!Number.isNaN(completedAt.getTime())) {
+                    const doneDayKey = getDateKeyInTimeZone(completedAt, PRODUCTIVITY_TIMEZONE)
+                    if (doneDayKey === todayKey) {
+                        current.doneToday += 1
+                    }
+                }
+            }
+
+            perEmployeeMap.set(key, current)
+        }
+
+        const productivity = Array.from(perEmployeeMap.values())
+            .sort((a, b) => {
+                if (b.delayed !== a.delayed) return b.delayed - a.delayed
+                if (b.inProgress !== a.inProgress) return b.inProgress - a.inProgress
+                if (b.todo !== a.todo) return b.todo - a.todo
+                return b.doneToday - a.doneToday
+            })
+
+        return { urgent, todo, inProgress, delayed, productivity }
     }, [tasks])
 
     return (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Urgentes</CardTitle>
-                    <AlertCircle className="h-4 w-4 text-red-500" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold text-red-600">{metrics.urgent}</div>
-                    <p className="text-xs text-muted-foreground">
-                        Tarefas prioritárias pendentes
-                    </p>
-                </CardContent>
-            </Card>
+        <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Urgentes</CardTitle>
+                        <AlertCircle className="h-4 w-4 text-red-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-red-600">{metrics.urgent}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Tarefas prioritárias pendentes
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Atrasadas</CardTitle>
+                        <Clock className="h-4 w-4 text-amber-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-amber-600">{metrics.delayed}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Prazo vencido
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">A Fazer</CardTitle>
+                        <CircleDashed className="h-4 w-4 text-muted-foreground" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold">{metrics.todo}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Aguardando início
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Em Andamento</CardTitle>
+                        <CheckCircle2 className="h-4 w-4 text-blue-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-blue-600">{metrics.inProgress}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Inclui andamento, revisão e bloqueadas
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
 
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Atrasadas</CardTitle>
-                    <Clock className="h-4 w-4 text-amber-500" />
+                <CardHeader>
+                    <CardTitle className="text-base">Produtividade por funcionário</CardTitle>
                 </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold text-amber-600">{metrics.delayed}</div>
-                    <p className="text-xs text-muted-foreground">
-                        Prazo vencido
-                    </p>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">A Fazer</CardTitle>
-                    <CircleDashed className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold">{metrics.todo}</div>
-                    <p className="text-xs text-muted-foreground">
-                        Aguardando início
-                    </p>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Em Andamento</CardTitle>
-                    <CheckCircle2 className="h-4 w-4 text-blue-500" />
-                </CardHeader>
-                <CardContent>
-                    <div className="text-2xl font-bold text-blue-600">{metrics.inProgress}</div>
-                    <p className="text-xs text-muted-foreground">
-                        Sendo executadas agora
-                    </p>
+                <CardContent className="overflow-x-auto">
+                    {metrics.productivity.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhuma tarefa encontrada.</p>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Funcionário</TableHead>
+                                    <TableHead className="text-center">Não iniciadas</TableHead>
+                                    <TableHead className="text-center">Em andamento</TableHead>
+                                    <TableHead className="text-center">Atrasadas</TableHead>
+                                    <TableHead className="text-center">Feitas hoje</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {metrics.productivity.map((item) => (
+                                    <TableRow key={item.key}>
+                                        <TableCell className="font-medium">{item.name}</TableCell>
+                                        <TableCell className="text-center">{item.todo}</TableCell>
+                                        <TableCell className="text-center text-blue-700">{item.inProgress}</TableCell>
+                                        <TableCell className="text-center text-amber-700">{item.delayed}</TableCell>
+                                        <TableCell className="text-center text-emerald-700">{item.doneToday}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
                 </CardContent>
             </Card>
         </div>

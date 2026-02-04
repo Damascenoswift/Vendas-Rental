@@ -170,6 +170,8 @@ export interface Task {
     energisa_activated_at: string | null
     department: Department | null
     created_at: string
+    completed_at: string | null
+    completed_by: string | null
     brand: Brand
     checklist_total?: number
     checklist_done?: number
@@ -212,6 +214,7 @@ export interface TaskUserOption {
     id: string
     name: string
     department: string | null
+    email: string | null
 }
 
 export interface TaskLeadOption {
@@ -333,7 +336,7 @@ export async function getTaskAssignableUsers() {
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
         .from('users')
-        .select('id, name, department, status')
+        .select('id, name, email, department, status')
         .order('name')
 
     if (error) {
@@ -344,6 +347,7 @@ export async function getTaskAssignableUsers() {
     return (data ?? []).map((row: any) => ({
         id: row.id,
         name: row.name || "Sem Nome",
+        email: row.email ?? null,
         department: row.department ?? null,
         status: row.status ?? null,
     })) as TaskUserOption[]
@@ -449,14 +453,32 @@ export async function createTask(data: {
 
     if (!user) return { error: "Unauthorized" }
 
-    const { data: inserted, error } = await supabase
+    const nowIso = new Date().toISOString()
+    const payload: Record<string, any> = {
+        ...data,
+        creator_id: user.id,
+        completed_at: data.status === 'DONE' ? nowIso : null,
+        completed_by: data.status === 'DONE' ? user.id : null,
+    }
+
+    let { data: inserted, error } = await supabase
         .from('tasks')
-        .insert({
-            ...data,
-            creator_id: user.id
-        })
+        .insert(payload)
         .select('id')
         .single()
+
+    const missingColumn = parseMissingColumnError(error?.message)
+    if (error && missingColumn && (missingColumn.column === 'completed_at' || missingColumn.column === 'completed_by')) {
+        delete payload.completed_at
+        delete payload.completed_by
+        const fallbackResult = await supabase
+            .from('tasks')
+            .insert(payload)
+            .select('id')
+            .single()
+        inserted = fallbackResult.data
+        error = fallbackResult.error
+    }
 
     if (error) {
         console.error("Error creating task:", error)
@@ -811,20 +833,55 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { error: "Unauthorized" }
 
-    // Prefer user-scoped update to avoid dependency on service key and keep RLS behavior.
-    const { error: userScopedError } = await supabase
-        .from('tasks')
-        .update({ status: newStatus })
-        .eq('id', taskId)
+    const baseUpdates: Record<string, string | null> = {
+        status: newStatus,
+    }
+    if (newStatus === 'DONE') {
+        baseUpdates.completed_at = new Date().toISOString()
+        baseUpdates.completed_by = user.id
+    }
 
-    if (!userScopedError) {
+    async function tryUpdateStatus(client: any, updates: Record<string, string | null>) {
+        let payload = { ...updates }
+        let { data, error } = await client
+            .from('tasks')
+            .update(payload)
+            .eq('id', taskId)
+            .select('id')
+            .maybeSingle()
+
+        const missingColumn = parseMissingColumnError(error?.message)
+        if (
+            error &&
+            missingColumn &&
+            missingColumn.table === 'tasks' &&
+            (missingColumn.column === 'completed_at' || missingColumn.column === 'completed_by')
+        ) {
+            delete payload.completed_at
+            delete payload.completed_by
+            const fallback = await client
+                .from('tasks')
+                .update(payload)
+                .eq('id', taskId)
+                .select('id')
+                .maybeSingle()
+            data = fallback.data
+            error = fallback.error
+        }
+
+        return { data, error }
+    }
+
+    // Prefer user-scoped update to respect RLS first.
+    const userScoped = await tryUpdateStatus(supabase, baseUpdates)
+    if (!userScoped.error && userScoped.data?.id) {
         revalidatePath('/admin/tarefas')
         return { success: true }
     }
 
-    // Fallback for environments with restrictive/legacy RLS policies.
-    if (!isPermissionDenied(userScopedError)) {
-        return { error: userScopedError.message }
+    // If it failed for reasons other than permissions/no-row, stop early.
+    if (userScoped.error && !isPermissionDenied(userScoped.error)) {
+        return { error: userScoped.error.message }
     }
 
     const { data: profile, error: profileError } = await supabase
@@ -839,12 +896,9 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { error: adminError } = await supabaseAdmin
-        .from('tasks')
-        .update({ status: newStatus })
-        .eq('id', taskId)
-
-    if (adminError) return { error: adminError.message }
+    const adminResult = await tryUpdateStatus(supabaseAdmin, baseUpdates)
+    if (adminResult.error) return { error: adminResult.error.message }
+    if (!adminResult.data?.id) return { error: "Tarefa não encontrada para atualização." }
 
     revalidatePath('/admin/tarefas')
     return { success: true }
