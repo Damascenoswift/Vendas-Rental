@@ -12,6 +12,7 @@ import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IndicacaoForm } from "@/components/forms/indicacao-form"
+import { IndicationProgressDialog } from "@/components/indicacoes/indication-progress-dialog"
 import {
   Table,
   TableBody,
@@ -31,6 +32,26 @@ const statusConfig = {
   EM_ANALISE: {
     label: "Em análise",
     className: "bg-amber-100/80 text-amber-700",
+  },
+  AGUARDANDO_ASSINATURA: {
+    label: "Aguardando assinatura",
+    className: "bg-violet-100/80 text-violet-700",
+  },
+  FALTANDO_DOCUMENTACAO: {
+    label: "Faltando documentação",
+    className: "bg-orange-100/80 text-orange-700",
+  },
+  ENERGISA_ANALISE: {
+    label: "Energisa em análise",
+    className: "bg-cyan-100/80 text-cyan-700",
+  },
+  ENERGISA_APROVADO: {
+    label: "Energisa aprovado",
+    className: "bg-teal-100/80 text-teal-700",
+  },
+  INSTALACAO_AGENDADA: {
+    label: "Instalação agendada",
+    className: "bg-indigo-100/80 text-indigo-700",
   },
   APROVADA: {
     label: "Aprovada",
@@ -53,14 +74,20 @@ const brandLabels: Record<Brand, string> = {
 
 type StatusKey = keyof typeof statusConfig
 
+type DocValidationStatus = "PENDING" | "APPROVED" | "REJECTED" | "INCOMPLETE" | null
+
 type IndicacaoRow = {
   id: string
   nome: string
   email: string
   telefone: string
-  status: StatusKey
+  status: string
   created_at: string
+  updated_at: string
   marca: Brand
+  doc_validation_status: DocValidationStatus
+  contrato_enviado_em: string | null
+  assinada_em: string | null
 }
 
 type AttachmentInfo = {
@@ -202,7 +229,7 @@ export default function IndicacoesPage() {
 
       let query = supabase
         .from("indicacoes")
-        .select("id, nome, email, telefone, status, created_at, marca")
+        .select("id, nome, email, telefone, status, created_at, updated_at, marca, doc_validation_status, contrato_enviado_em, assinada_em")
         .order("created_at", { ascending: false })
 
       // Filtering logic
@@ -306,6 +333,24 @@ export default function IndicacoesPage() {
     }
   }
 
+  const getCurrentStepLabel = (indicacao: IndicacaoRow) => {
+    if (indicacao.status === "REJEITADA") return "Rejeitada"
+    if (indicacao.status === "CONCLUIDA" || indicacao.assinada_em) return "Contrato assinado"
+    if (indicacao.status === "AGUARDANDO_ASSINATURA" || indicacao.contrato_enviado_em) {
+      return "Aguardando assinatura"
+    }
+    if (indicacao.status === "ENERGISA_ANALISE") return "Energisa em análise"
+    if (indicacao.status === "ENERGISA_APROVADO") return "Energisa aprovado"
+    if (indicacao.status === "INSTALACAO_AGENDADA") return "Instalação agendada"
+    if (indicacao.doc_validation_status === "INCOMPLETE" || indicacao.status === "FALTANDO_DOCUMENTACAO") {
+      return "Documentação pendente"
+    }
+    if (indicacao.doc_validation_status === "APPROVED" || indicacao.status === "APROVADA") {
+      return "Documentação aprovada"
+    }
+    return "Em análise"
+  }
+
   // ... inside component ...
   return (
     <div className="space-y-6">
@@ -361,64 +406,81 @@ export default function IndicacoesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Indicação</TableHead>
+                <TableHead>Etapa atual</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Marca</TableHead>
                 <TableHead>Telefone</TableHead>
                 <TableHead>Enviado em</TableHead>
+                <TableHead>Atualizado em</TableHead>
+                <TableHead>Jornada</TableHead>
                 <TableHead>Anexos</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {indicacoes.map((indicacao) => (
-                <TableRow key={indicacao.id}>
-                  <TableCell>
-                    <div className="font-medium text-foreground">
-                      {indicacao.nome}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {indicacao.email}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${(statusConfig[indicacao.status] ?? statusConfig.EM_ANALISE).className
-                        }`}
-                    >
-                      {(statusConfig[indicacao.status] ?? statusConfig.EM_ANALISE).label}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {brandLabels[indicacao.marca]}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatPhone(indicacao.telefone)}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(indicacao.created_at)}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {isLoadingAttachments ? (
-                      <span>Carregando…</span>
-                    ) : attachmentsMap[indicacao.id]?.length ? (
-                      <div className="flex flex-wrap gap-2">
-                        {attachmentsMap[indicacao.id].map((file) => (
-                          <a
-                            key={file.path}
-                            className="inline-flex items-center gap-1 rounded-full border border-input px-2 py-1 text-xs transition-colors hover:border-ring hover:text-foreground"
-                            href={file.signedUrl ?? undefined}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <span>{file.name}</span>
-                          </a>
-                        ))}
+              {indicacoes.map((indicacao) => {
+                const statusInfo =
+                  statusConfig[indicacao.status as StatusKey] ?? statusConfig.EM_ANALISE
+
+                return (
+                  <TableRow key={indicacao.id}>
+                    <TableCell>
+                      <div className="font-medium text-foreground">
+                        {indicacao.nome}
                       </div>
-                    ) : (
-                      <span>—</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                      <div className="text-xs text-muted-foreground">
+                        {indicacao.email}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {getCurrentStepLabel(indicacao)}
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${statusInfo.className
+                        }`}
+                      >
+                        {statusInfo.label}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {brandLabels[indicacao.marca]}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatPhone(indicacao.telefone)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(indicacao.created_at)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(indicacao.updated_at)}
+                    </TableCell>
+                    <TableCell>
+                      <IndicationProgressDialog indication={indicacao} />
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {isLoadingAttachments ? (
+                        <span>Carregando…</span>
+                      ) : attachmentsMap[indicacao.id]?.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {attachmentsMap[indicacao.id].map((file) => (
+                            <a
+                              key={file.path}
+                              className="inline-flex items-center gap-1 rounded-full border border-input px-2 py-1 text-xs transition-colors hover:border-ring hover:text-foreground"
+                              href={file.signedUrl ?? undefined}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <span>{file.name}</span>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <span>—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         ) : (

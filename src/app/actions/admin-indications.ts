@@ -27,14 +27,57 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
 
+    const { data: currentIndicacaoData } = await supabaseAdmin
+        .from("indicacoes")
+        .select("contrato_enviado_em, assinada_em")
+        .eq("id", id)
+        .maybeSingle()
+
+    const currentIndicacao = currentIndicacaoData as {
+        contrato_enviado_em: string | null
+        assinada_em: string | null
+    } | null
+
+    const now = new Date().toISOString()
+    const updates: Record<string, string> = {
+        status: newStatus,
+    }
+
+    if (newStatus === "AGUARDANDO_ASSINATURA" && !currentIndicacao?.contrato_enviado_em) {
+        updates.contrato_enviado_em = now
+    }
+
+    if (newStatus === "CONCLUIDA") {
+        if (!currentIndicacao?.contrato_enviado_em) {
+            updates.contrato_enviado_em = now
+        }
+        if (!currentIndicacao?.assinada_em) {
+            updates.assinada_em = now
+        }
+    }
+
     const { error } = await supabaseAdmin
         .from("indicacoes")
-        .update({ status: newStatus as any })
+        .update(updates)
         .eq("id", id)
 
     if (error) {
         console.error("Erro ao atualizar status:", error)
         return { error: "Erro ao atualizar status" }
+    }
+
+    const { error: interactionError } = await supabaseAdmin
+        .from("indicacao_interactions" as any)
+        .insert({
+            indicacao_id: id,
+            user_id: user.id,
+            type: "STATUS_CHANGE",
+            content: `Status alterado para: ${newStatus}`,
+            metadata: { new_status: newStatus },
+        } as any)
+
+    if (interactionError) {
+        console.error("Erro ao registrar histórico de status:", interactionError)
     }
 
     const { data: indicacao, error: indicacaoError } = await supabaseAdmin

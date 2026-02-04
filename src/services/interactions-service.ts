@@ -119,17 +119,47 @@ export async function updateStatusWithComment(
 
     if (!user) return { error: "Unauthorized" }
 
-    // 1. Update status
+    // 1. Build status update payload (including key contract milestones)
+    const { data: currentIndicacaoData } = await supabase
+        .from('indicacoes')
+        .select('contrato_enviado_em, assinada_em')
+        .eq('id', indicacaoId)
+        .maybeSingle()
+
+    const currentIndicacao = currentIndicacaoData as {
+        contrato_enviado_em: string | null
+        assinada_em: string | null
+    } | null
+
+    const now = new Date().toISOString()
+    const updates: Record<string, string> = {
+        status: newStatus,
+    }
+
+    if (newStatus === 'AGUARDANDO_ASSINATURA' && !currentIndicacao?.contrato_enviado_em) {
+        updates.contrato_enviado_em = now
+    }
+
+    if (newStatus === 'CONCLUIDA') {
+        if (!currentIndicacao?.contrato_enviado_em) {
+            updates.contrato_enviado_em = now
+        }
+        if (!currentIndicacao?.assinada_em) {
+            updates.assinada_em = now
+        }
+    }
+
+    // 2. Update status
     const { error: updateError } = await supabase
         .from('indicacoes')
-        .update({ status: newStatus })
+        .update(updates)
         .eq('id', indicacaoId)
 
     if (updateError) {
         return { error: updateError.message }
     }
 
-    // 2. Add interaction (System log for status change)
+    // 3. Add interaction (System log for status change)
     await addInteraction(
         indicacaoId,
         `Status alterado para: ${newStatus}`,
@@ -137,7 +167,7 @@ export async function updateStatusWithComment(
         { new_status: newStatus }
     )
 
-    // 3. Add optional user comment
+    // 4. Add optional user comment
     if (comment && comment.trim()) {
         await addInteraction(
             indicacaoId,
