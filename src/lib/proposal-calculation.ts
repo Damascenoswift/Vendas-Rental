@@ -19,7 +19,7 @@ export type ProposalCalcInput = {
         fator_oversizing: number
     }
     kit: {
-        module_unit_cost: number
+        module_cost_per_watt: number
         cabling_unit_cost: number
         micro_unit_cost: number
         string_inverter_total_cost: number
@@ -60,6 +60,7 @@ export type ProposalCalcOutput = {
         }
     }
     kit: {
+        custo_modulo_unitario: number
         custo_modulos_total: number
         custo_inversor_total: number
         custo_kit: number
@@ -145,10 +146,11 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const qtdMicro = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
     const potMicroTotalKw = qtdMicro * params.micro_unit_power_kw
 
-    const moduleUnitCost = Number(input.kit.module_unit_cost || 0)
+    const moduleCostPerWatt = Number(input.kit.module_cost_per_watt || 0)
     const cablingUnitCost = Number(input.kit.cabling_unit_cost || 0)
     const microUnitCost = Number(input.kit.micro_unit_cost || 0)
     const stringInverterTotalCost = Number(input.kit.string_inverter_total_cost || 0)
+    const moduleUnitCost = moduleCostPerWatt * potenciaModuloW
 
     const custoModulosTotal = qtdModulos * (moduleUnitCost + cablingUnitCost)
     const custoInversorTotal = input.dimensioning.tipo_inversor === "STRING"
@@ -204,6 +206,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             }
         },
         kit: {
+            custo_modulo_unitario: moduleUnitCost,
             custo_modulos_total: custoModulosTotal,
             custo_inversor_total: custoInversorTotal,
             custo_kit: custoKit

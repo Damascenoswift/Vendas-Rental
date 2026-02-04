@@ -95,6 +95,10 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     const structureProducts = products.filter((p) => p.type === "structure")
 
     const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
+    const defaultModulePower = rules.potencia_modulo_w ?? 700
+    const defaultModuleCostPerWatt =
+        rules.module_cost_per_watt ??
+        ((rules.module_unit_cost ?? 0) / (defaultModulePower > 0 ? defaultModulePower : 1))
 
     const params: ProposalCalcParams = useMemo(
         () => ({
@@ -128,13 +132,13 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     const [input, setInput] = useState<ProposalCalcInput>(() => ({
         dimensioning: {
             qtd_modulos: 0,
-            potencia_modulo_w: rules.potencia_modulo_w ?? 700,
+            potencia_modulo_w: defaultModulePower,
             indice_producao: rules.indice_producao ?? 112,
             tipo_inversor: "STRING",
             fator_oversizing: rules.default_oversizing_factor ?? params.default_oversizing_factor,
         },
         kit: {
-            module_unit_cost: rules.module_unit_cost ?? 0,
+            module_cost_per_watt: defaultModuleCostPerWatt,
             cabling_unit_cost: rules.cabling_unit_cost ?? 0,
             micro_unit_cost: rules.micro_unit_cost ?? 0,
             string_inverter_total_cost: rules.string_inverter_total_cost ?? 0,
@@ -172,6 +176,7 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
     const [loading, setLoading] = useState(false)
 
     const calculated = useMemo(() => calculateProposal(input), [input])
+    const moduleUnitCost = calculated.output.kit.custo_modulo_unitario
     const selectedContactPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
     const isContactPhoneLocked = Boolean(selectedContact && selectedContactPhone)
 
@@ -239,9 +244,7 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
         setModuleProductId(value)
         const product = panelProducts.find((p) => p.id === value)
         if (!product) return
-        const unitCost = product.cost ?? product.price ?? 0
         updateDimensioning({ potencia_modulo_w: product.power ?? input.dimensioning.potencia_modulo_w })
-        updateKit({ module_unit_cost: unitCost })
     }
 
     const handleMicroSelect = (value: string) => {
@@ -371,8 +374,8 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                 items.push({
                     product_id: moduleProductId,
                     quantity: input.dimensioning.qtd_modulos,
-                    unit_price: input.kit.module_unit_cost,
-                    total_price: input.kit.module_unit_cost * input.dimensioning.qtd_modulos,
+                    unit_price: moduleUnitCost,
+                    total_price: moduleUnitCost * input.dimensioning.qtd_modulos,
                 })
             }
 
@@ -670,14 +673,19 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label>Custo unitário módulo</Label>
+                                <Label>Custo base módulo (R$/W)</Label>
                                 <Input
                                     type="number"
-                                    step="0.01"
-                                    value={input.kit.module_unit_cost}
-                                    onChange={(e) => updateKit({ module_unit_cost: toNumber(e.target.value) })}
+                                    step="0.0001"
+                                    value={input.kit.module_cost_per_watt}
+                                    onChange={(e) => updateKit({ module_cost_per_watt: toNumber(e.target.value) })}
                                 />
                             </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Custo unitário módulo (calculado)</Label>
+                            <Input value={formatCurrency(moduleUnitCost)} disabled />
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-2">
