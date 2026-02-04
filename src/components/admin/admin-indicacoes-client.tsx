@@ -176,7 +176,14 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
-                                                <IndicationDetailsDialog indicationId={ind.id} userId={ind.user_id} />
+                                                <IndicationDetailsDialog
+                                                    indicationId={ind.id}
+                                                    userId={ind.user_id}
+                                                    fallbackUserIds={[
+                                                        (ind as any).created_by_supervisor_id,
+                                                    ].filter(Boolean)}
+                                                    initialData={ind}
+                                                />
                                                 <IndicationFlags
                                                     id={ind.id}
                                                     assinadaEm={(ind as any).assinada_em ?? null}

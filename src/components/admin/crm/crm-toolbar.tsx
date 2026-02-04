@@ -31,7 +31,10 @@ export function CrmToolbar({ brand }: Props) {
             showToast({
                 variant: "success",
                 title: "Sincronização concluída",
-                description: `${result?.created ?? 0} cards criados (${brandLabel})`,
+                description:
+                    brand === "rental"
+                        ? `${result?.created ?? 0} cards e ${result?.createdTasks ?? 0} tarefas criados (${brandLabel})`
+                        : `${result?.created ?? 0} cards criados (${brandLabel})`,
             })
             router.refresh()
         })

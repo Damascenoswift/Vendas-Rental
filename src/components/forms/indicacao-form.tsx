@@ -372,11 +372,13 @@ export function IndicacaoForm({
       return
     }
 
+    const storageOwnerId = values.vendedorId || userId
+
     // Salvar metadata completo no Storage
     const storageClient = supabase.storage.from(STORAGE_BUCKET)
     const metadata = { ...values }
     const metadataUpload = await storageClient.upload(
-      `${userId}/${indicationId}/metadata.json`,
+      `${storageOwnerId}/${indicationId}/metadata.json`,
       new Blob([JSON.stringify(metadata)], { type: "application/json" }),
       { upsert: true, cacheControl: "3600", contentType: "application/json" }
     )
@@ -390,7 +392,7 @@ export function IndicacaoForm({
     const uploads: Array<Promise<unknown>> = []
     const pushUpload = (name: string, f: File | null) => {
       if (!f) return
-      const path = `${userId}/${indicationId}/${name}`
+      const path = `${storageOwnerId}/${indicationId}/${name}`
       const uploadPromise = storageClient.upload(path, f, { upsert: true, cacheControl: "3600" })
 
       uploadPromise.then(({ error }) => {

@@ -161,6 +161,7 @@ export function CrmBoard({ stages, cards }: Props) {
                 <IndicationDetailsDialog
                     indicationId={selectedCard.indicacao_id}
                     userId={selectedCard.indicacoes.user_id}
+                    initialData={selectedCard.indicacoes}
                     open={isDetailsOpen}
                     onOpenChange={setIsDetailsOpen}
                     hideDefaultTrigger

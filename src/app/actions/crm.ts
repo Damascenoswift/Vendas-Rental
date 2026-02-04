@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
 import { getRentalDefaultStageName } from "@/services/crm-card-service"
+import { createRentalTasksForIndication } from "@/services/task-service"
 
 export async function updateCrmCardStage(cardId: string, newStageId: string) {
     const supabase = await createClient()
@@ -143,15 +144,17 @@ export async function syncCrmCardsFromIndicacoes(params: { brand: "dorata" | "re
 
     const { data: indicacoes, error: indicacoesError } = await supabaseAdmin
         .from("indicacoes")
-        .select("id, nome, user_id")
+        .select("id, nome, user_id, codigo_instalacao")
         .eq("marca", brand)
 
     if (indicacoesError) {
         return { error: indicacoesError.message }
     }
 
-    const newCards = (indicacoes ?? [])
+    const newIndicacoes = (indicacoes ?? [])
         .filter((indicacao) => !existingIds.has(indicacao.id))
+
+    const newCards = newIndicacoes
         .map((indicacao) => {
             if (brand === "rental") {
                 return {
@@ -187,10 +190,25 @@ export async function syncCrmCardsFromIndicacoes(params: { brand: "dorata" | "re
         }
     }
 
+    let createdTasks = 0
+    if (brand === "rental") {
+        for (const indicacao of newIndicacoes) {
+            const taskResult = await createRentalTasksForIndication({
+                indicacaoId: indicacao.id,
+                nome: indicacao.nome ?? null,
+                codigoInstalacao: indicacao.codigo_instalacao ?? null,
+                creatorId: user.id,
+            })
+
+            createdTasks += taskResult?.created ?? 0
+        }
+    }
+
     revalidatePath(crmPath)
     return {
         success: true,
         created: newCards.length,
         skipped: (indicacoes?.length ?? 0) - newCards.length,
+        createdTasks,
     }
 }

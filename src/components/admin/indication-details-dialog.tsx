@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Eye, FileText, Download, Loader2, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,6 +24,8 @@ import type { ReactNode } from "react"
 interface IndicationDetailsDialogProps {
     indicationId: string
     userId: string
+    fallbackUserIds?: string[]
+    initialData?: Record<string, unknown> | null
     open?: boolean
     onOpenChange?: (open: boolean) => void
     hideDefaultTrigger?: boolean
@@ -38,6 +40,8 @@ interface FileItem {
 export function IndicationDetailsDialog({
     indicationId,
     userId,
+    fallbackUserIds = [],
+    initialData = null,
     open,
     onOpenChange,
     hideDefaultTrigger = false,
@@ -51,44 +55,106 @@ export function IndicationDetailsDialog({
     const isControlled = typeof open === "boolean"
     const isOpen = isControlled ? open : internalOpen
 
+    useEffect(() => {
+        setMetadata(null)
+        setFiles([])
+    }, [indicationId, userId])
+
+    const toDisplayMetadata = (value: Record<string, unknown> | null) => {
+        if (!value) return null
+        const filteredEntries = Object.entries(value).filter(([, item]) => {
+            if (item === null || item === undefined || item === "") return false
+            if (typeof item === "object") return false
+            return true
+        })
+
+        if (filteredEntries.length === 0) return null
+        return Object.fromEntries(filteredEntries)
+    }
+
+    const listFilesForOwner = async (ownerId: string) => {
+        const { data: fileList } = await supabase.storage
+            .from("indicacoes")
+            .list(`${ownerId}/${indicationId}`)
+
+        if (!fileList) return []
+
+        const validFiles = fileList.filter((file) => file.name !== "metadata.json")
+        if (validFiles.length === 0) return []
+
+        return Promise.all(
+            validFiles.map(async (file) => {
+                const { data } = await supabase.storage
+                    .from("indicacoes")
+                    .createSignedUrl(`${ownerId}/${indicationId}/${file.name}`, 3600)
+
+                return {
+                    name: file.name,
+                    url: data?.signedUrl || null,
+                }
+            })
+        )
+    }
+
+    const readMetadataForOwner = async (ownerId: string) => {
+        const { data: metadataFile } = await supabase.storage
+            .from("indicacoes")
+            .download(`${ownerId}/${indicationId}/metadata.json`)
+
+        if (!metadataFile) return null
+
+        try {
+            const text = await metadataFile.text()
+            const parsed = JSON.parse(text)
+            return parsed as Record<string, unknown>
+        } catch {
+            return null
+        }
+    }
+
     const fetchDetails = async () => {
         setIsLoading(true)
         try {
-            // 1. Fetch Metadata
-            const path = `${userId}/${indicationId}/metadata.json`
+            const candidateOwnerIds = Array.from(
+                new Set([userId, ...fallbackUserIds].map((value) => value?.trim()).filter(Boolean) as string[])
+            )
 
-            const { data: metaData, error: metaError } = await supabase.storage
-                .from("indicacoes")
-                .download(path)
+            let finalMetadata: Record<string, unknown> | null = null
+            let finalFiles: FileItem[] = []
+            for (const ownerId of candidateOwnerIds) {
+                const [ownerMetadata, ownerFiles] = await Promise.all([
+                    readMetadataForOwner(ownerId),
+                    listFilesForOwner(ownerId),
+                ])
 
-            if (metaData) {
-                const text = await metaData.text()
-                setMetadata(JSON.parse(text))
+                if (ownerMetadata || ownerFiles.length > 0) {
+                    finalMetadata = ownerMetadata
+                    finalFiles = ownerFiles
+                    break
+                }
             }
 
-            // 2. List Files
-            const { data: fileList, error: listError } = await supabase.storage
-                .from("indicacoes")
-                .list(`${userId}/${indicationId}`)
+            if (!finalMetadata && finalFiles.length === 0) {
+                const { data: rootItems } = await supabase.storage
+                    .from("indicacoes")
+                    .list("", { limit: 1000 })
 
-            if (fileList) {
-                // Filter out metadata.json and map to signed URLs
-                const validFiles = fileList.filter(f => f.name !== 'metadata.json')
+                const scannedOwnerIds = (rootItems ?? [])
+                    .map((item) => item.name)
+                    .filter((name) => name && !candidateOwnerIds.includes(name))
 
-                const filesWithUrls = await Promise.all(validFiles.map(async (f) => {
-                    const { data } = await supabase.storage
-                        .from("indicacoes")
-                        .createSignedUrl(`${userId}/${indicationId}/${f.name}`, 3600) // 1 hour link
-
-                    return {
-                        name: f.name,
-                        url: data?.signedUrl || null
+                for (const ownerId of scannedOwnerIds) {
+                    const metadataFromScan = await readMetadataForOwner(ownerId)
+                    if (metadataFromScan) {
+                        finalMetadata = metadataFromScan
+                        finalFiles = await listFilesForOwner(ownerId)
+                        break
                     }
-                }))
-
-                setFiles(filesWithUrls)
+                }
             }
 
+            setMetadata(toDisplayMetadata(finalMetadata ?? initialData))
+            setFiles(finalFiles)
         } catch (error) {
             console.error("Error loading details:", error)
             showToast({
@@ -106,10 +172,13 @@ export function IndicationDetailsDialog({
             setInternalOpen(open)
         }
         onOpenChange?.(open)
-        if (open && !metadata && files.length === 0) {
-            fetchDetails()
-        }
     }
+
+    useEffect(() => {
+        if (!isOpen) return
+        if (metadata || files.length > 0) return
+        fetchDetails()
+    }, [isOpen, indicationId, userId])
 
     const formatLabel = (key: string) => {
         return key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())

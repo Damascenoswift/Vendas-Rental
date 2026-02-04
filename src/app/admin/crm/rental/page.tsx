@@ -94,7 +94,28 @@ export default async function AdminCrmRentalPage() {
     let cards: any[] = []
     const { data: cardsData, error: cardsError } = await supabaseAdmin
         .from("crm_cards")
-        .select("id, stage_id, indicacao_id, title, created_at, indicacoes ( id, nome, valor, marca, user_id )")
+        .select(`
+            id,
+            stage_id,
+            indicacao_id,
+            title,
+            created_at,
+            indicacoes (
+                id,
+                tipo,
+                nome,
+                email,
+                telefone,
+                status,
+                documento,
+                unidade_consumidora,
+                codigo_cliente,
+                codigo_instalacao,
+                valor,
+                marca,
+                user_id
+            )
+        `)
         .eq("pipeline_id", pipeline.id)
         .order("created_at", { ascending: false })
 

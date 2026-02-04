@@ -445,6 +445,48 @@ export async function createRentalTasksForIndication(params: {
     let created = 0
 
     for (const code of codeList) {
+        let existingQuery = writeClient
+            .from('tasks')
+            .select('id')
+            .eq('indicacao_id', params.indicacaoId)
+            .eq('brand', 'rental')
+            .in('department', ['cadastro', 'CADASTRO'])
+            .limit(1)
+
+        existingQuery = code
+            ? existingQuery.eq('codigo_instalacao', code)
+            : existingQuery.is('codigo_instalacao', null)
+
+        let { data: existingTasks, error: existingTaskError } = await existingQuery
+
+        if (existingTaskError && isPermissionDenied(existingTaskError) && writeClient === supabaseAdmin) {
+            writeClient = supabaseUser
+
+            let fallbackQuery = writeClient
+                .from('tasks')
+                .select('id')
+                .eq('indicacao_id', params.indicacaoId)
+                .eq('brand', 'rental')
+                .in('department', ['cadastro', 'CADASTRO'])
+                .limit(1)
+
+            fallbackQuery = code
+                ? fallbackQuery.eq('codigo_instalacao', code)
+                : fallbackQuery.is('codigo_instalacao', null)
+
+            const fallback = await fallbackQuery
+            existingTasks = fallback.data
+            existingTaskError = fallback.error
+        }
+
+        if (existingTaskError) {
+            console.error('Error checking existing rental task:', existingTaskError)
+        }
+
+        if ((existingTasks?.length ?? 0) > 0) {
+            continue
+        }
+
         const titleParts = [
             'Cadastro',
             params.nome?.trim() || 'Cliente',

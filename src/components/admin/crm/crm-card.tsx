@@ -13,10 +13,19 @@ export type CrmCardData = {
     created_at?: string
     indicacoes?: {
         id?: string
+        tipo?: string | null
         nome?: string | null
+        email?: string | null
+        telefone?: string | null
+        status?: string | null
+        documento?: string | null
+        unidade_consumidora?: string | null
+        codigo_cliente?: string | null
+        codigo_instalacao?: string | null
         valor?: number | null
         marca?: string | null
         user_id?: string | null
+        created_by_supervisor_id?: string | null
     } | null
 }
 
