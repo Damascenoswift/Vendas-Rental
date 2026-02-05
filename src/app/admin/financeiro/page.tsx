@@ -7,6 +7,7 @@ import { getUsers } from "@/app/actions/auth-admin"
 import { NewTransactionDialog } from "@/components/financial/new-transaction-dialog"
 import { getPricingRules } from "@/services/proposal-service"
 import { Wallet } from "lucide-react"
+import { getProfile, hasFullAccess } from "@/lib/auth"
 import {
     Table,
     TableBody,
@@ -25,8 +26,9 @@ export default async function FinancialPage() {
     if (!user) redirect("/login")
 
     // Check admin
-    const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-    if (!profile || !['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile.role)) {
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+    if (!profile || (!hasFullAccess(role) && !['funcionario_n1', 'funcionario_n2'].includes(role ?? ''))) {
         redirect("/dashboard")
     }
 

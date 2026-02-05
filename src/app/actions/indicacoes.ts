@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { ensureCrmCardForIndication } from '@/services/crm-card-service'
 import { createRentalTasksForIndication } from '@/services/task-service'
+import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -28,9 +29,11 @@ export async function createIndicationAction(payload: any) {
     // Get current user profile to check if they are a supervisor
     const { data: profile } = await supabaseAdmin
         .from('users')
-        .select('role')
+        .select('role, department')
         .eq('id', user.id)
         .single()
+    const role = profile?.role as UserRole | undefined
+    const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
     const finalPayload = { ...payload }
 
@@ -50,7 +53,7 @@ export async function createIndicationAction(payload: any) {
             // we might want to block this or just ignore the attribution.
             // For now, let's allow if they are admin, but the prompt says
             // supervisors manage THEIR salespeople.
-            if (!['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile.role)) {
+            if (!hasFullAccess(role ?? null, department) && !['funcionario_n1', 'funcionario_n2'].includes(role ?? '')) {
                 return { success: false, message: 'Você só pode atribuir indicações para seus subordinados.' }
             }
         }

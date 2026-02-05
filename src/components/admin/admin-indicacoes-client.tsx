@@ -200,10 +200,10 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                                                     vendedorName={vendedorInfo}
                                                 />
                                                 {/* Contract Generation Button */}
-                                                {(role === 'adm_mestre' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
+                                                {(role === 'adm_mestre' || role === 'adm_dorata' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
                                                     <GenerateContractButton indicationId={ind.id} />
                                                 )}
-                                                {role === 'adm_mestre' && (
+                                                {(role === 'adm_mestre' || role === 'adm_dorata') && (
                                                     <DeleteIndicationButton id={ind.id} />
                                                 )}
                                             </div>

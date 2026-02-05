@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { InvestorSidebar } from "@/components/investor/investor-sidebar"
 import { ToastContainer } from "@/components/ui/toaster"
+import { getProfile } from "@/lib/auth"
 
 export default async function InvestorLayout({
     children,
@@ -16,14 +17,9 @@ export default async function InvestorLayout({
     }
 
     // Fetch profile to verify role
-    const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
+    const profile = await getProfile(supabase, user.id)
     const effectiveRole = profile?.role ?? (user.user_metadata?.role as string | undefined)
-    const canAccess = ['investidor', 'adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(effectiveRole ?? '')
+    const canAccess = ['investidor', 'adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(effectiveRole ?? '')
 
     if (!canAccess) {
         redirect("/dashboard")

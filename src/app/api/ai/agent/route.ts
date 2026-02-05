@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import { NextResponse } from "next/server"
 import { tools, runTool } from "@/lib/ai/agent-tools"
 import { createClient } from "@/lib/supabase/server"
-import { getProfile } from "@/lib/auth"
+import { getProfile, hasFullAccess } from "@/lib/auth"
 
 // System prompt defining the AI's persona
 const SYSTEM_PROMPT = `
@@ -36,10 +36,10 @@ export async function POST(request: Request) {
         const isOwner =
             (ownerId && user.id === ownerId) ||
             (ownerEmail && userEmail === ownerEmail) ||
-            (!ownerId && !ownerEmail && role === "adm_mestre")
+            (!ownerId && !ownerEmail && hasFullAccess(role))
 
         const requiresOwner = Boolean(ownerId || ownerEmail)
-        const canAccess = role === "adm_mestre" && (!requiresOwner || isOwner)
+        const canAccess = hasFullAccess(role) && (!requiresOwner || isOwner)
 
         if (!canAccess) {
             return NextResponse.json({ error: "Acesso negado" }, { status: 403 })

@@ -369,7 +369,7 @@ export default function IndicacoesPage() {
             Consulte rapidamente o status e detalhes das indicações enviadas.
           </p>
         </div>
-        {profile?.role === "adm_mestre" && (
+        {(profile?.role === "adm_mestre" || profile?.role === "adm_dorata") && (
           <Link href="/admin/indicacoes">
             <Button variant="outline" size="sm">
               Painel Admin

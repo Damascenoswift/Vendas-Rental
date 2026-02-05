@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { getProfile, hasFullAccess } from '@/lib/auth'
 
 const transactionSchema = z.object({
     beneficiary_user_id: z.string().uuid(),
@@ -34,8 +35,9 @@ export async function createTransaction(prevState: CreateTransactionState, formD
     if (!user) return { success: false, message: 'Não autenticado' }
 
     // Check if admin
-    const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-    if (!profile || !['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile.role)) {
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+    if (!profile || (!hasFullAccess(role) && !['funcionario_n1', 'funcionario_n2'].includes(role ?? ''))) {
         return { success: false, message: 'Permissão negada.' }
     }
 

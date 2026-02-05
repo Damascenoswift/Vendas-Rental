@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { getUsers, getSupervisors } from '@/app/actions/auth-admin'
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { hasFullAccess, type UserRole, type UserProfile } from '@/lib/auth'
 
 export default async function AdminUsersPage() {
     const supabase = await createClient()
@@ -21,9 +22,12 @@ export default async function AdminUsersPage() {
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: profile } = await supabaseAdmin
         .from('users')
-        .select('role')
+        .select('role, department')
         .eq('id', user.id)
         .single()
+
+    const role = (profile?.role ?? user.user_metadata?.role) as UserRole | undefined
+    const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
     const ownerId = process.env.USER_MANAGEMENT_OWNER_ID
     const ownerEmail = process.env.USER_MANAGEMENT_OWNER_EMAIL?.toLowerCase()
@@ -31,7 +35,7 @@ export default async function AdminUsersPage() {
     const isOwner =
         (ownerId && user.id === ownerId) ||
         (ownerEmail && userEmail === ownerEmail) ||
-        (!ownerId && !ownerEmail && profile?.role === 'adm_mestre')
+        (!ownerId && !ownerEmail && hasFullAccess(role ?? null, department))
 
     if (!profile || !isOwner) {
         return (

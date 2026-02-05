@@ -4,7 +4,8 @@ import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
-import type { UserRole, Brand } from '@/lib/auth'
+import type { UserRole, Brand, UserProfile } from '@/lib/auth'
+import { hasFullAccess } from '@/lib/auth'
 
 // Schema de validação
 const userRoleValues = [
@@ -82,18 +83,19 @@ async function checkAdminPermission(mode: AdminPermissionMode = 'read-users') {
     }
     const { data: currentUserProfile } = await supabaseAdmin
         .from('users')
-        .select('role, email')
+        .select('role, email, department')
         .eq('id', user.id)
         .single()
 
     const role = (currentUserProfile?.role ?? user.user_metadata?.role) as UserRole | undefined
+    const department = (currentUserProfile as { department?: UserProfile['department'] | null } | null)?.department ?? null
     const ownerId = process.env.USER_MANAGEMENT_OWNER_ID
     const ownerEmail = process.env.USER_MANAGEMENT_OWNER_EMAIL?.toLowerCase()
     const userEmail = (user.email ?? currentUserProfile?.email ?? '').toLowerCase()
     const isOwner =
         (ownerId && user.id === ownerId) ||
         (ownerEmail && userEmail === ownerEmail) ||
-        (!ownerId && !ownerEmail && role === 'adm_mestre')
+        (!ownerId && !ownerEmail && hasFullAccess(role ?? null, department))
 
     if (mode === 'manage-users') {
         if (!isOwner) {
@@ -103,7 +105,7 @@ async function checkAdminPermission(mode: AdminPermissionMode = 'read-users') {
     }
 
     const allowedReadRoles: UserRole[] = ['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2']
-    if (!role || !allowedReadRoles.includes(role)) {
+    if (!role || (!allowedReadRoles.includes(role) && !hasFullAccess(role, department))) {
         return { authorized: false, message: 'Acesso negado. Apenas administradores podem realizar esta ação.' }
     }
 

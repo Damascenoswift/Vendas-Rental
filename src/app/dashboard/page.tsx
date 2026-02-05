@@ -263,7 +263,7 @@ export default function DashboardPage() {
 
       // Se NÃO for adm_mestre nem funcionario_n1/n2, filtra apenas as próprias indicações
       // Se for adm_mestre ou funcionario_n1/n2, não aplica filtro de user_id (vê tudo)
-      if (!['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')) {
+      if (!['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')) {
         query = query.eq("user_id", userId)
       }
 
@@ -430,7 +430,7 @@ export default function DashboardPage() {
           event: "*",
           schema: "public",
           table: "indicacoes",
-          filter: ['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')
+          filter: ['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')
             ? undefined
             : `user_id=eq.${userId}`,
         },
@@ -550,7 +550,7 @@ export default function DashboardPage() {
           Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
         </p>
         <div className="pt-2 flex gap-2">
-          {['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '') && (
+          {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '') && (
             <Link href="/admin/indicacoes">
               <Button variant="outline" size="sm">
                 Painel Admin

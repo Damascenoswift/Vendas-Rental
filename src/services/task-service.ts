@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import { hasFullAccess, type UserProfile } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
@@ -49,7 +50,8 @@ const TASK_BOARD_ALLOWED_ROLES = [
     'vendedor_externo',
 ] as const
 
-function canManageTaskBoard(role?: string | null) {
+function canManageTaskBoard(role?: string | null, department?: UserProfile['department'] | null) {
+    if (hasFullAccess(role ?? null, department ?? null)) return true
     return Boolean(role && TASK_BOARD_ALLOWED_ROLES.includes(role as (typeof TASK_BOARD_ALLOWED_ROLES)[number]))
 }
 
@@ -794,11 +796,12 @@ export async function backfillRentalTasksFromIndicacoes() {
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: profile } = await supabaseAdmin
         .from('users')
-        .select('role')
+        .select('role, department')
         .eq('id', user.id)
         .single()
 
-    if (!profile || !['adm_mestre', 'adm_dorata', 'supervisor'].includes(profile.role)) {
+    const profileDepartment = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
+    if (!profile || (!hasFullAccess(profile.role, profileDepartment) && !['supervisor'].includes(profile.role))) {
         return { error: "Sem permissão para backfill." }
     }
 
@@ -886,12 +889,13 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
     const { data: profile, error: profileError } = await supabase
         .from('users')
-        .select('role')
+        .select('role, department')
         .eq('id', user.id)
         .maybeSingle()
 
+    const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
     if (profileError) return { error: profileError.message }
-    if (!canManageTaskBoard((profile as any)?.role ?? null)) {
+    if (!canManageTaskBoard((profile as any)?.role ?? null, department)) {
         return { error: "Sem permissão para mover tarefas." }
     }
 

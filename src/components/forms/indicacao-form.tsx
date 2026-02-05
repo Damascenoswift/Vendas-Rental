@@ -431,7 +431,7 @@ export function IndicacaoForm({
           <h2 className="text-xl font-semibold text-foreground">Nova indicação</h2>
           <p className="text-sm text-muted-foreground">Preencha os dados do contato e nós cuidamos do restante.</p>
         </div>
-        {userRole === 'adm_mestre' && (
+        {(userRole === 'adm_mestre' || userRole === 'adm_dorata') && (
           <div>
             <input
               type="file"

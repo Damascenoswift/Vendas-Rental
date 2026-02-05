@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
+import { getProfile } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import {
     Table,
@@ -23,15 +24,10 @@ export default async function AdminLeadsPage() {
 
     // Check permissions
     // We check both the DB profile and user_metadata to be robust
-    const { data: profile } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', user.id)
-        .single()
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role ?? (user.user_metadata?.role as string | undefined)
 
-    const role = profile?.role ?? user.user_metadata?.role
-
-    if (!['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(role ?? '')) {
+    if (!['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role ?? '')) {
         return (
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">

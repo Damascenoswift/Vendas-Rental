@@ -43,20 +43,36 @@ export function getAllowedBrands(role: UserRole): Brand[] {
   return roleBrandsMap[role] ?? ['rental']
 }
 
+export function normalizeRole(role: UserRole, department?: UserProfile['department'] | null): UserRole {
+  if (department === 'diretoria') {
+    return 'adm_dorata'
+  }
+  return role
+}
+
+export function hasFullAccess(role?: UserRole | null, department?: UserProfile['department'] | null) {
+  const effectiveRole = role ? normalizeRole(role, department) : null
+  return effectiveRole === 'adm_mestre' || effectiveRole === 'adm_dorata'
+}
+
 // @deprecated Use getProfile instead
 export function buildUserProfile(user: User | null): UserProfile | null {
   if (!user) return null
 
   const role =
     (user.user_metadata?.role as UserRole | undefined) ?? 'vendedor_externo'
+  const department =
+    (user.user_metadata?.department as UserProfile['department'] | undefined) ?? null
+  const normalizedRole = normalizeRole(role, department)
   const companyName =
     (user.user_metadata?.company_name as string | undefined) ?? null
-  const allowedBrands = getAllowedBrands(role)
+  const allowedBrands = getAllowedBrands(normalizedRole)
 
   return {
     id: user.id,
-    role,
+    role: normalizedRole,
     companyName,
+    department,
     allowedBrands,
     name: user.user_metadata?.nome,
     phone: user.user_metadata?.telefone,
@@ -67,7 +83,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
   const { data, error } = await supabase
     .from('users')
-    .select('role, allowed_brands, name, phone, email')
+    .select('role, department, allowed_brands, name, phone, email')
     .eq('id', userId)
     .single()
 
@@ -78,12 +94,15 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
 
   // Converter tipos do banco para tipos da aplicação
   const role = data.role as UserRole
+  const department = (data as { department?: UserProfile['department'] | null }).department ?? null
+  const normalizedRole = normalizeRole(role, department)
   const allowedBrands = (data.allowed_brands as Brand[]) ?? ['rental']
 
   return {
     id: userId,
-    role,
+    role: normalizedRole,
     companyName: null, // A tabela users ainda não tem company_name, mantendo null por enquanto
+    department,
     allowedBrands,
     name: data.name || undefined,
     phone: data.phone || undefined,

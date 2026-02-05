@@ -73,11 +73,11 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                         )}
 
-                        {['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                        {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />
                         )}
 
-                        {['adm_mestre', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                        {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/investidor" label="Portal Investidor" icon={PieChart} />
                         )}
                     </div>
@@ -88,7 +88,7 @@ export function Sidebar({ className }: SidebarProps) {
                         Gestão
                     </h2>
                     <div className="space-y-1">
-                        {['adm_mestre', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                        {['adm_mestre', 'adm_dorata', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/energia" label="Energia" icon={Zap} />
                         )}
 
@@ -96,7 +96,7 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 
-                        {role === 'adm_mestre' && (
+                        {(role === 'adm_mestre' || role === 'adm_dorata') && (
                             <NavItem href="/admin/usuarios" label="Usuários" icon={Users} />
                         )}
                     </div>

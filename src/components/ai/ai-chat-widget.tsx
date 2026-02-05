@@ -10,7 +10,8 @@ export function AiChatWidget() {
     const { isOpen, toggleOpen, messages, addMessage, isLoading, setIsLoading } = useAiChat()
     const [inputValue, setInputValue] = useState("")
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const isAuthorized = status === "authenticated" && profile?.role === "adm_mestre"
+    const isAuthorized =
+        status === "authenticated" && (profile?.role === "adm_mestre" || profile?.role === "adm_dorata")
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
