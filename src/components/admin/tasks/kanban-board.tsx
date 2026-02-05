@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
     DndContext,
     DragOverlay,
@@ -38,6 +38,10 @@ export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
     const [activeOriginalStatus, setActiveOriginalStatus] = useState<TaskStatus | null>(null)
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
     const { showToast } = useToast()
+
+    useEffect(() => {
+        setTasks(initialTasks)
+    }, [initialTasks])
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 3 } }), // Easier drag start on cards

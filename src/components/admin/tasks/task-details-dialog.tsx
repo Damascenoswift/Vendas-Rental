@@ -5,7 +5,7 @@ import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
 
-import type { Task, TaskChecklistItem, TaskComment, TaskObserver } from "@/services/task-service"
+import type { Task, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority } from "@/services/task-service"
 import {
     addTaskChecklistItem,
     addTaskComment,
@@ -68,6 +68,13 @@ type UserOption = {
 type TaskCommentDisplay = TaskComment & {
     isLegacy?: boolean
 }
+
+const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
+    { value: "LOW", label: "Baixa" },
+    { value: "MEDIUM", label: "Média" },
+    { value: "HIGH", label: "Alta" },
+    { value: "URGENT", label: "Urgente" },
+]
 
 const formatDateTime = (value?: string | null) => {
     if (!value) return ""
@@ -139,6 +146,8 @@ export function TaskDetailsDialog({
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
     const [editDueDate, setEditDueDate] = useState("")
     const [editAssigneeId, setEditAssigneeId] = useState("")
+    const [editTitle, setEditTitle] = useState("")
+    const [editPriority, setEditPriority] = useState<TaskPriority>("MEDIUM")
     const { showToast } = useToast()
     const { session } = useAuthSession()
 
@@ -203,6 +212,8 @@ export function TaskDetailsDialog({
         setNewComment("")
         setReplyTo(null)
         setEditAssigneeId(task.assignee_id ?? "")
+        setEditTitle(task.title ?? "")
+        setEditPriority(task.priority ?? "MEDIUM")
         if (task.due_date) {
             const parsed = new Date(task.due_date)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
@@ -334,6 +345,12 @@ export function TaskDetailsDialog({
 
     const handleSaveDetails = async () => {
         setIsSavingDetails(true)
+        const trimmedTitle = editTitle.trim()
+        if (!trimmedTitle) {
+            showToast({ title: "Título obrigatório", description: "Informe um título para a tarefa.", variant: "error" })
+            setIsSavingDetails(false)
+            return
+        }
         let dueDateIso: string | null = null
         if (editDueDate) {
             const parsed = new Date(editDueDate)
@@ -342,6 +359,8 @@ export function TaskDetailsDialog({
             }
         }
         const updates: Partial<Task> = {
+            title: trimmedTitle,
+            priority: editPriority,
             due_date: dueDateIso,
             assignee_id: editAssigneeId || null,
         }
@@ -354,6 +373,8 @@ export function TaskDetailsDialog({
             const assignee = users.find((item) => item.id === editAssigneeId)
             onTaskUpdated?.(task.id, {
                 ...updates,
+                title: trimmedTitle,
+                priority: editPriority,
                 assignee: assignee ? { name: assignee.name, email: assignee.email ?? "" } : undefined,
             })
         }
@@ -477,6 +498,29 @@ export function TaskDetailsDialog({
                     <div className="rounded-md border bg-muted/30 p-3 space-y-3">
                         <h4 className="text-sm font-semibold">Descrição e prazo</h4>
                         <div className="grid gap-4">
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Título</label>
+                                <Input
+                                    value={editTitle}
+                                    onChange={(event) => setEditTitle(event.target.value)}
+                                    placeholder="Título da tarefa"
+                                />
+                            </div>
+                            <div className="grid gap-1">
+                                <label className="text-xs text-muted-foreground">Prioridade</label>
+                                <Select value={editPriority} onValueChange={(value) => setEditPriority(value as TaskPriority)}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PRIORITY_OPTIONS.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                             <div className="grid gap-2">
                                 <label className="text-xs text-muted-foreground">Comentário</label>
                                 {replyTo && (
