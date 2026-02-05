@@ -10,6 +10,10 @@ const profileSchema = z.object({
     phone: z.string().min(10, "Telefone inválido"),
 })
 
+const passwordSchema = z.object({
+    password: z.string().min(6, "A senha deve ter no mínimo 6 caracteres"),
+})
+
 export async function updateProfile(prevState: any, formData: FormData) {
     const supabase = await createClient()
     const {
@@ -56,4 +60,50 @@ export async function updateProfile(prevState: any, formData: FormData) {
     revalidatePath("/admin/indicacoes") // Update admin table too
 
     return { success: "Perfil atualizado com sucesso!", error: undefined }
+}
+
+export async function updatePassword(prevState: any, formData: FormData) {
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Não autenticado" }
+    }
+
+    const password = (formData.get("password") as string) ?? ""
+    const validatedFields = passwordSchema.safeParse({
+        password,
+    })
+
+    if (!validatedFields.success) {
+        return {
+            error: validatedFields.error.flatten().fieldErrors.password?.[0] || "Senha inválida",
+        }
+    }
+
+    try {
+        const supabaseAdmin = createSupabaseServiceClient()
+
+        const updatePromise = supabaseAdmin.auth.admin.updateUserById(user.id, {
+            password: validatedFields.data.password,
+        })
+
+        const timeoutPromise = new Promise<{ error: { message: string } }>((resolve) =>
+            setTimeout(() => resolve({ error: { message: "Tempo esgotado ao atualizar senha." } }), 8000)
+        )
+
+        const { error } = await Promise.race([updatePromise, timeoutPromise])
+
+        if (error) {
+            console.error("Erro ao atualizar senha:", error)
+            return { error: error.message || "Não foi possível alterar a senha." }
+        }
+    } catch (error: any) {
+        console.error("Erro ao atualizar senha:", error)
+        return { error: error?.message || "Não foi possível alterar a senha." }
+    }
+
+    return { success: "Senha alterada com sucesso!", error: undefined }
 }
