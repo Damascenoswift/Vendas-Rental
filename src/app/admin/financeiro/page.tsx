@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { getFinancialSummary } from "@/app/actions/financial"
 import { FinancialList } from "@/components/financial/financial-list"
@@ -35,19 +36,22 @@ export default async function FinancialPage() {
         getPricingRules()
     ])
 
+    const supabaseAdmin = createSupabaseServiceClient()
+
     const commissionRule = pricingRules.find(rule => rule.key === 'dorata_commission_percent')
     const rawCommissionValue = commissionRule ? Number(commissionRule.value) : 3
     const defaultCommissionPercent = rawCommissionValue > 1 ? rawCommissionValue / 100 : rawCommissionValue
 
-    const { data: dorataProposals } = await supabase
+    const { data: dorataProposals } = await supabaseAdmin
         .from('proposals')
         .select('id, created_at, total_value, calculation, seller:users(name, email)')
         .eq('status', 'sent')
         .order('created_at', { ascending: false })
 
-    const { data: rentalIndicacoes } = await supabase
+    const { data: rentalIndicacoes } = await supabaseAdmin
         .from('indicacoes')
         .select('id, created_at, nome, status, valor, users!indicacoes_user_id_fkey(name, email)')
+        .eq('marca', 'rental')
         .not('valor', 'is', null)
         .order('created_at', { ascending: false })
 

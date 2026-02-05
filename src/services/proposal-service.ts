@@ -329,7 +329,7 @@ export async function createProposal(
         }
         proposalPayload.calculation = calculation as any
     }
-    const { data: proposal, error: propError } = await supabase
+    const { data: proposal, error: propError } = await supabaseAdmin
         .from('proposals')
         .insert(proposalPayload)
         .select()
@@ -357,7 +357,7 @@ export async function createProposal(
     }))
 
     if (itemsWithId.length > 0) {
-        const { error: itemsError } = await supabase
+        const { error: itemsError } = await supabaseAdmin
             .from('proposal_items')
             .insert(itemsWithId)
 
