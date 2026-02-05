@@ -282,7 +282,8 @@ export default function DashboardPage() {
         setMetrics(emptyMetrics)
       } else {
         const rows = (data ?? []) as IndicacaoResumoRow[]
-        const latestRows = rows.slice(0, 30)
+        const rentalRows = rows.filter((row) => row.marca === "rental")
+        const latestRows = rentalRows.slice(0, 30)
         const nameById = new Map(latestRows.map((row) => [row.id, row.nome]))
         const porStatus: Record<StatusKey, number> = {
           EM_ANALISE: 0,
@@ -395,7 +396,7 @@ export default function DashboardPage() {
           porStatus,
           ultimaIndicacao: rows[0]?.created_at ?? null,
           porMarca,
-          recentes: rows.slice(0, 6),
+          recentes: rentalRows.slice(0, 6),
           activity: recentActivity,
         })
         setMetricsError(null)
@@ -608,7 +609,7 @@ export default function DashboardPage() {
             <div>
               <CardTitle>Processo das indicações</CardTitle>
               <CardDescription>
-                Acompanhe cada etapa sem precisar acessar o CRM.
+                Acompanhe cada etapa do Rental sem precisar acessar o CRM.
               </CardDescription>
             </div>
             <Link href="/indicacoes">

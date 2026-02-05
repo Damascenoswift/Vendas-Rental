@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Eye, FileText, Download, Loader2, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast"
 import { LeadInteractions } from "./interactions/lead-interactions"
 import { EnergisaActions } from "./interactions/energisa-actions"
 import { DocChecklist } from "./interactions/doc-checklist"
+import { getProposalsForIndication } from "@/app/actions/proposals"
+import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
 
 
@@ -26,6 +28,7 @@ interface IndicationDetailsDialogProps {
     userId: string
     fallbackUserIds?: string[]
     initialData?: Record<string, unknown> | null
+    brand?: "rental" | "dorata" | null
     open?: boolean
     onOpenChange?: (open: boolean) => void
     hideDefaultTrigger?: boolean
@@ -37,11 +40,30 @@ interface FileItem {
     url: string | null
 }
 
+type ProposalSummary = {
+    id: string
+    created_at: string
+    status: string | null
+    total_value: number | null
+    total_power: number | null
+    calculation?: {
+        commission?: {
+            percent?: number
+            value?: number
+        }
+    } | null
+    seller?: {
+        name?: string | null
+        email?: string | null
+    } | null
+}
+
 export function IndicationDetailsDialog({
     indicationId,
     userId,
     fallbackUserIds = [],
     initialData = null,
+    brand,
     open,
     onOpenChange,
     hideDefaultTrigger = false,
@@ -51,13 +73,28 @@ export function IndicationDetailsDialog({
     const [isLoading, setIsLoading] = useState(false)
     const [metadata, setMetadata] = useState<any>(null)
     const [files, setFiles] = useState<FileItem[]>([])
+    const [proposals, setProposals] = useState<ProposalSummary[]>([])
+    const [proposalError, setProposalError] = useState<string | null>(null)
+    const [proposalLoading, setProposalLoading] = useState(false)
+    const [hasLoadedProposals, setHasLoadedProposals] = useState(false)
     const { showToast } = useToast()
     const isControlled = typeof open === "boolean"
     const isOpen = isControlled ? open : internalOpen
 
+    const resolvedBrand = useMemo(() => {
+        if (brand) return brand
+        const fromInitial = (initialData as any)?.marca
+        return fromInitial === "rental" || fromInitial === "dorata" ? fromInitial : null
+    }, [brand, initialData])
+
+    const isDorata = resolvedBrand === "dorata"
+
     useEffect(() => {
         setMetadata(null)
         setFiles([])
+        setProposals([])
+        setProposalError(null)
+        setHasLoadedProposals(false)
     }, [indicationId, userId])
 
     const toDisplayMetadata = (value: Record<string, unknown> | null) => {
@@ -174,11 +211,60 @@ export function IndicationDetailsDialog({
         onOpenChange?.(open)
     }
 
+    const formatCurrency = (value?: number | null) => {
+        if (typeof value !== "number") return "—"
+        return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
+    }
+
+    const formatDateTime = (value?: string | null) => {
+        if (!value) return "—"
+        try {
+            return new Intl.DateTimeFormat("pt-BR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+            }).format(new Date(value))
+        } catch {
+            return "—"
+        }
+    }
+
+    const proposalStatusLabels: Record<string, string> = {
+        draft: "Rascunho",
+        sent: "Enviado",
+        accepted: "Aceito",
+        rejected: "Rejeitado",
+        expired: "Expirado",
+    }
+
     useEffect(() => {
         if (!isOpen) return
         if (metadata || files.length > 0) return
         fetchDetails()
     }, [isOpen, indicationId, userId])
+
+    useEffect(() => {
+        if (!isOpen || !isDorata) return
+        if (hasLoadedProposals || proposalLoading) return
+
+        const loadProposals = async () => {
+            setProposalLoading(true)
+            const result = await getProposalsForIndication(indicationId)
+            if (result?.error) {
+                setProposalError(result.error)
+                setProposals([])
+            } else {
+                setProposalError(null)
+                setProposals((result as any).data ?? [])
+            }
+            setProposalLoading(false)
+            setHasLoadedProposals(true)
+        }
+
+        void loadProposals()
+    }, [isOpen, isDorata, indicationId, proposalLoading, hasLoadedProposals])
 
     const formatLabel = (key: string) => {
         return key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())
@@ -235,8 +321,9 @@ export function IndicationDetailsDialog({
                         <Tabs defaultValue="dados" className="w-full">
 
 
-                            <TabsList className="grid w-full grid-cols-4">
+                            <TabsList className={cn("grid w-full", isDorata ? "grid-cols-5" : "grid-cols-4")}>
                                 <TabsTrigger value="dados">Dados & Docs</TabsTrigger>
+                                {isDorata ? <TabsTrigger value="orcamento">Orçamento</TabsTrigger> : null}
                                 <TabsTrigger value="arquivos">Arquivos ({files.length})</TabsTrigger>
                                 <TabsTrigger value="energisa">Energisa</TabsTrigger>
                                 <TabsTrigger value="atividades">Atividades & Chat</TabsTrigger>
@@ -267,6 +354,73 @@ export function IndicationDetailsDialog({
                                     </div>
                                 )}
                             </TabsContent>
+
+                            {isDorata ? (
+                                <TabsContent value="orcamento" className="space-y-4 mt-4">
+                                    {proposalLoading ? (
+                                        <div className="flex justify-center py-8">
+                                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                                        </div>
+                                    ) : proposalError ? (
+                                        <div className="text-sm text-destructive">{proposalError}</div>
+                                    ) : proposals.length === 0 ? (
+                                        <div className="text-center py-6 text-muted-foreground">
+                                            Nenhum orçamento encontrado para esta indicação.
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {proposals.map((proposal) => {
+                                                const commissionValue = proposal.calculation?.commission?.value
+                                                const commissionPercent = proposal.calculation?.commission?.percent
+                                                const statusLabel = proposal.status
+                                                    ? proposalStatusLabels[proposal.status] ?? proposal.status
+                                                    : "—"
+
+                                                return (
+                                                    <div key={proposal.id} className="rounded-lg border p-4 space-y-2">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                                            <div>
+                                                                <p className="text-sm font-semibold">
+                                                                    Orçamento #{proposal.id.slice(0, 8)}
+                                                                </p>
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    Criado em {formatDateTime(proposal.created_at)}
+                                                                </p>
+                                                            </div>
+                                                            <Badge variant="secondary">{statusLabel}</Badge>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                                            <div>
+                                                                <p className="text-xs text-muted-foreground">Valor total</p>
+                                                                <p className="font-medium">{formatCurrency(proposal.total_value)}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs text-muted-foreground">Potência total</p>
+                                                                <p className="font-medium">
+                                                                    {typeof proposal.total_power === "number"
+                                                                        ? `${proposal.total_power.toFixed(2)} kWp`
+                                                                        : "—"}
+                                                                </p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-xs text-muted-foreground">Comissão</p>
+                                                                <p className="font-medium">
+                                                                    {commissionValue
+                                                                        ? `${formatCurrency(commissionValue)} (${((commissionPercent ?? 0) * 100).toFixed(1)}%)`
+                                                                        : "—"}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            Vendedor: {proposal.seller?.name || proposal.seller?.email || "Sistema"}
+                                                        </div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                </TabsContent>
+                            ) : null}
 
                             <TabsContent value="arquivos" className="mt-4">
                                 {files.length > 0 ? (

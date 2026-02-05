@@ -240,6 +240,7 @@ export function CrmBoard({ stages, cards, brand }: Props) {
                     indicationId={selectedCard.indicacao_id}
                     userId={selectedCard.indicacoes.user_id}
                     initialData={selectedCard.indicacoes}
+                    brand={(selectedCard.indicacoes?.marca as "dorata" | "rental" | null) ?? null}
                     open={isDetailsOpen}
                     onOpenChange={setIsDetailsOpen}
                     hideDefaultTrigger
