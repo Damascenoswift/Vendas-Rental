@@ -1,20 +1,43 @@
 import { Suspense } from "react"
-import { getTasks, Brand } from "@/services/task-service"
+import { getTasks, Brand, Department } from "@/services/task-service"
 import { KanbanBoard } from "@/components/admin/tasks/kanban-board"
 import { TaskDialog } from "@/components/admin/tasks/task-dialog"
-import { TaskBrandFilter } from "@/components/admin/tasks/task-brand-filter"
 import { TaskBackfillButton } from "@/components/admin/tasks/task-backfill-button"
-import { Button } from "@/components/ui/button"
-import { Filter } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskDashboard } from "@/components/admin/tasks/task-dashboard"
+import { TaskFilters } from "@/components/admin/tasks/task-filters"
+import { createClient } from "@/lib/supabase/server"
+import { getProfile } from "@/lib/auth"
 
-export default async function TasksPage({ searchParams }: { searchParams: { brand?: string } }) {
+type TaskScope = "all" | "mine" | "department"
+
+function normalizeScope(value?: string | null): TaskScope {
+    if (value === "mine" || value === "department") return value
+    return "all"
+}
+
+export default async function TasksPage({ searchParams }: { searchParams: { brand?: string; scope?: string } }) {
     const brand = (searchParams?.brand === 'rental' || searchParams?.brand === 'dorata')
         ? searchParams.brand as Brand
         : undefined
 
-    const tasks = await getTasks({ showAll: true, brand })
+    const scope = normalizeScope(searchParams?.scope)
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const profile = user ? await getProfile(supabase, user.id) : null
+
+    let assigneeId: string | undefined
+    let department: Department | undefined
+
+    if (scope === "mine" && user) {
+        assigneeId = user.id
+    }
+
+    if (scope === "department" && profile?.department) {
+        department = profile.department
+    }
+
+    const tasks = await getTasks({ showAll: true, brand, assigneeId, department })
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -27,7 +50,6 @@ export default async function TasksPage({ searchParams }: { searchParams: { bran
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <TaskBrandFilter />
                     <TaskBackfillButton />
                     <TaskDialog />
                 </div>
@@ -40,12 +62,8 @@ export default async function TasksPage({ searchParams }: { searchParams: { bran
                         <TabsTrigger value="dashboard">Visão Geral</TabsTrigger>
                     </TabsList>
 
-                    {/* Optional legacy filter button could go here or be removed if filters are moved to dashboard */}
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" className="gap-2">
-                            <Filter className="h-4 w-4" />
-                            Filtros
-                        </Button>
+                        <TaskFilters hasDepartment={Boolean(profile?.department)} />
                     </div>
                 </div>
 
