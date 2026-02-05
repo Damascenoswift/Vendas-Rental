@@ -44,7 +44,7 @@ export default async function FinancialPage() {
 
     const { data: dorataProposals } = await supabaseAdmin
         .from('proposals')
-        .select('id, created_at, total_value, calculation, seller:users(name, email)')
+        .select('id, created_at, total_value, calculation, seller:users(name, email), cliente:indicacoes(id, nome, marca)')
         .eq('status', 'sent')
         .order('created_at', { ascending: false })
 
@@ -55,9 +55,26 @@ export default async function FinancialPage() {
         .not('valor', 'is', null)
         .order('created_at', { ascending: false })
 
+    const { data: dorataIndicacoes } = await supabaseAdmin
+        .from('indicacoes')
+        .select('id, created_at, nome, status, valor, users!indicacoes_user_id_fkey(name, email)')
+        .eq('marca', 'dorata')
+        .not('valor', 'is', null)
+        .order('created_at', { ascending: false })
+
     const formatCurrency = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 
-    const dorataForecasts = (dorataProposals ?? []).map((proposal: any) => {
+    const dorataProposalsFiltered = (dorataProposals ?? []).filter(
+        (proposal: any) => proposal?.cliente?.marca === 'dorata'
+    )
+
+    const dorataProposalClientIds = new Set(
+        dorataProposalsFiltered
+            .map((proposal: any) => proposal?.cliente?.id)
+            .filter(Boolean)
+    )
+
+    const dorataForecastsFromProposals = dorataProposalsFiltered.map((proposal: any) => {
         const calculation = proposal.calculation as any
         const storedCommission = calculation?.commission
         const contractValue = Number(storedCommission?.base_value ?? proposal.total_value ?? 0)
@@ -73,6 +90,25 @@ export default async function FinancialPage() {
             commissionValue
         }
     })
+
+    const dorataForecastsFromIndicacoes = (dorataIndicacoes ?? [])
+        .filter((indicacao: any) => !dorataProposalClientIds.has(indicacao.id))
+        .map((indicacao: any) => {
+            const contractValue = Number(indicacao.valor ?? 0)
+            const commissionPercent = Number(defaultCommissionPercent)
+            const commissionValue = contractValue * commissionPercent
+
+            return {
+                id: indicacao.id,
+                created_at: indicacao.created_at,
+                seller: indicacao.users,
+                contractValue,
+                commissionPercent,
+                commissionValue
+            }
+        })
+
+    const dorataForecasts = [...dorataForecastsFromProposals, ...dorataForecastsFromIndicacoes]
 
     const rentalForecasts = (rentalIndicacoes ?? []).map((indicacao: any) => ({
         id: indicacao.id,
@@ -147,7 +183,7 @@ export default async function FinancialPage() {
                 <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
                     <div>
                         <h2 className="text-lg font-semibold">Previsoes Dorata</h2>
-                        <p className="text-sm text-muted-foreground">Orcamentos enviados (status sent).</p>
+                        <p className="text-sm text-muted-foreground">Orcamentos enviados e indicacoes Dorata com valor informado.</p>
                     </div>
                     <Table>
                         <TableHeader>
