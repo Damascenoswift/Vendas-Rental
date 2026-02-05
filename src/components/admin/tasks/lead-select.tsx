@@ -99,6 +99,38 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
         return "Buscar cliente..."
     }, [selectedLead, selectedContact])
 
+    const handleSelectLead = (lead: Lead) => {
+        onChange(lead.id)
+        onSelectLead?.(lead, 'indicacao')
+        setSelectedLead(lead)
+        setSelectedContact(null)
+        setOpen(false)
+    }
+
+    const handleSelectContact = (contact: Contact) => {
+        const name = contact.full_name
+            || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
+            || contact.email
+            || contact.whatsapp
+            || contact.phone
+            || contact.mobile
+            || "Contato"
+
+        onChange(undefined)
+        onSelectLead?.({
+            id: contact.id,
+            nome: name,
+            documento: null,
+            unidade_consumidora: null,
+            codigo_cliente: null,
+            codigo_instalacao: null,
+        }, 'contact')
+        onSelectContact?.(contact)
+        setSelectedContact(contact)
+        setSelectedLead(null)
+        setOpen(false)
+    }
+
     return (
         <Popover open={open} onOpenChange={setOpen} modal={true}>
             <PopoverTrigger asChild>
@@ -129,13 +161,12 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                     value={`lead-${lead.nome}-${lead.id}`}
                                     onMouseDown={(event) => event.preventDefault()}
                                     onSelect={() => {
-                                        onChange(lead.id)
-                                        onSelectLead?.(lead, 'indicacao')
-                                        setSelectedLead(lead)
-                                        setSelectedContact(null)
-                                            setOpen(false)
-                                        }}
-                                    >
+                                        handleSelectLead(lead)
+                                    }}
+                                    onClick={() => {
+                                        handleSelectLead(lead)
+                                    }}
+                                >
                                         <Check
                                             className={cn(
                                                 "mr-2 h-4 w-4",
@@ -178,19 +209,10 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                         value={`contact-${name}-${contact.id}`}
                                         onMouseDown={(event) => event.preventDefault()}
                                         onSelect={() => {
-                                            onChange(undefined)
-                                            onSelectLead?.({
-                                                id: contact.id,
-                                                    nome: name,
-                                                    documento: null,
-                                                    unidade_consumidora: null,
-                                                    codigo_cliente: null,
-                                                    codigo_instalacao: null,
-                                                }, 'contact')
-                                                onSelectContact?.(contact)
-                                                setSelectedContact(contact)
-                                                setSelectedLead(null)
-                                                setOpen(false)
+                                            handleSelectContact(contact)
+                                        }}
+                                        onClick={() => {
+                                            handleSelectContact(contact)
                                             }}
                                         >
                                             <Check
