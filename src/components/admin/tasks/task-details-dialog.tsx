@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
@@ -123,6 +123,7 @@ export function TaskDetailsDialog({
     const [isSavingDetails, setIsSavingDetails] = useState(false)
     const [isActivatingEnergisa, setIsActivatingEnergisa] = useState(false)
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
+    const energisaAutoActivationRef = useRef<string | null>(null)
     const [editDescription, setEditDescription] = useState("")
     const [editDueDate, setEditDueDate] = useState("")
     const [editAssigneeId, setEditAssigneeId] = useState("")
@@ -201,6 +202,12 @@ export function TaskDetailsDialog({
         }
 
         fetchUsers()
+    }, [open])
+
+    useEffect(() => {
+        if (!open) {
+            energisaAutoActivationRef.current = null
+        }
     }, [open])
 
     useEffect(() => {
@@ -378,6 +385,15 @@ export function TaskDetailsDialog({
         setIsActivatingEnergisa(false)
     }
 
+    useEffect(() => {
+        if (!open || !task) return
+        if (task.energisa_activated_at) return
+        if (isActivatingEnergisa) return
+        if (energisaAutoActivationRef.current === task.id) return
+        energisaAutoActivationRef.current = task.id
+        void handleActivateEnergisa()
+    }, [open, task?.id, task?.energisa_activated_at, isActivatingEnergisa])
+
     const handleDocAlert = async (alertType: 'DOCS_INCOMPLETE' | 'DOCS_REJECTED') => {
         setActiveDocAlert(alertType)
         const result = await triggerTaskDocAlert(task.id, alertType)
@@ -503,34 +519,34 @@ export function TaskDetailsDialog({
                             {renderChecklistItems(cadastroChecklists)}
                         </div>
 
-                        {task.brand === 'rental' && (
-                            <div className="grid gap-3 rounded-md border bg-muted/20 p-3">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <h4 className="text-sm font-semibold">Processo Energisa</h4>
-                                    {task.energisa_activated_at ? (
-                                        <span className="text-xs text-muted-foreground">
-                                            Ativado em: {formattedEnergisaActivatedAt}
-                                        </span>
-                                    ) : (
-                                        <Button
-                                            size="sm"
-                                            onClick={handleActivateEnergisa}
-                                            disabled={isActivatingEnergisa}
-                                        >
-                                            Ativar Processo Energisa
-                                        </Button>
-                                    )}
-                                </div>
-
+                        <div className="grid gap-3 rounded-md border bg-muted/20 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h4 className="text-sm font-semibold">Processo Energisa</h4>
                                 {task.energisa_activated_at ? (
-                                    renderChecklistItems(energisaChecklists)
+                                    <span className="text-xs text-muted-foreground">
+                                        Ativado em: {formattedEnergisaActivatedAt}
+                                    </span>
                                 ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                        Ative o processo para liberar o checklist de Energisa.
-                                    </p>
+                                    <Button
+                                        size="sm"
+                                        onClick={handleActivateEnergisa}
+                                        disabled={isActivatingEnergisa}
+                                    >
+                                        {isActivatingEnergisa ? "Ativando..." : "Ativar Processo Energisa"}
+                                    </Button>
                                 )}
                             </div>
-                        )}
+
+                            {task.energisa_activated_at ? (
+                                renderChecklistItems(energisaChecklists)
+                            ) : (
+                                <p className="text-xs text-muted-foreground">
+                                    {isActivatingEnergisa
+                                        ? "Ativando automaticamente o processo Energisa."
+                                        : "Ative o processo para liberar o checklist de Energisa."}
+                                </p>
+                            )}
+                        </div>
 
                         <div className="grid gap-3">
                             <h4 className="text-sm font-semibold">Checklist adicional</h4>
