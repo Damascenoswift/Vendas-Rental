@@ -215,63 +215,6 @@ export function TaskDetailsDialog({
         onChecklistSummaryChange?.(task.id, checklistSummary.total, checklistSummary.done)
     }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, task?.id])
 
-    if (!task) return null
-
-    const headerMeta = [
-        task.client_name ? `Cliente: ${task.client_name}` : null,
-        task.codigo_instalacao ? `Instalação: ${task.codigo_instalacao}` : null,
-    ].filter(Boolean).join(" • ")
-
-    const renderChecklistItems = (items: TaskChecklistItem[]) => (
-        <div className="space-y-2">
-            {items.map((item) => {
-                const completedByName = item.completed_by_user?.name || item.completed_by_user?.email || ""
-                const completedAtLabel = formatDateTime(item.completed_at)
-                const dueDateLabel = formatDateOnly(item.due_date)
-                return (
-                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
-                        <div className="flex items-start gap-2">
-                            <Checkbox
-                                checked={item.is_done}
-                                onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked)}
-                            />
-                            <div className="space-y-1">
-                                <span className={`text-sm ${item.is_done ? "line-through text-muted-foreground" : ""}`}>
-                                    {item.title}
-                                </span>
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                                    {dueDateLabel && <span>Prazo: {dueDateLabel}</span>}
-                                    {item.is_done && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
-                                    {completedByName && (
-                                        <span className="flex items-center gap-2">
-                                            <span
-                                                className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
-                                                style={{ backgroundColor: stringToHsl(completedByName) }}
-                                            >
-                                                {getInitials(completedByName)}
-                                            </span>
-                                            <span>{completedByName}</span>
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDeleteChecklist(item.id)}
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </Button>
-                    </div>
-                )
-            })}
-            {!isLoading && items.length === 0 && (
-                <p className="text-xs text-muted-foreground">Nenhum checklist cadastrado.</p>
-            )}
-        </div>
-    )
-
     const handleAddChecklist = async () => {
         if (!newChecklistTitle.trim()) return
         setIsSavingChecklist(true)
@@ -370,6 +313,7 @@ export function TaskDetailsDialog({
     }
 
     const handleActivateEnergisa = async () => {
+        if (!task) return
         setIsActivatingEnergisa(true)
         const result = await activateTaskEnergisa(task.id)
         if (result?.error) {
@@ -393,6 +337,63 @@ export function TaskDetailsDialog({
         energisaAutoActivationRef.current = task.id
         void handleActivateEnergisa()
     }, [open, task?.id, task?.energisa_activated_at, isActivatingEnergisa])
+
+    if (!task) return null
+
+    const headerMeta = [
+        task.client_name ? `Cliente: ${task.client_name}` : null,
+        task.codigo_instalacao ? `Instalação: ${task.codigo_instalacao}` : null,
+    ].filter(Boolean).join(" • ")
+
+    const renderChecklistItems = (items: TaskChecklistItem[]) => (
+        <div className="space-y-2">
+            {items.map((item) => {
+                const completedByName = item.completed_by_user?.name || item.completed_by_user?.email || ""
+                const completedAtLabel = formatDateTime(item.completed_at)
+                const dueDateLabel = formatDateOnly(item.due_date)
+                return (
+                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
+                        <div className="flex items-start gap-2">
+                            <Checkbox
+                                checked={item.is_done}
+                                onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked)}
+                            />
+                            <div className="space-y-1">
+                                <span className={`text-sm ${item.is_done ? "line-through text-muted-foreground" : ""}`}>
+                                    {item.title}
+                                </span>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    {dueDateLabel && <span>Prazo: {dueDateLabel}</span>}
+                                    {item.is_done && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
+                                    {completedByName && (
+                                        <span className="flex items-center gap-2">
+                                            <span
+                                                className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                                                style={{ backgroundColor: stringToHsl(completedByName) }}
+                                            >
+                                                {getInitials(completedByName)}
+                                            </span>
+                                            <span>{completedByName}</span>
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteChecklist(item.id)}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    </div>
+                )
+            })}
+            {!isLoading && items.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhum checklist cadastrado.</p>
+            )}
+        </div>
+    )
 
     const handleDocAlert = async (alertType: 'DOCS_INCOMPLETE' | 'DOCS_REJECTED') => {
         setActiveDocAlert(alertType)
