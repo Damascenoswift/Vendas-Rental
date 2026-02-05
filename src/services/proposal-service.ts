@@ -237,6 +237,51 @@ export async function createProposal(
         }
     }
 
+    if (clientId) {
+        const { data: existingIndicacao, error: indicacaoFetchError } = await supabaseAdmin
+            .from("indicacoes")
+            .select("id, nome, email, telefone, tipo, documento, unidade_consumidora, codigo_cliente, codigo_instalacao, marca, user_id")
+            .eq("id", clientId)
+            .maybeSingle()
+
+        if (indicacaoFetchError) {
+            console.error("Erro ao buscar indicacao do orçamento:", indicacaoFetchError)
+            return { success: false, error: `Falha ao validar indicação: ${indicacaoFetchError.message}` }
+        }
+
+        if (!existingIndicacao) {
+            return { success: false, error: "Indicação não encontrada para o orçamento." }
+        }
+
+        if (existingIndicacao.marca !== brand) {
+            const { data: clonedIndicacao, error: cloneError } = await supabaseAdmin
+                .from("indicacoes")
+                .insert({
+                    tipo: existingIndicacao.tipo ?? "PF",
+                    nome: existingIndicacao.nome,
+                    email: existingIndicacao.email ?? "",
+                    telefone: existingIndicacao.telefone ?? "",
+                    status: "EM_ANALISE",
+                    user_id: existingIndicacao.user_id ?? user.id,
+                    marca: brand,
+                    documento: existingIndicacao.documento ?? null,
+                    unidade_consumidora: existingIndicacao.unidade_consumidora ?? null,
+                    codigo_cliente: existingIndicacao.codigo_cliente ?? null,
+                    codigo_instalacao: existingIndicacao.codigo_instalacao ?? null,
+                    valor: proposalData.total_value ?? null,
+                })
+                .select("id")
+                .single()
+
+            if (cloneError || !clonedIndicacao) {
+                console.error("Erro ao clonar indicacao para marca correta:", cloneError)
+                return { success: false, error: `Falha ao criar indicação Dorata: ${cloneError?.message ?? "erro desconhecido"}` }
+            }
+
+            clientId = clonedIndicacao.id
+        }
+    }
+
     if (clientId && proposalData.total_value != null) {
         await supabaseAdmin
             .from("indicacoes")
@@ -251,7 +296,6 @@ export async function createProposal(
             .eq("id", clientId)
             .maybeSingle()
 
-        const crmBrand = (indicacaoInfo?.marca as CrmBrand) ?? brand
         const crmTitle = indicacaoInfo?.nome ?? null
 
         const crmResult = await ensureCrmCardForIndication({
@@ -259,7 +303,7 @@ export async function createProposal(
             title: crmTitle,
             assigneeId: proposalData.seller_id ?? user.id,
             createdBy: user.id,
-            brand: crmBrand,
+            brand,
         })
         if (crmResult?.error) {
             console.error("Erro ao criar card CRM:", crmResult.error)
