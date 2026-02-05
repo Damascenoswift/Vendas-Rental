@@ -445,13 +445,21 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
                         mobile: null,
                     }
 
-            await createProposal(proposalData, items, {
+            const result = await createProposal(proposalData, items, {
                 client: {
                     indicacao_id: selectedIndicacaoId,
                     contact: contactPayload,
                 },
                 crm_brand: "dorata",
             })
+            if (!result.success) {
+                showToast({
+                    variant: "error",
+                    title: "Erro",
+                    description: result.error,
+                })
+                return
+            }
 
             showToast({
                 title: "Orçamento criado",

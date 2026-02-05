@@ -84,11 +84,11 @@ export async function createProposal(
     proposalData: ProposalInsert,
     items: ProposalItemInsert[],
     options?: ProposalCreateOptions
-) {
+): Promise<{ success: true } | { success: false; error: string }> {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-        throw new Error("Usuário não autenticado.")
+        return { success: false, error: "Usuário não autenticado." }
     }
     const commissionPercent = await getCommissionPercent(supabase)
     const supabaseAdmin = createSupabaseServiceClient()
@@ -152,7 +152,7 @@ export async function createProposal(
 
                 if (contactError) {
                     console.error("Error creating contact:", contactError)
-                    throw new Error(`Falha ao criar contato: ${contactError.message ?? "erro desconhecido"}`)
+                    return { success: false, error: `Falha ao criar contato: ${contactError.message ?? "erro desconhecido"}` }
                 }
 
                 contactRecord = createdContact
@@ -215,7 +215,7 @@ export async function createProposal(
 
             if (indicacaoError || !indicacao) {
                 console.error("Error creating indicacao for proposal:", indicacaoError)
-                throw new Error(`Falha ao criar indicação: ${indicacaoError?.message ?? "erro desconhecido"}`)
+                return { success: false, error: `Falha ao criar indicação: ${indicacaoError?.message ?? "erro desconhecido"}` }
             }
 
             clientId = indicacao.id
@@ -295,15 +295,15 @@ export async function createProposal(
         console.error("Error creating proposal:", propError)
         const rawMessage = propError?.message ?? "erro desconhecido"
         if (rawMessage.includes('proposals_seller_id_fkey') || rawMessage.includes('public.users')) {
-            throw new Error("Usuário não sincronizado no painel. Vá em Usuários e sincronize com o Auth.")
+            return { success: false, error: "Usuário não sincronizado no painel. Vá em Usuários e sincronize com o Auth." }
         }
         if (rawMessage.includes('calculation') && rawMessage.includes('does not exist')) {
-            throw new Error("Banco desatualizado: falta a coluna calculation. Rode a migração 044_add_proposal_calculation.sql.")
+            return { success: false, error: "Banco desatualizado: falta a coluna calculation. Rode a migração 044_add_proposal_calculation.sql." }
         }
         if (rawMessage.includes('equipment_cost') && rawMessage.includes('does not exist')) {
-            throw new Error("Banco desatualizado: faltam colunas de cálculo. Rode a migração 034_create_pricing_rules.sql.")
+            return { success: false, error: "Banco desatualizado: faltam colunas de cálculo. Rode a migração 034_create_pricing_rules.sql." }
         }
-        throw new Error(`Falha ao criar orçamento: ${rawMessage}`)
+        return { success: false, error: `Falha ao criar orçamento: ${rawMessage}` }
     }
 
     // 2. Create Items
@@ -325,7 +325,7 @@ export async function createProposal(
     }
 
     revalidatePath('/admin/orcamentos')
-    return proposal
+    return { success: true }
 }
 
 // Calculation Logic
