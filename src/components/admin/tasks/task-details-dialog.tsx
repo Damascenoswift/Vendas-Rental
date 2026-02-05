@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
@@ -42,6 +42,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { EnergisaActions } from "@/components/admin/interactions/energisa-actions"
 
 interface TaskDetailsDialogProps {
     task: Task | null
@@ -123,7 +124,6 @@ export function TaskDetailsDialog({
     const [isSavingDetails, setIsSavingDetails] = useState(false)
     const [isActivatingEnergisa, setIsActivatingEnergisa] = useState(false)
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
-    const energisaAutoActivationRef = useRef<string | null>(null)
     const [editDescription, setEditDescription] = useState("")
     const [editDueDate, setEditDueDate] = useState("")
     const [editAssigneeId, setEditAssigneeId] = useState("")
@@ -202,12 +202,6 @@ export function TaskDetailsDialog({
         }
 
         fetchUsers()
-    }, [open])
-
-    useEffect(() => {
-        if (!open) {
-            energisaAutoActivationRef.current = null
-        }
     }, [open])
 
     useEffect(() => {
@@ -328,15 +322,6 @@ export function TaskDetailsDialog({
         }
         setIsActivatingEnergisa(false)
     }
-
-    useEffect(() => {
-        if (!open || !task) return
-        if (task.energisa_activated_at) return
-        if (isActivatingEnergisa) return
-        if (energisaAutoActivationRef.current === task.id) return
-        energisaAutoActivationRef.current = task.id
-        void handleActivateEnergisa()
-    }, [open, task?.id, task?.energisa_activated_at, isActivatingEnergisa])
 
     if (!task) return null
 
@@ -543,8 +528,19 @@ export function TaskDetailsDialog({
                             ) : (
                                 <p className="text-xs text-muted-foreground">
                                     {isActivatingEnergisa
-                                        ? "Ativando automaticamente o processo Energisa."
+                                        ? "Ativando o processo Energisa."
                                         : "Ative o processo para liberar o checklist de Energisa."}
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="grid gap-3">
+                            <h4 className="text-sm font-semibold">Ações Energisa</h4>
+                            {task.indicacao_id ? (
+                                <EnergisaActions indicacaoId={task.indicacao_id} variant="compact" />
+                            ) : (
+                                <p className="text-xs text-muted-foreground">
+                                    Esta tarefa não está vinculada a uma indicação, então não é possível registrar ações da Energisa.
                                 </p>
                             )}
                         </div>

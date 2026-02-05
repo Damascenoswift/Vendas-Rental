@@ -13,6 +13,7 @@ import { Loader2, Plus, History } from "lucide-react"
 
 interface EnergisaActionsProps {
     indicacaoId: string
+    variant?: "default" | "compact"
 }
 
 const ACTION_TYPES = [
@@ -25,13 +26,18 @@ const ACTION_TYPES = [
     { value: 'TRANSFER_SUCCESS', label: 'Titularidade Concluída' }
 ]
 
-export function EnergisaActions({ indicacaoId }: EnergisaActionsProps) {
+export function EnergisaActions({ indicacaoId, variant = "default" }: EnergisaActionsProps) {
     const [logs, setLogs] = useState<EnergisaLog[]>([])
     const [actionType, setActionType] = useState("")
     const [notes, setNotes] = useState("")
     const [loading, setLoading] = useState(false)
     const [refreshing, setRefreshing] = useState(false)
     const { showToast } = useToast()
+    const isCompact = variant === "compact"
+    const rootClassName = isCompact ? "space-y-4" : "space-y-6 h-full flex flex-col"
+    const historyClassName = isCompact
+        ? "border rounded-md max-h-64 overflow-auto"
+        : "flex-1 overflow-auto border rounded-md"
 
     const fetchLogs = async () => {
         setRefreshing(true)
@@ -61,7 +67,7 @@ export function EnergisaActions({ indicacaoId }: EnergisaActionsProps) {
     }
 
     return (
-        <div className="space-y-6 h-full flex flex-col">
+        <div className={rootClassName}>
             {/* Input Form */}
             <Card className="bg-slate-50 border-slate-200">
                 <CardHeader className="pb-3">
@@ -99,7 +105,7 @@ export function EnergisaActions({ indicacaoId }: EnergisaActionsProps) {
             </Card>
 
             {/* History List */}
-            <div className="flex-1 overflow-auto border rounded-md">
+            <div className={historyClassName}>
                 <div className="p-3 bg-muted/50 border-b flex justify-between items-center sticky top-0">
                     <h3 className="text-sm font-semibold flex items-center gap-2">
                         <History className="h-4 w-4" /> Histórico Energisa
