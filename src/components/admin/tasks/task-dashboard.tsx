@@ -1,9 +1,9 @@
 "use client"
 
 import { useMemo } from "react"
-import { Task } from "@/services/task-service"
+import { Department, Task } from "@/services/task-service"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle, Clock, CheckCircle2, CircleDashed } from "lucide-react"
+import { AlertCircle, Clock, CheckCircle2, CircleDashed, Building2 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 interface TaskDashboardProps {
@@ -12,6 +12,28 @@ interface TaskDashboardProps {
 
 const PRODUCTIVITY_TIMEZONE = "America/Cuiaba"
 
+const DEPARTMENT_ORDER: Department[] = [
+    "vendas",
+    "cadastro",
+    "energia",
+    "juridico",
+    "financeiro",
+    "ti",
+    "diretoria",
+    "outro",
+]
+
+const DEPARTMENT_LABELS: Record<Department, string> = {
+    vendas: "Vendas",
+    cadastro: "Cadastro",
+    energia: "Energia",
+    juridico: "Jurídico",
+    financeiro: "Financeiro",
+    ti: "TI",
+    diretoria: "Diretoria",
+    outro: "Outro",
+}
+
 type EmployeeProductivity = {
     key: string
     name: string
@@ -19,6 +41,13 @@ type EmployeeProductivity = {
     inProgress: number
     delayed: number
     doneToday: number
+}
+
+type DepartmentSummaryItem = {
+    key: Department | "__unassigned__"
+    label: string
+    count: number
+    isUnassigned?: boolean
 }
 
 function getDateKeyInTimeZone(value: Date, timeZone: string) {
@@ -55,7 +84,22 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
         }).length
 
         const perEmployeeMap = new Map<string, EmployeeProductivity>()
+        const departmentCounts = DEPARTMENT_ORDER.reduce((acc, department) => {
+            acc[department] = 0
+            return acc
+        }, {} as Record<Department, number>)
+        let unassignedDepartmentCount = 0
+
         for (const task of tasks) {
+            if (task.status !== "DONE") {
+                const department = task.department
+                if (department && departmentCounts[department] !== undefined) {
+                    departmentCounts[department] += 1
+                } else {
+                    unassignedDepartmentCount += 1
+                }
+            }
+
             const key = task.assignee_id ?? "__unassigned__"
             const name = task.assignee?.name ?? "Sem responsável"
 
@@ -95,7 +139,22 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                 return b.doneToday - a.doneToday
             })
 
-        return { urgent, todo, inProgress, delayed, productivity }
+        const departments: DepartmentSummaryItem[] = DEPARTMENT_ORDER.map((department) => ({
+            key: department,
+            label: DEPARTMENT_LABELS[department],
+            count: departmentCounts[department] ?? 0,
+        }))
+
+        if (unassignedDepartmentCount > 0) {
+            departments.push({
+                key: "__unassigned__",
+                label: "Sem setor",
+                count: unassignedDepartmentCount,
+                isUnassigned: true,
+            })
+        }
+
+        return { urgent, todo, inProgress, delayed, productivity, departments }
     }, [tasks])
 
     return (
@@ -152,6 +211,29 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                         </p>
                     </CardContent>
                 </Card>
+            </div>
+
+            <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-gray-700">Tarefas por setor</h2>
+                    <span className="text-xs text-muted-foreground">Pendentes (exceto concluídas)</span>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    {metrics.departments.map((department) => (
+                        <Card key={department.key}>
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-sm font-medium">{department.label}</CardTitle>
+                                <Building2 className="h-4 w-4 text-muted-foreground" />
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{department.count}</div>
+                                <p className="text-xs text-muted-foreground">
+                                    {department.isUnassigned ? "Tarefas sem setor definido" : "Tarefas pendentes do setor"}
+                                </p>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
             </div>
 
             <Card>
