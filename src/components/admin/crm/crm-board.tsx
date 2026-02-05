@@ -17,7 +17,7 @@ import {
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { CrmColumn } from "./crm-column"
 import { CrmCard, type CrmCardData } from "./crm-card"
-import { updateCrmCardStage } from "@/app/actions/crm"
+import { deleteCrmCard, updateCrmCardStage } from "@/app/actions/crm"
 import { useToast } from "@/hooks/use-toast"
 import { IndicationDetailsDialog } from "@/components/admin/indication-details-dialog"
 
@@ -31,9 +31,10 @@ type Stage = {
 type Props = {
     stages: Stage[]
     cards: CrmCardData[]
+    brand: "dorata" | "rental"
 }
 
-export function CrmBoard({ stages, cards }: Props) {
+export function CrmBoard({ stages, cards, brand }: Props) {
     const [items, setItems] = useState<CrmCardData[]>(cards)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [activeOriginalStageId, setActiveOriginalStageId] = useState<string | null>(null)
@@ -76,6 +77,32 @@ export function CrmBoard({ stages, cards }: Props) {
             }
         },
         [showToast]
+    )
+
+    const handleDeleteCard = useCallback(
+        async (card: CrmCardData) => {
+            if (brand !== "dorata") return
+            const confirmed = window.confirm("Deseja excluir este card do CRM Dorata?")
+            if (!confirmed) return
+
+            const previousItems = items
+            setItems((prev) => prev.filter((item) => item.id !== card.id))
+            if (selectedCardId === card.id) {
+                setSelectedCardId(null)
+                setIsDetailsOpen(false)
+            }
+
+            const result = await deleteCrmCard(card.id, brand)
+            if (result?.error) {
+                setItems(previousItems)
+                showToast({
+                    variant: "error",
+                    title: "Erro ao excluir card",
+                    description: result.error,
+                })
+            }
+        },
+        [brand, items, selectedCardId, showToast]
     )
 
     function handleDragStart(event: DragStartEvent) {
@@ -199,6 +226,7 @@ export function CrmBoard({ stages, cards }: Props) {
                             if (!card) return
                             await persistCardStageChange(cardId, card.stage_id, stageId)
                         }}
+                        onCardDelete={brand === "dorata" ? handleDeleteCard : undefined}
                     />
                 ))}
             </div>

@@ -3,7 +3,7 @@
 import { type MouseEvent, useState } from "react"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { FileText, Loader2 } from "lucide-react"
+import { FileText, Loader2, Trash2 } from "lucide-react"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -46,15 +46,18 @@ export function CrmCard({
     onClick,
     stageOptions,
     onStageChange,
+    onDelete,
 }: {
     item: CrmCardData
     isOverlay?: boolean
     onClick?: (item: CrmCardData) => void
     stageOptions?: Array<{ id: string; name: string }>
     onStageChange?: (stageId: string) => void | Promise<void>
+    onDelete?: (item: CrmCardData) => void | Promise<void>
 }) {
     const { showToast } = useToast()
     const [isGeneratingContract, setIsGeneratingContract] = useState(false)
+    const [isDeleting, setIsDeleting] = useState(false)
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: item.id,
     })
@@ -109,6 +112,18 @@ export function CrmCard({
         }
     }
 
+    const handleDeleteCard = async (event: MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault()
+        event.stopPropagation()
+        if (!onDelete || isDeleting) return
+        setIsDeleting(true)
+        try {
+            await onDelete(item)
+        } finally {
+            setIsDeleting(false)
+        }
+    }
+
     if (isOverlay) {
         return (
             <Card className="w-full cursor-grabbing shadow-lg border-primary/50 bg-background rotate-2">
@@ -146,21 +161,38 @@ export function CrmCard({
                     <Badge variant={brand === "RENTAL" ? "default" : "secondary"} className="mb-2 text-[10px] px-1 h-5">
                         {brand}
                     </Badge>
-                    {isRental ? (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            onClick={handleGenerateContract}
-                            onPointerDown={(event) => {
-                                event.preventDefault()
-                                event.stopPropagation()
-                            }}
-                            title="Gerar contrato"
-                        >
-                            {isGeneratingContract ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
-                        </Button>
-                    ) : null}
+                    <div className="flex items-center gap-1">
+                        {isRental ? (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                onClick={handleGenerateContract}
+                                onPointerDown={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                }}
+                                title="Gerar contrato"
+                            >
+                                {isGeneratingContract ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                            </Button>
+                        ) : null}
+                        {onDelete ? (
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={handleDeleteCard}
+                                onPointerDown={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                }}
+                                title="Excluir card"
+                            >
+                                {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </Button>
+                        ) : null}
+                    </div>
                 </div>
                 <div className="font-semibold text-sm line-clamp-2">{displayName}</div>
             </CardHeader>

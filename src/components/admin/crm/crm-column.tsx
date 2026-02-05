@@ -13,9 +13,10 @@ type Props = {
     stageOptions?: Array<{ id: string; name: string }>
     onCardClick?: (item: CrmCardData) => void
     onCardStageChange?: (cardId: string, stageId: string) => void | Promise<void>
+    onCardDelete?: (item: CrmCardData) => void | Promise<void>
 }
 
-export function CrmColumn({ id, title, isClosed, items, stageOptions, onCardClick, onCardStageChange }: Props) {
+export function CrmColumn({ id, title, isClosed, items, stageOptions, onCardClick, onCardStageChange, onCardDelete }: Props) {
     const { setNodeRef } = useDroppable({ id })
 
     return (
@@ -43,6 +44,7 @@ export function CrmColumn({ id, title, isClosed, items, stageOptions, onCardClic
                             onClick={onCardClick}
                             stageOptions={stageOptions}
                             onStageChange={(stageId) => onCardStageChange?.(item.id, stageId)}
+                            onDelete={onCardDelete ? () => onCardDelete(item) : undefined}
                         />
                     ))}
                 </SortableContext>

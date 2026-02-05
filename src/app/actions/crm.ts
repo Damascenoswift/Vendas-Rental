@@ -68,6 +68,52 @@ export async function updateCrmCardStage(cardId: string, newStageId: string) {
     return { success: true }
 }
 
+export async function deleteCrmCard(cardId: string, brand: "dorata" | "rental") {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Não autorizado" }
+    }
+
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+
+    if (!role || !crmAllowedRoles.includes(role)) {
+        return { error: "Sem permissão para excluir cards no CRM." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: card, error: fetchError } = await supabaseAdmin
+        .from("crm_cards")
+        .select("id, pipeline:crm_pipelines(brand)")
+        .eq("id", cardId)
+        .maybeSingle()
+
+    if (fetchError || !card) {
+        return { error: fetchError?.message ?? "Card não encontrado" }
+    }
+
+    const pipelineBrand = (card as any)?.pipeline?.brand ?? null
+    if (pipelineBrand && pipelineBrand !== brand) {
+        return { error: "Card não pertence a este CRM." }
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+        .from("crm_cards")
+        .delete()
+        .eq("id", cardId)
+
+    if (deleteError) {
+        return { error: deleteError.message }
+    }
+
+    const crmPath = brand === "rental" ? "/admin/crm/rental" : "/admin/crm"
+    revalidatePath(crmPath)
+    return { success: true }
+}
+
 const crmAllowedRoles = [
     "adm_mestre",
     "adm_dorata",

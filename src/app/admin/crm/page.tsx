@@ -154,7 +154,7 @@ export default async function AdminCrmPage() {
                 <CrmToolbar brand="dorata" />
             </div>
 
-            <CrmBoard stages={stages ?? []} cards={cards} />
+            <CrmBoard stages={stages ?? []} cards={cards} brand="dorata" />
         </div>
     )
 }

@@ -154,7 +154,7 @@ export default async function AdminCrmRentalPage() {
                 <CrmToolbar brand="rental" />
             </div>
 
-            <CrmBoard stages={stages ?? []} cards={cards} />
+            <CrmBoard stages={stages ?? []} cards={cards} brand="rental" />
         </div>
     )
 }
