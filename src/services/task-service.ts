@@ -455,12 +455,13 @@ export async function createTask(data: {
 
     if (!user) return { error: "Unauthorized" }
 
+    const { observer_ids: observerIdsRaw, ...taskData } = data
     const nowIso = new Date().toISOString()
     const payload: Record<string, any> = {
-        ...data,
+        ...taskData,
         creator_id: user.id,
-        completed_at: data.status === 'DONE' ? nowIso : null,
-        completed_by: data.status === 'DONE' ? user.id : null,
+        completed_at: taskData.status === 'DONE' ? nowIso : null,
+        completed_by: taskData.status === 'DONE' ? user.id : null,
     }
 
     let { data: inserted, error } = await supabase
@@ -487,7 +488,7 @@ export async function createTask(data: {
         return { error: error.message }
     }
 
-    const observerIds = Array.from(new Set((data.observer_ids ?? []).filter(Boolean)))
+    const observerIds = Array.from(new Set((observerIdsRaw ?? []).filter(Boolean)))
     if (observerIds.length > 0 && inserted?.id) {
         const { error: observersError } = await supabase
             .from('task_observers')
