@@ -212,6 +212,29 @@ export interface TaskObserver {
     } | null
 }
 
+export interface TaskComment {
+    id: string
+    task_id: string
+    user_id: string | null
+    parent_id: string | null
+    content: string
+    created_at: string
+    user?: {
+        id?: string
+        name: string | null
+        email: string | null
+    } | null
+    parent?: {
+        id: string
+        content: string | null
+        user?: {
+            id?: string
+            name: string | null
+            email: string | null
+        } | null
+    } | null
+}
+
 export interface TaskUserOption {
     id: string
     name: string
@@ -455,10 +478,12 @@ export async function createTask(data: {
 
     if (!user) return { error: "Unauthorized" }
 
-    const { observer_ids: observerIdsRaw, ...taskData } = data
+    const { observer_ids: observerIdsRaw, description: descriptionRaw, ...taskData } = data
+    const description = descriptionRaw?.trim()
     const nowIso = new Date().toISOString()
     const payload: Record<string, any> = {
         ...taskData,
+        description: description || null,
         creator_id: user.id,
         completed_at: taskData.status === 'DONE' ? nowIso : null,
         completed_by: taskData.status === 'DONE' ? user.id : null,
@@ -500,6 +525,21 @@ export async function createTask(data: {
         if (observersError) {
             console.error("Error creating task observers:", observersError)
             return { error: observersError.message }
+        }
+    }
+
+    if (description && inserted?.id) {
+        const { error: commentError } = await supabase
+            .from('task_comments')
+            .insert({
+                task_id: inserted.id,
+                user_id: user.id,
+                content: description,
+            })
+
+        if (commentError) {
+            console.error("Error creating task comment:", commentError)
+            return { error: commentError.message }
         }
     }
 
@@ -1224,6 +1264,60 @@ export async function deleteTaskChecklistItem(itemId: string) {
         .from('task_checklists')
         .delete()
         .eq('id', itemId)
+
+    if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function getTaskComments(taskId: string) {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+        .from('task_comments')
+        .select(`
+            id,
+            task_id,
+            user_id,
+            parent_id,
+            content,
+            created_at,
+            user:users(id, name, email),
+            parent:task_comments!task_comments_parent_id_fkey(
+                id,
+                content,
+                user:users(id, name, email)
+            )
+        `)
+        .eq('task_id', taskId)
+        .order('created_at', { ascending: true })
+
+    if (error) {
+        console.error("Error fetching task comments:", error)
+        return []
+    }
+
+    return data as TaskComment[]
+}
+
+export async function addTaskComment(taskId: string, content: string, parentId?: string | null) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) return { error: "Unauthorized" }
+
+    const cleaned = content.trim()
+    if (!cleaned) return { error: "Comentário vazio" }
+
+    const { error } = await supabase
+        .from('task_comments')
+        .insert({
+            task_id: taskId,
+            user_id: user.id,
+            parent_id: parentId ?? null,
+            content: cleaned,
+        })
 
     if (error) return { error: error.message }
 

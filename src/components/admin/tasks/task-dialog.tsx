@@ -382,9 +382,9 @@ export function TaskDialog() {
                             name="description"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Descrição</FormLabel>
+                                    <FormLabel>Comentário inicial</FormLabel>
                                     <FormControl>
-                                        <Textarea placeholder="Detalhes da tarefa..." className="resize-none" {...field} />
+                                        <Textarea placeholder="Adicione um comentário inicial..." className="resize-none" {...field} />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>

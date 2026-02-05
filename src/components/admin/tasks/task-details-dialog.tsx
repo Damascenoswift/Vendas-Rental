@@ -5,14 +5,16 @@ import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
 
-import type { Task, TaskChecklistItem, TaskObserver } from "@/services/task-service"
+import type { Task, TaskChecklistItem, TaskComment, TaskObserver } from "@/services/task-service"
 import {
     addTaskChecklistItem,
+    addTaskComment,
     addTaskObserver,
     activateTaskEnergisa,
     deleteTask,
     deleteTaskChecklistItem,
     getTaskChecklists,
+    getTaskComments,
     getTaskAssignableUsers,
     getTaskObservers,
     removeTaskObserver,
@@ -34,7 +36,10 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
+import { useAuthSession } from "@/hooks/use-auth-session"
 import {
     Select,
     SelectContent,
@@ -58,6 +63,10 @@ type UserOption = {
     name: string
     email: string | null
     department: string | null
+}
+
+type TaskCommentDisplay = TaskComment & {
+    isLegacy?: boolean
 }
 
 const formatDateTime = (value?: string | null) => {
@@ -115,19 +124,23 @@ export function TaskDetailsDialog({
 }: TaskDetailsDialogProps) {
     const [checklists, setChecklists] = useState<TaskChecklistItem[]>([])
     const [observers, setObservers] = useState<TaskObserver[]>([])
+    const [comments, setComments] = useState<TaskComment[]>([])
     const [users, setUsers] = useState<UserOption[]>([])
     const [newChecklistTitle, setNewChecklistTitle] = useState("")
     const [newObserverId, setNewObserverId] = useState<string>("")
+    const [newComment, setNewComment] = useState("")
+    const [replyTo, setReplyTo] = useState<TaskComment | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     const [isSavingChecklist, setIsSavingChecklist] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
     const [isSavingDetails, setIsSavingDetails] = useState(false)
+    const [isSendingComment, setIsSendingComment] = useState(false)
     const [isActivatingEnergisa, setIsActivatingEnergisa] = useState(false)
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
-    const [editDescription, setEditDescription] = useState("")
     const [editDueDate, setEditDueDate] = useState("")
     const [editAssigneeId, setEditAssigneeId] = useState("")
     const { showToast } = useToast()
+    const { session } = useAuthSession()
 
     const checklistSummary = useMemo(() => {
         const total = checklists.length
@@ -159,12 +172,36 @@ export function TaskDetailsDialog({
         return formatDateTime(task?.energisa_activated_at) || (task?.energisa_activated_at ?? "")
     }, [task?.energisa_activated_at])
 
+    const commentsToShow = useMemo<TaskCommentDisplay[]>(() => {
+        if (!task) return []
+        if (comments.length > 0) return comments
+        const legacyContent = task.description?.trim()
+        if (!legacyContent) return []
+        return [
+            {
+                id: `legacy-${task.id}`,
+                task_id: task.id,
+                user_id: task.creator_id ?? null,
+                parent_id: null,
+                content: legacyContent,
+                created_at: task.created_at,
+                user: task.creator ? { name: task.creator.name, email: null } : null,
+                parent: null,
+                isLegacy: true,
+            },
+        ]
+    }, [comments, task])
+
+    const currentUserId = session?.user.id ?? null
+
     useEffect(() => {
         if (!open || !task) return
 
         setChecklists([])
         setObservers([])
-        setEditDescription(task.description ?? "")
+        setComments([])
+        setNewComment("")
+        setReplyTo(null)
         setEditAssigneeId(task.assignee_id ?? "")
         if (task.due_date) {
             const parsed = new Date(task.due_date)
@@ -175,12 +212,14 @@ export function TaskDetailsDialog({
 
         const load = async () => {
             setIsLoading(true)
-            const [checklistData, observerData] = await Promise.all([
+            const [checklistData, observerData, commentData] = await Promise.all([
                 getTaskChecklists(task.id),
                 getTaskObservers(task.id),
+                getTaskComments(task.id),
             ])
             setChecklists(checklistData)
             setObservers(observerData)
+            setComments(commentData)
             setIsLoading(false)
         }
 
@@ -277,6 +316,22 @@ export function TaskDetailsDialog({
         onOpenChange(false)
     }
 
+    const handleSendComment = async () => {
+        if (!task) return
+        if (!newComment.trim()) return
+        setIsSendingComment(true)
+        const result = await addTaskComment(task.id, newComment, replyTo?.id)
+        if (result?.error) {
+            showToast({ title: "Erro ao enviar comentário", description: result.error, variant: "error" })
+        } else {
+            setNewComment("")
+            setReplyTo(null)
+            const updated = await getTaskComments(task.id)
+            setComments(updated)
+        }
+        setIsSendingComment(false)
+    }
+
     const handleSaveDetails = async () => {
         setIsSavingDetails(true)
         let dueDateIso: string | null = null
@@ -287,7 +342,6 @@ export function TaskDetailsDialog({
             }
         }
         const updates: Partial<Task> = {
-            description: editDescription.trim() ? editDescription.trim() : null,
             due_date: dueDateIso,
             assignee_id: editAssigneeId || null,
         }
@@ -422,15 +476,117 @@ export function TaskDetailsDialog({
 
                     <div className="rounded-md border bg-muted/30 p-3 space-y-3">
                         <h4 className="text-sm font-semibold">Descrição e prazo</h4>
-                        <div className="grid gap-3">
-                            <div className="grid gap-1">
-                                <label className="text-xs text-muted-foreground">Descrição</label>
-                                <textarea
-                                    className="min-h-[80px] w-full rounded-md border bg-background px-3 py-2 text-sm"
-                                    value={editDescription}
-                                    onChange={(event) => setEditDescription(event.target.value)}
+                        <div className="grid gap-4">
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Comentário</label>
+                                {replyTo && (
+                                    <div className="flex items-start justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                                        <div className="space-y-1">
+                                            <span className="text-foreground font-medium">
+                                                Respondendo a {replyTo.user?.name || replyTo.user?.email || "Usuário"}
+                                            </span>
+                                            <p className="line-clamp-2">{replyTo.content}</p>
+                                        </div>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setReplyTo(null)}
+                                        >
+                                            Cancelar
+                                        </Button>
+                                    </div>
+                                )}
+                                <Textarea
+                                    value={newComment}
+                                    onChange={(event) => setNewComment(event.target.value)}
+                                    placeholder="Escreva um comentário..."
+                                    className="min-h-[80px] resize-none"
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter" && !event.shiftKey) {
+                                            event.preventDefault()
+                                            handleSendComment()
+                                        }
+                                    }}
                                 />
+                                <div className="flex justify-end">
+                                    <Button onClick={handleSendComment} disabled={isSendingComment || !newComment.trim()}>
+                                        {isSendingComment ? "Enviando..." : "Enviar comentário"}
+                                    </Button>
+                                </div>
                             </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Histórico</label>
+                                <ScrollArea className="max-h-[240px] rounded-md border bg-background p-3">
+                                    <div className="space-y-3">
+                                        {commentsToShow.map((comment) => {
+                                            const authorName = comment.user?.name || comment.user?.email || "Usuário"
+                                            const isMe = Boolean(comment.user_id && comment.user_id === currentUserId)
+                                            const timestamp = formatDateTime(comment.created_at)
+                                            const parentAuthor = comment.parent?.user?.name || comment.parent?.user?.email || "Usuário"
+                                            return (
+                                                <div key={comment.id} className="rounded-md border bg-muted/30 p-3">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span
+                                                                className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                                                                style={{ backgroundColor: stringToHsl(authorName) }}
+                                                            >
+                                                                {getInitials(authorName)}
+                                                            </span>
+                                                            <div className="flex flex-col">
+                                                                <span className="text-xs font-medium">
+                                                                    {isMe ? "Você" : authorName}
+                                                                </span>
+                                                                {timestamp && (
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        {timestamp}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {comment.isLegacy && (
+                                                                <span className="text-[10px] uppercase text-muted-foreground">
+                                                                    Descrição inicial
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {!comment.isLegacy && (
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => setReplyTo(comment)}
+                                                            >
+                                                                Responder
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                    {comment.parent && (
+                                                        <div className="mt-2 rounded-md border-l-2 border-muted-foreground/30 bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                                                            <span className="font-medium text-foreground">
+                                                                Em resposta a {parentAuthor}
+                                                            </span>
+                                                            {comment.parent.content && (
+                                                                <p className="line-clamp-2">{comment.parent.content}</p>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                                                        {comment.content}
+                                                    </p>
+                                                </div>
+                                            )
+                                        })}
+                                        {!isLoading && commentsToShow.length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Nenhum comentário registrado.
+                                            </p>
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </div>
+
                             <div className="grid gap-1">
                                 <label className="text-xs text-muted-foreground">Prazo</label>
                                 <input
