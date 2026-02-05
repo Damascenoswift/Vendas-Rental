@@ -32,10 +32,42 @@ export async function getProposalsForIndication(indicacaoId: string) {
   }
 
   const supabaseAdmin = createSupabaseServiceClient()
+  const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+    .from("indicacoes")
+    .select("id, email, telefone, documento, marca")
+    .eq("id", indicacaoId)
+    .maybeSingle()
+
+  if (indicacaoError) {
+    return { error: indicacaoError.message }
+  }
+
+  const candidateIds = new Set<string>([indicacaoId])
+  const brand = indicacao?.marca === "rental" ? "rental" : "dorata"
+
+  if (indicacao) {
+    const matchClauses: string[] = []
+    if (indicacao.email) matchClauses.push(`email.eq.${indicacao.email}`)
+    if (indicacao.telefone) matchClauses.push(`telefone.eq.${indicacao.telefone}`)
+    if (indicacao.documento) matchClauses.push(`documento.eq.${indicacao.documento}`)
+
+    if (matchClauses.length > 0) {
+      const { data: matches } = await supabaseAdmin
+        .from("indicacoes")
+        .select("id")
+        .eq("marca", brand)
+        .or(matchClauses.join(","))
+
+      ;(matches ?? []).forEach((row) => {
+        if (row?.id) candidateIds.add(row.id)
+      })
+    }
+  }
+
   const { data, error } = await supabaseAdmin
     .from("proposals")
     .select("id, created_at, status, total_value, total_power, calculation, seller:users(name, email)")
-    .eq("client_id", indicacaoId)
+    .in("client_id", Array.from(candidateIds))
     .order("created_at", { ascending: false })
 
   if (error) {
