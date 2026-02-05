@@ -270,6 +270,16 @@ export function IndicationDetailsDialog({
         return key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())
     }
 
+    const formatValue = (key: string, value: unknown) => {
+        if (typeof value === "number") {
+            if (key.toLowerCase().includes("valor") || key.toLowerCase().includes("preco") || key.toLowerCase().includes("price")) {
+                return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
+            }
+            return new Intl.NumberFormat("pt-BR").format(value)
+        }
+        return String(value)
+    }
+
     const [isCopied, setIsCopied] = useState(false)
 
     const handleCopy = () => {
@@ -342,7 +352,7 @@ export function IndicationDetailsDialog({
                                                         {formatLabel(key)}
                                                     </span>
                                                     <p className="text-sm font-medium break-words">
-                                                        {String(value)}
+                                                        {formatValue(key, value)}
                                                     </p>
                                                 </div>
                                             )
