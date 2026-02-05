@@ -461,10 +461,11 @@ export function ProposalCalculator({ products, pricingRules = [] }: ProposalCalc
             router.push("/admin/orcamentos")
         } catch (error) {
             console.error(error)
+            const message = error instanceof Error ? error.message : "Falha ao salvar o orçamento."
             showToast({
                 variant: "error",
                 title: "Erro",
-                description: "Falha ao salvar o orçamento.",
+                description: message,
             })
         } finally {
             setLoading(false)

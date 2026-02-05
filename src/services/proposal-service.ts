@@ -88,7 +88,7 @@ export async function createProposal(
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-        throw new Error("Unauthorized")
+        throw new Error("Usuário não autenticado.")
     }
     const commissionPercent = await getCommissionPercent(supabase)
     const supabaseAdmin = createSupabaseServiceClient()
@@ -152,7 +152,7 @@ export async function createProposal(
 
                 if (contactError) {
                     console.error("Error creating contact:", contactError)
-                    throw new Error("Failed to create contact")
+                    throw new Error(`Falha ao criar contato: ${contactError.message ?? "erro desconhecido"}`)
                 }
 
                 contactRecord = createdContact
@@ -215,7 +215,7 @@ export async function createProposal(
 
             if (indicacaoError || !indicacao) {
                 console.error("Error creating indicacao for proposal:", indicacaoError)
-                throw new Error("Failed to create lead")
+                throw new Error(`Falha ao criar indicação: ${indicacaoError?.message ?? "erro desconhecido"}`)
             }
 
             clientId = indicacao.id
@@ -293,7 +293,17 @@ export async function createProposal(
 
     if (propError || !proposal) {
         console.error("Error creating proposal:", propError)
-        throw new Error("Failed to create proposal")
+        const rawMessage = propError?.message ?? "erro desconhecido"
+        if (rawMessage.includes('proposals_seller_id_fkey') || rawMessage.includes('public.users')) {
+            throw new Error("Usuário não sincronizado no painel. Vá em Usuários e sincronize com o Auth.")
+        }
+        if (rawMessage.includes('calculation') && rawMessage.includes('does not exist')) {
+            throw new Error("Banco desatualizado: falta a coluna calculation. Rode a migração 044_add_proposal_calculation.sql.")
+        }
+        if (rawMessage.includes('equipment_cost') && rawMessage.includes('does not exist')) {
+            throw new Error("Banco desatualizado: faltam colunas de cálculo. Rode a migração 034_create_pricing_rules.sql.")
+        }
+        throw new Error(`Falha ao criar orçamento: ${rawMessage}`)
     }
 
     // 2. Create Items
@@ -302,14 +312,16 @@ export async function createProposal(
         proposal_id: proposal.id
     }))
 
-    const { error: itemsError } = await supabase
-        .from('proposal_items')
-        .insert(itemsWithId)
+    if (itemsWithId.length > 0) {
+        const { error: itemsError } = await supabase
+            .from('proposal_items')
+            .insert(itemsWithId)
 
-    if (itemsError) {
-        console.error("Error creating items:", itemsError)
-        // Ideally we would rollback here, but Supabase HTTP client doesn't support transactions easily without RPC.
-        // For MVP, we proceed.
+        if (itemsError) {
+            console.error("Error creating items:", itemsError)
+            // Ideally we would rollback here, but Supabase HTTP client doesn't support transactions easily without RPC.
+            // For MVP, we proceed.
+        }
     }
 
     revalidatePath('/admin/orcamentos')
