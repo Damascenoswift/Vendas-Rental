@@ -115,6 +115,107 @@ export interface Database {
           }
         ]
       }
+      indicacao_templates: {
+        Row: {
+          id: string
+          name: string
+          user_id: string
+          vendedor_id: string
+          marca: Database['public']['Enums']['brand_enum']
+          tipo: string
+          base_payload: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          user_id: string
+          vendedor_id: string
+          marca?: Database['public']['Enums']['brand_enum']
+          tipo?: string
+          base_payload?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          user_id?: string
+          vendedor_id?: string
+          marca?: Database['public']['Enums']['brand_enum']
+          tipo?: string
+          base_payload?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "indicacao_templates_user_id_fkey"
+            columns: ["user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indicacao_templates_vendedor_id_fkey"
+            columns: ["vendedor_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      indicacao_template_items: {
+        Row: {
+          id: string
+          template_id: string
+          codigo_cliente: string | null
+          codigo_instalacao: string
+          unidade_consumidora: string | null
+          status: string
+          indicacao_id: string | null
+          error_message: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          template_id: string
+          codigo_cliente?: string | null
+          codigo_instalacao: string
+          unidade_consumidora?: string | null
+          status?: string
+          indicacao_id?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          template_id?: string
+          codigo_cliente?: string | null
+          codigo_instalacao?: string
+          unidade_consumidora?: string | null
+          status?: string
+          indicacao_id?: string | null
+          error_message?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "indicacao_template_items_template_id_fkey"
+            columns: ["template_id"]
+            referencedRelation: "indicacao_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "indicacao_template_items_indicacao_id_fkey"
+            columns: ["indicacao_id"]
+            referencedRelation: "indicacoes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       orcamentos: {
         Row: {
           id: string
