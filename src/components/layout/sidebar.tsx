@@ -48,6 +48,10 @@ export function Sidebar({ className }: SidebarProps) {
     if (!profile) return null
 
     const role = profile.role
+    const department = profile.department ?? null
+    const canAccessIndicacoes =
+        ['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) ||
+        department === 'financeiro'
 
     return (
         <div className={cn("pb-12 min-h-screen w-64 border-r bg-sidebar hidden lg:block", className)}>
@@ -65,7 +69,7 @@ export function Sidebar({ className }: SidebarProps) {
                     <div className="space-y-1">
                         <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
 
-                        {['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) && (
+                        {canAccessIndicacoes && (
                             <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
                         )}
 

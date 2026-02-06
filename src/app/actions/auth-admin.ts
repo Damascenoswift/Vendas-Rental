@@ -151,6 +151,8 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
             nome: name,
             telefone: phone,
             role: role,
+            department: department || 'outro',
+            brands,
         }
     })
 
@@ -482,7 +484,8 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
             nome: name,
             role,
             telefone: phone,
-            brands
+            brands,
+            department: department || 'outro',
         }
     }
 

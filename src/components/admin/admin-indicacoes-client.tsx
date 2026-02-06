@@ -21,11 +21,12 @@ import { Button } from "@/components/ui/button"
 import { Trash2, FileText, Loader2 } from "lucide-react"
 import { generateContractFromIndication } from "@/app/actions/contracts-generation"
 
-import type { UserRole } from "@/lib/auth"
+import type { UserProfile, UserRole } from "@/lib/auth"
 
 interface AdminIndicacoesClientProps {
     initialIndicacoes: any[]
     role?: UserRole
+    department?: UserProfile['department'] | null
 }
 
 import { IndicationsKanban } from "@/components/admin/indications-kanban"
@@ -33,7 +34,7 @@ import { LayoutGrid, List } from "lucide-react"
 
 // ... imports remain the same
 
-export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicacoesClientProps) {
+export function AdminIndicacoesClient({ initialIndicacoes, role, department }: AdminIndicacoesClientProps) {
     const [indicacoes, setIndicacoes] = useState(initialIndicacoes)
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
@@ -76,6 +77,12 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
         setSelectedVendor("all")
         setSortOrder("newest")
     }
+
+    const canDelete =
+        role === 'adm_mestre' ||
+        role === 'adm_dorata' ||
+        role === 'funcionario_n1' ||
+        department === 'financeiro'
 
     return (
         <div className="space-y-6">
@@ -203,7 +210,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                                                 {(role === 'adm_mestre' || role === 'adm_dorata' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
                                                     <GenerateContractButton indicationId={ind.id} />
                                                 )}
-                                                {(role === 'adm_mestre' || role === 'adm_dorata') && (
+                                                {canDelete && (
                                                     <DeleteIndicationButton id={ind.id} />
                                                 )}
                                             </div>

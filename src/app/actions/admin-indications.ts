@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
-import { getProfile, hasFullAccess } from "@/lib/auth"
+import { getProfile, hasFullAccess, type UserProfile } from "@/lib/auth"
 import { ensureCrmCardForIndication } from "@/services/crm-card-service"
 
 const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2'] as const
@@ -172,8 +172,14 @@ export async function deleteIndication(id: string) {
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
+    const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
-    if (!hasFullAccess(role)) {
+    const canDelete =
+        hasFullAccess(role ?? null, department) ||
+        role === 'funcionario_n1' ||
+        department === 'financeiro'
+
+    if (!canDelete) {
         return { error: "Acesso negado" }
     }
 

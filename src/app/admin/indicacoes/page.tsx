@@ -21,9 +21,13 @@ export default async function AdminIndicacoesPage() {
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
+    const department = profile?.department ?? null
 
     const allowedRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2']
-    if (!role || !allowedRoles.includes(role)) {
+    const canAccessByRole = role ? allowedRoles.includes(role) : false
+    const canAccessByDepartment = department === 'financeiro'
+
+    if (!canAccessByRole && !canAccessByDepartment) {
         return (
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">
@@ -71,15 +75,22 @@ export default async function AdminIndicacoesPage() {
                         Visualize e atualize o status de todas as indicações.
                     </p>
                 </div>
-                <Button asChild>
-                    <Link href="/admin/indicacoes/novo">
-                        <Plus className="mr-2 h-4 w-4" />
-                        Nova Indicação
-                    </Link>
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button asChild variant="secondary">
+                        <Link href="/admin/indicacoes/templates">
+                            Cadastro em massa
+                        </Link>
+                    </Button>
+                    <Button asChild>
+                        <Link href="/admin/indicacoes/novo">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Nova Indicação
+                        </Link>
+                    </Button>
+                </div>
             </div>
 
-            <AdminIndicacoesClient initialIndicacoes={indicacoes || []} role={role} />
+            <AdminIndicacoesClient initialIndicacoes={indicacoes || []} role={role} department={department} />
         </div>
     )
 }
