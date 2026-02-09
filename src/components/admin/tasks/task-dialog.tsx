@@ -472,25 +472,52 @@ export function TaskDialog() {
                             name="indicacao_id"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Vincular Cliente (Opcional)</FormLabel>
+                                    <FormLabel>Vincular Indicação (Opcional)</FormLabel>
                                     <FormControl>
-                                    <LeadSelect
-                                        value={field.value}
-                                        onChange={(value) => field.onChange(value ?? undefined)}
-                                        onSelectLead={(lead, source) => {
-                                            form.setValue("client_name", lead.nome)
-                                            if (source === 'contact') {
-                                                form.setValue("indicacao_id", undefined)
-                                                form.setValue("contact_id", lead.id)
+                                        <LeadSelect
+                                            mode="leads"
+                                            leadBrand={selectedBrand}
+                                            value={field.value}
+                                            onChange={(value) => field.onChange(value ?? undefined)}
+                                            onSelectLead={(lead) => {
                                                 form.setValue("proposal_id", undefined)
-                                                form.setValue("codigo_instalacao", undefined)
-                                            } else {
-                                                form.setValue("contact_id", undefined)
-                                                form.setValue("proposal_id", undefined)
+                                                form.setValue("client_name", lead.nome)
                                                 form.setValue("codigo_instalacao", lead.codigo_instalacao ?? undefined)
-                                            }
-                                        }}
-                                    />
+                                            }}
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        <FormField
+                            control={form.control}
+                            name="contact_id"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Vincular Contato (Opcional)</FormLabel>
+                                    <FormControl>
+                                        <LeadSelect
+                                            mode="contacts"
+                                            value={field.value}
+                                            onChange={(value) => field.onChange(value ?? undefined)}
+                                            onSelectContact={(contact) => {
+                                                const contactName =
+                                                    contact.full_name
+                                                    || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
+                                                    || contact.email
+                                                    || contact.whatsapp
+                                                    || contact.phone
+                                                    || contact.mobile
+                                                    || ""
+
+                                                form.setValue("proposal_id", undefined)
+                                                if (contactName) {
+                                                    form.setValue("client_name", contactName)
+                                                }
+                                            }}
+                                        />
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>

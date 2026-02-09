@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Check, ChevronsUpDown, Search } from "lucide-react"
+import { Check, ChevronsUpDown } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover"
-import { getTaskLeadById, searchTaskContacts, searchTaskLeads } from "@/services/task-service"
+import { getTaskContactById, getTaskLeadById, searchTaskContacts, searchTaskLeads } from "@/services/task-service"
 
 interface Lead {
     id: string
@@ -60,14 +60,51 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
     const showLeads = mode !== 'contacts'
     const showContacts = mode !== 'leads'
 
-    // Fetch initial selected lead
+    const getContactName = React.useCallback((contact: Contact) => {
+        return contact.full_name
+            || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
+            || contact.email
+            || contact.whatsapp
+            || contact.phone
+            || contact.mobile
+            || "Contato"
+    }, [])
+
+    // Fetch initial selected value (lead or contact depending on mode)
     React.useEffect(() => {
-        if (value && !selectedLead) {
-            getTaskLeadById(value).then((data) => {
-                if (data) setSelectedLead(data)
+        if (!value) return
+
+        if (mode === "contacts") {
+            if (selectedContact?.id === value) return
+            getTaskContactById(value).then((data) => {
+                if (data) setSelectedContact(data)
             })
+            return
         }
-    }, [value, selectedLead])
+
+        if (selectedLead?.id === value) return
+        getTaskLeadById(value).then((data) => {
+            if (data) setSelectedLead(data)
+        })
+    }, [mode, value, selectedContact?.id, selectedLead?.id])
+
+    React.useEffect(() => {
+        if (mode === "leads" && !value) {
+            setSelectedLead(null)
+        }
+        if (mode === "contacts" && !value) {
+            setSelectedContact(null)
+        }
+    }, [mode, value])
+
+    React.useEffect(() => {
+        if (mode === "contacts") {
+            setSelectedLead(null)
+        }
+        if (mode === "leads") {
+            setSelectedContact(null)
+        }
+    }, [mode])
 
     // Search leads
     React.useEffect(() => {
@@ -87,17 +124,11 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
             return `${selectedLead.nome}${selectedLead.documento ? ` - ${selectedLead.documento}` : ''}`
         }
         if (selectedContact) {
-            const name = selectedContact.full_name
-                || [selectedContact.first_name, selectedContact.last_name].filter(Boolean).join(" ")
-                || selectedContact.email
-                || selectedContact.whatsapp
-                || selectedContact.phone
-                || selectedContact.mobile
-                || "Contato"
+            const name = getContactName(selectedContact)
             return name
         }
         return "Buscar cliente..."
-    }, [selectedLead, selectedContact])
+    }, [selectedLead, selectedContact, getContactName])
 
     const handleSelectLead = (lead: Lead) => {
         onChange(lead.id)
@@ -108,15 +139,9 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
     }
 
     const handleSelectContact = (contact: Contact) => {
-        const name = contact.full_name
-            || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
-            || contact.email
-            || contact.whatsapp
-            || contact.phone
-            || contact.mobile
-            || "Contato"
+        const name = getContactName(contact)
 
-        onChange(undefined)
+        onChange(mode === "contacts" ? contact.id : undefined)
         onSelectLead?.({
             id: contact.id,
             nome: name,
@@ -132,7 +157,7 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
     }
 
     return (
-        <Popover open={open} onOpenChange={setOpen} modal={true}>
+        <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button
                     variant="outline"
@@ -144,7 +169,7 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[400px] p-0">
+            <PopoverContent className="z-[90] w-[420px] p-0 shadow-xl">
                 <Command shouldFilter={false}>
                     <CommandInput
                         placeholder="Buscar cliente por nome..."
@@ -159,6 +184,7 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                 <CommandItem
                                     key={`lead-${lead.id}`}
                                     value={`lead-${lead.nome}-${lead.id}`}
+                                    className="cursor-pointer"
                                     onMouseDown={(event) => event.preventDefault()}
                                     onSelect={() => {
                                         handleSelectLead(lead)
@@ -195,18 +221,13 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                         {showContacts && (
                             <CommandGroup heading="Contatos">
                                 {contacts.map((contact) => {
-                                    const name = contact.full_name
-                                        || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
-                                        || contact.email
-                                        || contact.whatsapp
-                                        || contact.phone
-                                        || contact.mobile
-                                        || "Contato"
+                                    const name = getContactName(contact)
 
                                     return (
                                     <CommandItem
                                         key={`contact-${contact.id}`}
                                         value={`contact-${name}-${contact.id}`}
+                                        className="cursor-pointer"
                                         onMouseDown={(event) => event.preventDefault()}
                                         onSelect={() => {
                                             handleSelectContact(contact)
@@ -218,7 +239,9 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                             <Check
                                                 className={cn(
                                                     "mr-2 h-4 w-4",
-                                                    selectedContact?.id === contact.id ? "opacity-100" : "opacity-0"
+                                                    (mode === "contacts" ? value === contact.id : selectedContact?.id === contact.id)
+                                                        ? "opacity-100"
+                                                        : "opacity-0"
                                                 )}
                                             />
                                             <div className="flex flex-col">

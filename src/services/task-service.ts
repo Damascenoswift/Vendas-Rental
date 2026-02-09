@@ -476,6 +476,26 @@ export async function searchTaskContacts(search?: string) {
     return data as TaskContactOption[]
 }
 
+export async function getTaskContactById(contactId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
+        .from('contacts')
+        .select('id, full_name, first_name, last_name, email, whatsapp, phone, mobile')
+        .eq('id', contactId)
+        .maybeSingle()
+
+    if (error) {
+        console.error("Error fetching task contact:", error)
+        return null
+    }
+
+    return data as TaskContactOption | null
+}
+
 export async function getTaskProposalOptions(brand?: Brand) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -1203,13 +1223,28 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
 export async function updateTask(taskId: string, updates: Partial<Task>) {
     const supabase = await createClient()
+    const payload: Record<string, any> = { ...updates }
 
-    const { error } = await supabase
-        .from('tasks')
-        .update(updates)
-        .eq('id', taskId)
+    while (true) {
+        const { error } = await supabase
+            .from('tasks')
+            .update(payload)
+            .eq('id', taskId)
 
-    if (error) return { error: error.message }
+        if (!error) break
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (
+            missingColumn &&
+            missingColumn.table === 'tasks' &&
+            missingColumn.column in payload
+        ) {
+            delete payload[missingColumn.column]
+            continue
+        }
+
+        return { error: error.message }
+    }
 
     revalidatePath('/admin/tarefas')
     return { success: true }

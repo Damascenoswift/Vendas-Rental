@@ -405,27 +405,43 @@ export function TaskDetailsDialog({
         if (selected.codigo_instalacao) setEditCodigoInstalacao(selected.codigo_instalacao)
     }
 
-    const handleSelectTaskLead = (
+    const handleSelectTaskIndication = (
         lead: {
             id: string
             nome: string
             codigo_instalacao: string | null
-        },
-        source?: "indicacao" | "contact"
+        }
     ) => {
         setEditClientName(lead.nome || "")
         setEditProposalId("")
-
-        if (source === "contact") {
-            setEditContactId(lead.id)
-            setEditIndicacaoId("")
-            setEditCodigoInstalacao("")
-            return
-        }
-
         setEditIndicacaoId(lead.id)
-        setEditContactId("")
         setEditCodigoInstalacao(lead.codigo_instalacao || "")
+    }
+
+    const handleSelectTaskContact = (contact: {
+        id: string
+        full_name: string | null
+        first_name: string | null
+        last_name: string | null
+        email: string | null
+        whatsapp: string | null
+        phone: string | null
+        mobile: string | null
+    }) => {
+        const name =
+            contact.full_name
+            || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
+            || contact.email
+            || contact.whatsapp
+            || contact.phone
+            || contact.mobile
+            || ""
+
+        setEditProposalId("")
+        setEditContactId(contact.id)
+        if (name) {
+            setEditClientName(name)
+        }
     }
 
     const handleSaveDetails = async () => {
@@ -657,12 +673,27 @@ export function TaskDetailsDialog({
                                 </div>
 
                                 <div className="grid gap-1">
-                                    <label className="text-xs text-muted-foreground">Contato/Indicação</label>
+                                    <label className="text-xs text-muted-foreground">Indicação</label>
                                     <LeadSelect
+                                        mode="leads"
                                         value={editIndicacaoId || undefined}
                                         leadBrand={task.brand}
                                         onChange={(value) => setEditIndicacaoId(value ?? "")}
-                                        onSelectLead={handleSelectTaskLead}
+                                        onSelectLead={(lead, source) => {
+                                            if (source === "indicacao") {
+                                                handleSelectTaskIndication(lead)
+                                            }
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <label className="text-xs text-muted-foreground">Contato</label>
+                                    <LeadSelect
+                                        mode="contacts"
+                                        value={editContactId || undefined}
+                                        onChange={(value) => setEditContactId(value ?? "")}
+                                        onSelectContact={handleSelectTaskContact}
                                     />
                                 </div>
 
