@@ -168,6 +168,8 @@ export interface Task {
     assignee_id: string | null
     creator_id: string | null
     indicacao_id: string | null
+    contact_id: string | null
+    proposal_id: string | null
     visibility_scope?: TaskVisibilityScope | null
     client_name: string | null
     codigo_instalacao: string | null
@@ -263,6 +265,19 @@ export interface TaskContactOption {
     whatsapp: string | null
     phone: string | null
     mobile: string | null
+}
+
+export interface TaskProposalOption {
+    id: string
+    status: string | null
+    total_value: number | null
+    created_at: string
+    client_id: string | null
+    contact_id: string | null
+    client_name: string | null
+    codigo_instalacao: string | null
+    brand: Brand | null
+    contact_name: string | null
 }
 
 export async function getTasks(filters?: {
@@ -461,6 +476,116 @@ export async function searchTaskContacts(search?: string) {
     return data as TaskContactOption[]
 }
 
+export async function getTaskProposalOptions(brand?: Brand) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+    const internalProposalLookupRoles = new Set([
+        'adm_mestre',
+        'adm_dorata',
+        'supervisor',
+        'suporte',
+        'suporte_tecnico',
+        'suporte_limitado',
+        'funcionario_n1',
+        'funcionario_n2',
+    ])
+
+    const { data: profileData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+
+    const profileRole = (profileData as { role?: string | null } | null)?.role ?? null
+    let proposalsClient: any = supabase
+    if (profileRole && internalProposalLookupRoles.has(profileRole)) {
+        try {
+            proposalsClient = createSupabaseServiceClient()
+        } catch (error) {
+            console.error("Error creating admin client for proposal options:", error)
+        }
+    }
+
+    let selectColumns = `
+        id,
+        status,
+        total_value,
+        created_at,
+        client_id,
+        contact_id,
+        cliente:indicacoes(nome, codigo_instalacao, marca)
+    `
+
+    let { data, error } = await proposalsClient
+        .from('proposals')
+        .select(selectColumns)
+        .order('created_at', { ascending: false })
+        .limit(80)
+
+    if (error) {
+        const missingColumn = parseMissingColumnError(error.message)
+        if (missingColumn && missingColumn.table === 'proposals' && missingColumn.column === 'contact_id') {
+            selectColumns = `
+                id,
+                status,
+                total_value,
+                created_at,
+                client_id,
+                cliente:indicacoes(nome, codigo_instalacao, marca)
+            `
+
+            const fallback = await proposalsClient
+                .from('proposals')
+                .select(selectColumns)
+                .order('created_at', { ascending: false })
+                .limit(80)
+
+            data = fallback.data as any
+            error = fallback.error
+        }
+    }
+
+    if (error) {
+        console.error("Error fetching proposal options for tasks:", error)
+        return []
+    }
+
+    type ProposalRow = {
+        id: string
+        status: string | null
+        total_value: number | null
+        created_at: string
+        client_id: string | null
+        contact_id?: string | null
+        cliente?:
+        | { nome: string | null; codigo_instalacao: string | null; marca: Brand | null }
+        | { nome: string | null; codigo_instalacao: string | null; marca: Brand | null }[]
+        | null
+    }
+
+    const mapped = ((data ?? []) as ProposalRow[]).map((row) => {
+        const clientRaw = row.cliente
+        const client = Array.isArray(clientRaw) ? (clientRaw[0] ?? null) : (clientRaw ?? null)
+
+        return {
+            id: row.id,
+            status: row.status ?? null,
+            total_value: row.total_value ?? null,
+            created_at: row.created_at,
+            client_id: row.client_id ?? null,
+            contact_id: row.contact_id ?? null,
+            client_name: client?.nome ?? null,
+            codigo_instalacao: client?.codigo_instalacao ?? null,
+            brand: client?.marca ?? null,
+            contact_name: null,
+        } satisfies TaskProposalOption
+    })
+
+    if (!brand) return mapped
+    return mapped.filter((item) => item.brand === brand)
+}
+
 export async function createTask(data: {
     title: string
     description?: string
@@ -469,6 +594,8 @@ export async function createTask(data: {
     assignee_id?: string
     department?: Department
     indicacao_id?: string
+    contact_id?: string
+    proposal_id?: string
     client_name?: string
     codigo_instalacao?: string
     status?: TaskStatus
@@ -485,6 +612,102 @@ export async function createTask(data: {
     const { observer_ids: observerIdsRaw, description: descriptionRaw, ...taskData } = data
     const description = descriptionRaw?.trim()
     const nowIso = new Date().toISOString()
+    const internalProposalLookupRoles = new Set([
+        'adm_mestre',
+        'adm_dorata',
+        'supervisor',
+        'suporte',
+        'suporte_tecnico',
+        'suporte_limitado',
+        'funcionario_n1',
+        'funcionario_n2',
+    ])
+
+    const { data: profileData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+
+    const profileRole = (profileData as { role?: string | null } | null)?.role ?? null
+
+    if (taskData.proposal_id) {
+        let proposalClient: any = supabase
+        if (profileRole && internalProposalLookupRoles.has(profileRole)) {
+            try {
+                proposalClient = createSupabaseServiceClient()
+            } catch (error) {
+                console.error("Error creating admin client for proposal/task link:", error)
+            }
+        }
+
+        let { data: proposalData, error: proposalError } = await proposalClient
+            .from('proposals')
+            .select(`
+                id,
+                client_id,
+                contact_id,
+                cliente:indicacoes(nome, codigo_instalacao, marca)
+            `)
+            .eq('id', taskData.proposal_id)
+            .maybeSingle()
+
+        if (proposalError) {
+            const missingColumn = parseMissingColumnError(proposalError.message)
+            if (missingColumn && missingColumn.table === 'proposals' && missingColumn.column === 'contact_id') {
+                const fallback = await proposalClient
+                    .from('proposals')
+                    .select(`
+                        id,
+                        client_id,
+                        cliente:indicacoes(nome, codigo_instalacao, marca)
+                    `)
+                    .eq('id', taskData.proposal_id)
+                    .maybeSingle()
+
+                proposalData = fallback.data as any
+                proposalError = fallback.error
+            }
+        }
+
+        if (proposalError) {
+            console.error("Error fetching proposal for task link:", proposalError)
+            return { error: proposalError.message }
+        }
+
+        if (!proposalData) {
+            return { error: "Orçamento não encontrado ou sem acesso para vincular." }
+        }
+
+        const proposal = proposalData as {
+            client_id?: string | null
+            contact_id?: string | null
+            cliente?:
+            | { nome: string | null; codigo_instalacao: string | null; marca: Brand | null }
+            | { nome: string | null; codigo_instalacao: string | null; marca: Brand | null }[]
+            | null
+        }
+
+        const clientRaw = proposal.cliente
+        const client = Array.isArray(clientRaw) ? (clientRaw[0] ?? null) : (clientRaw ?? null)
+
+        if (!taskData.indicacao_id && proposal.client_id) {
+            taskData.indicacao_id = proposal.client_id
+        }
+        if (!taskData.contact_id && proposal.contact_id) {
+            taskData.contact_id = proposal.contact_id
+        }
+        if (!taskData.client_name && client?.nome) {
+            taskData.client_name = client.nome
+        }
+        if (!taskData.codigo_instalacao && client?.codigo_instalacao) {
+            taskData.codigo_instalacao = client.codigo_instalacao
+        }
+        if (client?.marca) {
+            taskData.brand = client.marca
+        }
+    }
+
     const payload: Record<string, any> = {
         ...taskData,
         visibility_scope: visibilityScope,
@@ -520,6 +743,11 @@ export async function createTask(data: {
 
         if (missingColumn.column === 'visibility_scope') {
             delete payload.visibility_scope
+            continue
+        }
+
+        if (missingColumn.column === 'contact_id' || missingColumn.column === 'proposal_id') {
+            delete payload[missingColumn.column]
             continue
         }
 

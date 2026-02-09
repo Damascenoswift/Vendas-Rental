@@ -718,6 +718,7 @@ export interface Database {
         Row: {
           id: string
           client_id: string | null
+          contact_id: string | null
           seller_id: string | null
           status: Database['public']['Enums']['proposal_status_enum'] | null
           calculation: Json | null
@@ -735,6 +736,7 @@ export interface Database {
         Insert: {
           id?: string
           client_id?: string | null
+          contact_id?: string | null
           seller_id?: string | null
           status?: Database['public']['Enums']['proposal_status_enum'] | null
           calculation?: Json | null
@@ -752,6 +754,7 @@ export interface Database {
         Update: {
           id?: string
           client_id?: string | null
+          contact_id?: string | null
           seller_id?: string | null
           status?: Database['public']['Enums']['proposal_status_enum'] | null
           calculation?: Json | null
@@ -771,6 +774,12 @@ export interface Database {
             foreignKeyName: "proposals_client_id_fkey"
             columns: ["client_id"]
             referencedRelation: "indicacoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposals_contact_id_fkey"
+            columns: ["contact_id"]
+            referencedRelation: "contacts"
             referencedColumns: ["id"]
           },
           {

@@ -49,6 +49,13 @@ function sanitizeText(value?: string | null) {
     return String(value).trim()
 }
 
+function parseMissingColumnError(message?: string | null) {
+    if (!message) return null
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (!match) return null
+    return { column: match[1], table: match[2] }
+}
+
 // Pricing Rules
 export async function getPricingRules() {
     const supabase = await createClient()
@@ -96,6 +103,7 @@ export async function createProposal(
 
     let clientId = proposalData.client_id ?? options?.client?.indicacao_id ?? null
     const contact = options?.client?.contact ?? null
+    let contactId = ((proposalData as Record<string, any>).contact_id as string | null | undefined) ?? contact?.id ?? null
     let crmCreated = false
 
     if (!clientId && contact) {
@@ -157,6 +165,10 @@ export async function createProposal(
 
                 contactRecord = createdContact
             }
+        }
+
+        if (contactRecord.id) {
+            contactId = contactRecord.id
         }
 
         const nome = buildFullName(contactRecord) || "Cliente"
@@ -253,6 +265,37 @@ export async function createProposal(
             return { success: false, error: "Indicação não encontrada para o orçamento." }
         }
 
+        if (!contactId) {
+            const indicacaoPhone = sanitizeText(existingIndicacao.telefone)
+            const indicacaoEmail = sanitizeText(existingIndicacao.email).toLowerCase()
+
+            if (indicacaoPhone) {
+                const { data: contactByPhone } = await supabaseAdmin
+                    .from("contacts")
+                    .select("id")
+                    .eq("whatsapp", indicacaoPhone)
+                    .limit(1)
+                    .maybeSingle()
+
+                if (contactByPhone?.id) {
+                    contactId = contactByPhone.id
+                }
+            }
+
+            if (!contactId && indicacaoEmail) {
+                const { data: contactByEmail } = await supabaseAdmin
+                    .from("contacts")
+                    .select("id")
+                    .eq("email", indicacaoEmail)
+                    .limit(1)
+                    .maybeSingle()
+
+                if (contactByEmail?.id) {
+                    contactId = contactByEmail.id
+                }
+            }
+        }
+
         if (existingIndicacao.marca !== brand) {
             const { data: clonedIndicacao, error: cloneError } = await supabaseAdmin
                 .from("indicacoes")
@@ -311,10 +354,11 @@ export async function createProposal(
     }
 
     // 1. Create Proposal
-    const proposalPayload: ProposalInsert = {
+    const proposalPayload: Record<string, any> = {
         ...proposalData,
         client_id: clientId ?? proposalData.client_id ?? null,
-        seller_id: proposalData.seller_id ?? user?.id ?? null
+        seller_id: proposalData.seller_id ?? user?.id ?? null,
+        contact_id: contactId ?? null,
     }
 
     const calculation = proposalPayload.calculation as ProposalCalculation | null
@@ -329,11 +373,29 @@ export async function createProposal(
         }
         proposalPayload.calculation = calculation as any
     }
-    const { data: proposal, error: propError } = await supabaseAdmin
-        .from('proposals')
-        .insert(proposalPayload)
-        .select()
-        .single()
+
+    let proposal: Proposal | null = null
+    let propError: { message?: string | null } | null = null
+    while (true) {
+        const insertResult = await supabaseAdmin
+            .from('proposals')
+            .insert(proposalPayload as any)
+            .select()
+            .single()
+
+        proposal = insertResult.data as Proposal | null
+        propError = insertResult.error
+
+        if (!propError) break
+
+        const missingColumn = parseMissingColumnError(propError.message)
+        if (missingColumn && missingColumn.table === 'proposals' && missingColumn.column === 'contact_id') {
+            delete proposalPayload.contact_id
+            continue
+        }
+
+        break
+    }
 
     if (propError || !proposal) {
         console.error("Error creating proposal:", propError)

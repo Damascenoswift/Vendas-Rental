@@ -33,7 +33,7 @@ import {
     SelectGroup,
     SelectLabel
 } from "@/components/ui/select"
-import { createTask, getTaskAssignableUsers, getTaskLeadById } from "@/services/task-service"
+import { createTask, getTaskAssignableUsers, getTaskLeadById, getTaskProposalOptions, type TaskProposalOption } from "@/services/task-service"
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -48,6 +48,8 @@ const taskSchema = z
         assignee_id: z.string().optional(),
         visibility_scope: z.enum(["TEAM", "RESTRICTED"]),
         indicacao_id: z.string().optional(), // Linked lead
+        contact_id: z.string().optional(),
+        proposal_id: z.string().optional(),
         client_name: z.string().optional(),
         codigo_instalacao: z.string().optional(),
         status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
@@ -70,6 +72,7 @@ export function TaskDialog() {
     const [isLoading, setIsLoading] = useState(false)
     const [users, setUsers] = useState<{ id: string, name: string, department: string | null }[]>([])
     const [observerIds, setObserverIds] = useState<string[]>([])
+    const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
 
     const { showToast } = useToast()
 
@@ -85,12 +88,18 @@ export function TaskDialog() {
             client_name: "",
         },
     })
+    const selectedBrand = form.watch("brand")
     const visibilityScope = form.watch("visibility_scope")
+    const visibleProposalOptions = proposalOptions.filter((proposal) => {
+        if (!proposal.brand) return true
+        return proposal.brand === selectedBrand
+    })
 
     // Fetch dependencies when opening
     useEffect(() => {
         if (open) {
             fetchUsers()
+            fetchProposalOptions()
         }
     }, [open])
 
@@ -109,12 +118,24 @@ export function TaskDialog() {
         })))
     }
 
+    async function fetchProposalOptions() {
+        const data = await getTaskProposalOptions()
+        setProposalOptions(data ?? [])
+    }
+
     async function onSubmit(data: TaskFormValues) {
         setIsLoading(true)
         try {
+            const selectedProposal = data.proposal_id
+                ? proposalOptions.find((proposal) => proposal.id === data.proposal_id) ?? null
+                : null
+
             // Find client name if lead is selected
             const manualClientName = data.client_name?.trim()
             let clientName = manualClientName || undefined
+            if (!clientName && selectedProposal) {
+                clientName = selectedProposal.client_name ?? selectedProposal.contact_name ?? undefined
+            }
             if (data.indicacao_id && !clientName) {
                 const lead = await getTaskLeadById(data.indicacao_id)
                 if (lead?.nome) clientName = lead.nome
@@ -122,6 +143,10 @@ export function TaskDialog() {
 
             const result = await createTask({
                 ...data,
+                brand: selectedProposal?.brand ?? data.brand,
+                indicacao_id: data.indicacao_id ?? selectedProposal?.client_id ?? undefined,
+                contact_id: data.contact_id ?? selectedProposal?.contact_id ?? undefined,
+                codigo_instalacao: data.codigo_instalacao ?? selectedProposal?.codigo_instalacao ?? undefined,
                 client_name: clientName,
                 observer_ids: observerIds
             })
@@ -378,6 +403,72 @@ export function TaskDialog() {
 
                         <FormField
                             control={form.control}
+                            name="proposal_id"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Vincular Orçamento (Opcional)</FormLabel>
+                                    <Select
+                                        value={field.value ?? "__none"}
+                                        onValueChange={(value) => {
+                                            if (value === "__none") {
+                                                field.onChange(undefined)
+                                                return
+                                            }
+
+                                            field.onChange(value)
+                                            const selectedProposal = proposalOptions.find((proposal) => proposal.id === value)
+                                            if (!selectedProposal) return
+
+                                            if (selectedProposal.brand) {
+                                                form.setValue("brand", selectedProposal.brand)
+                                            }
+                                            if (selectedProposal.client_id) {
+                                                form.setValue("indicacao_id", selectedProposal.client_id)
+                                            }
+                                            if (selectedProposal.contact_id) {
+                                                form.setValue("contact_id", selectedProposal.contact_id)
+                                            }
+                                            if (selectedProposal.client_name) {
+                                                form.setValue("client_name", selectedProposal.client_name)
+                                            } else if (selectedProposal.contact_name) {
+                                                form.setValue("client_name", selectedProposal.contact_name)
+                                            }
+                                            if (selectedProposal.codigo_instalacao) {
+                                                form.setValue("codigo_instalacao", selectedProposal.codigo_instalacao)
+                                            }
+                                        }}
+                                    >
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione um orçamento" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                        <SelectContent>
+                                            <SelectItem value="__none">Sem vínculo de orçamento</SelectItem>
+                                            {visibleProposalOptions.map((proposal) => {
+                                                const totalLabel = proposal.total_value == null
+                                                    ? "Sem valor"
+                                                    : proposal.total_value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                                                const clientLabel = proposal.client_name || proposal.contact_name || "Cliente não identificado"
+                                                const statusLabel = proposal.status || "draft"
+                                                return (
+                                                    <SelectItem key={proposal.id} value={proposal.id}>
+                                                        {clientLabel} • {proposal.id.slice(0, 8)} • {statusLabel} • {totalLabel}
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        Ao vincular orçamento, cliente e indicação são preenchidos automaticamente.
+                                    </p>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+
+                        <FormField
+                            control={form.control}
                             name="indicacao_id"
                             render={({ field }) => (
                                 <FormItem>
@@ -390,8 +481,12 @@ export function TaskDialog() {
                                             form.setValue("client_name", lead.nome)
                                             if (source === 'contact') {
                                                 form.setValue("indicacao_id", undefined)
+                                                form.setValue("contact_id", lead.id)
+                                                form.setValue("proposal_id", undefined)
                                                 form.setValue("codigo_instalacao", undefined)
                                             } else {
+                                                form.setValue("contact_id", undefined)
+                                                form.setValue("proposal_id", undefined)
                                                 form.setValue("codigo_instalacao", lead.codigo_instalacao ?? undefined)
                                             }
                                         }}
