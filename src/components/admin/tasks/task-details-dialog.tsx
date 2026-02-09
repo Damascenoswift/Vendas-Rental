@@ -181,24 +181,42 @@ export function TaskDetailsDialog({
         return formatDateTime(task?.energisa_activated_at) || (task?.energisa_activated_at ?? "")
     }, [task?.energisa_activated_at])
 
+    const usersById = useMemo(() => {
+        const map = new Map<string, string>()
+        users.forEach((user) => {
+            map.set(user.id, user.name || user.email || "Usuário")
+        })
+        return map
+    }, [users])
+
     const commentsToShow = useMemo<TaskCommentDisplay[]>(() => {
         if (!task) return []
-        if (comments.length > 0) return comments
+
         const legacyContent = task.description?.trim()
-        if (!legacyContent) return []
-        return [
-            {
-                id: `legacy-${task.id}`,
-                task_id: task.id,
-                user_id: task.creator_id ?? null,
-                parent_id: null,
-                content: legacyContent,
-                created_at: task.created_at,
-                user: task.creator ? { name: task.creator.name, email: null } : null,
-                parent: null,
-                isLegacy: true,
-            },
-        ]
+        if (!legacyContent) return comments
+
+        const legacyComment: TaskCommentDisplay = {
+            id: `legacy-${task.id}`,
+            task_id: task.id,
+            user_id: task.creator_id ?? null,
+            parent_id: null,
+            content: legacyContent,
+            created_at: task.created_at,
+            user: task.creator ? { name: task.creator.name, email: null } : null,
+            parent: null,
+            isLegacy: true,
+        }
+
+        const hasLegacyAlready = comments.some((comment) => {
+            return (
+                comment.content?.trim() === legacyContent &&
+                comment.created_at === task.created_at &&
+                comment.user_id === (task.creator_id ?? null)
+            )
+        })
+
+        if (hasLegacyAlready) return comments
+        return [legacyComment, ...comments]
     }, [comments, task])
 
     const currentUserId = session?.user.id ?? null
@@ -533,7 +551,12 @@ export function TaskDetailsDialog({
                                     <div className="flex items-start justify-between gap-2 rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
                                         <div className="space-y-1">
                                             <span className="text-foreground font-medium">
-                                                Respondendo a {replyTo.user?.name || replyTo.user?.email || "Usuário"}
+                                                Respondendo a {
+                                                    replyTo.user?.name ||
+                                                    replyTo.user?.email ||
+                                                    (replyTo.user_id ? usersById.get(replyTo.user_id) : undefined) ||
+                                                    "Usuário"
+                                                }
                                             </span>
                                             <p className="line-clamp-2">{replyTo.content}</p>
                                         </div>
@@ -571,10 +594,18 @@ export function TaskDetailsDialog({
                                 <ScrollArea className="max-h-[240px] rounded-md border bg-background p-3">
                                     <div className="space-y-3">
                                         {commentsToShow.map((comment) => {
-                                            const authorName = comment.user?.name || comment.user?.email || "Usuário"
+                                            const authorName =
+                                                comment.user?.name ||
+                                                comment.user?.email ||
+                                                (comment.user_id ? usersById.get(comment.user_id) : undefined) ||
+                                                "Usuário"
                                             const isMe = Boolean(comment.user_id && comment.user_id === currentUserId)
                                             const timestamp = formatDateTime(comment.created_at)
-                                            const parentAuthor = comment.parent?.user?.name || comment.parent?.user?.email || "Usuário"
+                                            const parentAuthor =
+                                                comment.parent?.user?.name ||
+                                                comment.parent?.user?.email ||
+                                                (comment.parent?.user?.id ? usersById.get(comment.parent.user.id) : undefined) ||
+                                                "Usuário"
                                             return (
                                                 <div key={comment.id} className="rounded-md border bg-muted/30 p-3">
                                                     <div className="flex items-start justify-between gap-2">

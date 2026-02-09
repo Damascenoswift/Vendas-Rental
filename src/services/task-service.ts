@@ -1354,23 +1354,25 @@ export async function deleteTaskChecklistItem(itemId: string) {
 
 export async function getTaskComments(taskId: string) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
 
-    const { data, error } = await supabase
+    const { data: taskAccess, error: taskAccessError } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    if (taskAccessError) {
+        console.error("Error checking task access for comments:", taskAccessError)
+        return []
+    }
+    if (!taskAccess) return []
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
         .from('task_comments')
-        .select(`
-            id,
-            task_id,
-            user_id,
-            parent_id,
-            content,
-            created_at,
-            user:users(id, name, email),
-            parent:task_comments!task_comments_parent_id_fkey(
-                id,
-                content,
-                user:users(id, name, email)
-            )
-        `)
+        .select('id, task_id, user_id, parent_id, content, created_at')
         .eq('task_id', taskId)
         .order('created_at', { ascending: true })
 
@@ -1379,7 +1381,77 @@ export async function getTaskComments(taskId: string) {
         return []
     }
 
-    return data as TaskComment[]
+    type CommentRow = {
+        id: string
+        task_id: string
+        user_id: string | null
+        parent_id: string | null
+        content: string
+        created_at: string
+    }
+
+    type UserRow = {
+        id: string
+        name: string | null
+        email: string | null
+    }
+
+    const commentRows = (data ?? []) as CommentRow[]
+    const userIds = Array.from(
+        new Set(
+            commentRows
+                .map((row) => row.user_id)
+                .filter((id): id is string => Boolean(id))
+        )
+    )
+
+    const usersById = new Map<string, UserRow>()
+    if (userIds.length > 0) {
+        const { data: usersData, error: usersError } = await supabaseAdmin
+            .from('users')
+            .select('id, name, email')
+            .in('id', userIds)
+
+        if (usersError) {
+            console.error("Error fetching users for task comments:", usersError)
+        } else {
+            ;(usersData as UserRow[]).forEach((item) => {
+                usersById.set(item.id, item)
+            })
+        }
+    }
+
+    const commentsById = new Map<string, CommentRow>()
+    commentRows.forEach((row) => commentsById.set(row.id, row))
+
+    const mapped = commentRows.map((row) => {
+        const author = row.user_id ? usersById.get(row.user_id) ?? null : null
+        const parentRow = row.parent_id ? commentsById.get(row.parent_id) ?? null : null
+        const parentAuthor = parentRow?.user_id ? usersById.get(parentRow.user_id) ?? null : null
+
+        return {
+            id: row.id,
+            task_id: row.task_id,
+            user_id: row.user_id,
+            parent_id: row.parent_id,
+            content: row.content,
+            created_at: row.created_at,
+            user: author
+                ? { id: author.id, name: author.name, email: author.email }
+                : null,
+            parent: parentRow
+                ? {
+                    id: parentRow.id,
+                    content: parentRow.content,
+                    user: parentAuthor
+                        ? { id: parentAuthor.id, name: parentAuthor.name, email: parentAuthor.email }
+                        : null,
+                }
+                : null,
+        }
+    })
+
+    return mapped as TaskComment[]
 }
 
 export async function addTaskComment(taskId: string, content: string, parentId?: string | null) {
@@ -1391,14 +1463,47 @@ export async function addTaskComment(taskId: string, content: string, parentId?:
     const cleaned = content.trim()
     if (!cleaned) return { error: "Comentário vazio" }
 
-    const { error } = await supabase
-        .from('task_comments')
+    const { data: taskAccess, error: taskAccessError } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    if (taskAccessError) {
+        console.error("Error checking task access for comment creation:", taskAccessError)
+        return { error: "Sem permissão para comentar nesta tarefa." }
+    }
+    if (!taskAccess) {
+        return { error: "Sem permissão para comentar nesta tarefa." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    if (parentId) {
+        const { data: parentComment, error: parentError } = await supabaseAdmin
+            .from('task_comments')
+            .select('id')
+            .eq('id', parentId)
+            .eq('task_id', taskId)
+            .maybeSingle()
+
+        if (parentError) {
+            console.error("Error validating parent task comment:", parentError)
+            return { error: parentError.message }
+        }
+        if (!parentComment) {
+            return { error: "Comentário de referência inválido para esta tarefa." }
+        }
+    }
+
+    const { error } = await supabaseAdmin
+        .from('task_comments' as any)
         .insert({
             task_id: taskId,
             user_id: user.id,
             parent_id: parentId ?? null,
             content: cleaned,
-        })
+        } as any)
 
     if (error) return { error: error.message }
 
