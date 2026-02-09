@@ -9,6 +9,7 @@ export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
 export type Brand = 'rental' | 'dorata'
+export type TaskVisibilityScope = 'TEAM' | 'RESTRICTED'
 export type TaskChecklistPhase = 'cadastro' | 'energisa' | 'geral'
 export type TaskChecklistEventKey =
     | 'DOCS_APPROVED'
@@ -167,6 +168,7 @@ export interface Task {
     assignee_id: string | null
     creator_id: string | null
     indicacao_id: string | null
+    visibility_scope?: TaskVisibilityScope | null
     client_name: string | null
     codigo_instalacao: string | null
     energisa_activated_at: string | null
@@ -471,6 +473,7 @@ export async function createTask(data: {
     codigo_instalacao?: string
     status?: TaskStatus
     brand?: Brand
+    visibility_scope?: TaskVisibilityScope
     observer_ids?: string[]
 }) {
     const supabase = await createClient()
@@ -478,34 +481,49 @@ export async function createTask(data: {
 
     if (!user) return { error: "Unauthorized" }
 
+    const visibilityScope = data.visibility_scope ?? 'TEAM'
     const { observer_ids: observerIdsRaw, description: descriptionRaw, ...taskData } = data
     const description = descriptionRaw?.trim()
     const nowIso = new Date().toISOString()
     const payload: Record<string, any> = {
         ...taskData,
+        visibility_scope: visibilityScope,
         description: description || null,
         creator_id: user.id,
         completed_at: taskData.status === 'DONE' ? nowIso : null,
         completed_by: taskData.status === 'DONE' ? user.id : null,
     }
 
-    let { data: inserted, error } = await supabase
-        .from('tasks')
-        .insert(payload)
-        .select('id')
-        .single()
+    let inserted: { id: string } | null = null
+    let error: { message?: string | null } | null = null
 
-    const missingColumn = parseMissingColumnError(error?.message)
-    if (error && missingColumn && (missingColumn.column === 'completed_at' || missingColumn.column === 'completed_by')) {
-        delete payload.completed_at
-        delete payload.completed_by
-        const fallbackResult = await supabase
+    while (true) {
+        const insertResult = await supabase
             .from('tasks')
             .insert(payload)
             .select('id')
             .single()
-        inserted = fallbackResult.data
-        error = fallbackResult.error
+
+        inserted = insertResult.data
+        error = insertResult.error
+
+        if (!error) break
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (!missingColumn || missingColumn.table !== 'tasks') break
+
+        if (missingColumn.column === 'completed_at' || missingColumn.column === 'completed_by') {
+            delete payload.completed_at
+            delete payload.completed_by
+            continue
+        }
+
+        if (missingColumn.column === 'visibility_scope') {
+            delete payload.visibility_scope
+            continue
+        }
+
+        break
     }
 
     if (error) {
@@ -513,7 +531,13 @@ export async function createTask(data: {
         return { error: error.message }
     }
 
-    const observerIds = Array.from(new Set((observerIdsRaw ?? []).filter(Boolean)))
+    const observerIds = Array.from(
+        new Set(
+            visibilityScope === 'RESTRICTED'
+                ? [...(observerIdsRaw ?? []), user.id]
+                : (observerIdsRaw ?? [])
+        )
+    ).filter(Boolean)
     if (observerIds.length > 0 && inserted?.id) {
         const { error: observersError } = await supabase
             .from('task_observers')
@@ -1193,60 +1217,117 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
 
         const { data: indicacaoAtual } = await supabaseAdmin
             .from('indicacoes')
-            .select('id, contrato_enviado_em, assinada_em')
+            .select('id, status, contrato_enviado_em, assinada_em')
             .eq('id', indicacaoId)
             .maybeSingle()
 
         const now = new Date().toISOString()
-        const updates: Record<string, string> = {}
+        const leadUpdates: Record<string, string> = {}
+        let nextStatus: string | null = null
 
         if (eventKey === 'DOCS_APPROVED') {
-            updates.doc_validation_status = 'APPROVED'
-            updates.status = 'APROVADA'
+            leadUpdates.doc_validation_status = 'APPROVED'
+            nextStatus = 'APROVADA'
         } else if (eventKey === 'DOCS_INCOMPLETE') {
-            updates.doc_validation_status = 'INCOMPLETE'
-            updates.status = 'FALTANDO_DOCUMENTACAO'
+            leadUpdates.doc_validation_status = 'INCOMPLETE'
+            nextStatus = 'FALTANDO_DOCUMENTACAO'
         } else if (eventKey === 'DOCS_REJECTED') {
-            updates.doc_validation_status = 'REJECTED'
-            updates.status = 'REJEITADA'
+            leadUpdates.doc_validation_status = 'REJECTED'
+            nextStatus = 'REJEITADA'
         } else if (eventKey === 'CONTRACT_SENT') {
-            updates.status = 'AGUARDANDO_ASSINATURA'
+            nextStatus = 'AGUARDANDO_ASSINATURA'
             if (!indicacaoAtual?.contrato_enviado_em) {
-                updates.contrato_enviado_em = now
+                leadUpdates.contrato_enviado_em = now
             }
         } else if (eventKey === 'CONTRACT_SIGNED') {
-            updates.status = 'CONCLUIDA'
+            nextStatus = 'CONCLUIDA'
             if (!indicacaoAtual?.contrato_enviado_em) {
-                updates.contrato_enviado_em = now
+                leadUpdates.contrato_enviado_em = now
             }
             if (!indicacaoAtual?.assinada_em) {
-                updates.assinada_em = now
+                leadUpdates.assinada_em = now
             }
         }
 
-        if (Object.keys(updates).length > 0) {
-            const { error: updateLeadError } = await supabaseAdmin
+        // Prevent regressions when an older event arrives after a newer one.
+        if (
+            nextStatus === 'APROVADA' &&
+            (
+                indicacaoAtual?.status === 'AGUARDANDO_ASSINATURA' ||
+                indicacaoAtual?.status === 'CONCLUIDA' ||
+                Boolean(indicacaoAtual?.contrato_enviado_em) ||
+                Boolean(indicacaoAtual?.assinada_em)
+            )
+        ) {
+            nextStatus = null
+        }
+
+        if (
+            nextStatus === 'AGUARDANDO_ASSINATURA' &&
+            (indicacaoAtual?.status === 'CONCLUIDA' || Boolean(indicacaoAtual?.assinada_em))
+        ) {
+            nextStatus = null
+        }
+
+        let syncLeadError: { message?: string | null } | null = null
+        let syncedLead = false
+
+        if (Object.keys(leadUpdates).length > 0) {
+            const { error: updateLeadFieldsError } = await supabaseAdmin
                 .from('indicacoes')
-                .update(updates)
+                .update(leadUpdates)
                 .eq('id', indicacaoId)
 
-            if (updateLeadError) {
-                console.error("Error syncing lead from checklist event:", updateLeadError)
+            if (updateLeadFieldsError) {
+                syncLeadError = updateLeadFieldsError
             } else {
-                const interaction = buildInteractionFromChecklistEvent(eventKey)
-                const { error: interactionError } = await supabaseAdmin
-                    .from('indicacao_interactions' as any)
-                    .insert({
-                        indicacao_id: indicacaoId,
-                        user_id: user.id,
-                        type: interaction.type,
-                        content: interaction.content,
-                        metadata: interaction.metadata,
-                    } as any)
+                syncedLead = true
+            }
+        }
 
-                if (interactionError) {
-                    console.error("Error logging checklist interaction:", interactionError)
-                }
+        if (!syncLeadError && nextStatus) {
+            let statusQuery = supabaseAdmin
+                .from('indicacoes')
+                .update({ status: nextStatus })
+                .eq('id', indicacaoId)
+
+            if (nextStatus === 'AGUARDANDO_ASSINATURA') {
+                statusQuery = statusQuery
+                    .neq('status', 'CONCLUIDA')
+                    .is('assinada_em', null)
+            } else if (nextStatus === 'APROVADA') {
+                statusQuery = statusQuery
+                    .neq('status', 'CONCLUIDA')
+                    .is('contrato_enviado_em', null)
+                    .is('assinada_em', null)
+            }
+
+            const { data: syncedStatusRows, error: syncStatusError } = await statusQuery
+                .select('id')
+
+            if (syncStatusError) {
+                syncLeadError = syncStatusError
+            } else if ((syncedStatusRows?.length ?? 0) > 0) {
+                syncedLead = true
+            }
+        }
+
+        if (syncLeadError) {
+            console.error("Error syncing lead from checklist event:", syncLeadError)
+        } else if (syncedLead) {
+            const interaction = buildInteractionFromChecklistEvent(eventKey)
+            const { error: interactionError } = await supabaseAdmin
+                .from('indicacao_interactions' as any)
+                .insert({
+                    indicacao_id: indicacaoId,
+                    user_id: user.id,
+                    type: interaction.type,
+                    content: interaction.content,
+                    metadata: interaction.metadata,
+                } as any)
+
+            if (interactionError) {
+                console.error("Error logging checklist interaction:", interactionError)
             }
         }
     }

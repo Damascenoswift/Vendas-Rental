@@ -404,6 +404,9 @@ export function TaskDetailsDialog({
         task.client_name ? `Cliente: ${task.client_name}` : null,
         task.codigo_instalacao ? `Instalação: ${task.codigo_instalacao}` : null,
     ].filter(Boolean).join(" • ")
+    const visibilityLabel = task.visibility_scope === "RESTRICTED"
+        ? "Visibilidade restrita"
+        : "Visibilidade equipe"
 
     const renderChecklistItems = (items: TaskChecklistItem[]) => (
         <div className="space-y-2">
@@ -493,6 +496,9 @@ export function TaskDetailsDialog({
                         <Badge variant="outline">{task.priority}</Badge>
                         {task.department && <Badge variant="secondary">{task.department}</Badge>}
                         <Badge variant="outline">{task.brand}</Badge>
+                        <Badge variant={task.visibility_scope === "RESTRICTED" ? "destructive" : "outline"}>
+                            {visibilityLabel}
+                        </Badge>
                     </div>
 
                     <div className="rounded-md border bg-muted/30 p-3 space-y-3">

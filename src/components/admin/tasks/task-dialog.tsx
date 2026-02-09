@@ -5,8 +5,6 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { Loader2, Plus } from "lucide-react"
-import { format } from "date-fns"
-import { ptBR } from "date-fns/locale"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -35,25 +33,35 @@ import {
     SelectGroup,
     SelectLabel
 } from "@/components/ui/select"
-import { createTask, TaskPriority, Department, getTaskAssignableUsers, getTaskLeadById } from "@/services/task-service"
+import { createTask, getTaskAssignableUsers, getTaskLeadById } from "@/services/task-service"
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
-import { getProfile } from "@/lib/auth"
 import { Checkbox } from "@/components/ui/checkbox"
 
-const taskSchema = z.object({
-    title: z.string().min(3, "Título deve ter pelo menos 3 caracteres"),
-    description: z.string().optional(),
-    priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
-    department: z.enum(["vendas", "cadastro", "energia", "juridico", "financeiro", "ti", "diretoria", "outro"]),
-    due_date: z.string().optional(), // YYYY-MM-DD
-    assignee_id: z.string().optional(),
-    indicacao_id: z.string().optional(), // Linked lead
-    client_name: z.string().optional(),
-    codigo_instalacao: z.string().optional(),
-    status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
-    brand: z.enum(["rental", "dorata"]),
-})
+const taskSchema = z
+    .object({
+        title: z.string().min(3, "Título deve ter pelo menos 3 caracteres"),
+        description: z.string().optional(),
+        priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
+        department: z.enum(["vendas", "cadastro", "energia", "juridico", "financeiro", "ti", "diretoria", "outro"]),
+        due_date: z.string().optional(), // YYYY-MM-DD
+        assignee_id: z.string().optional(),
+        visibility_scope: z.enum(["TEAM", "RESTRICTED"]),
+        indicacao_id: z.string().optional(), // Linked lead
+        client_name: z.string().optional(),
+        codigo_instalacao: z.string().optional(),
+        status: z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE", "BLOCKED"]).optional(),
+        brand: z.enum(["rental", "dorata"]),
+    })
+    .superRefine((values, ctx) => {
+        if (values.visibility_scope === "RESTRICTED" && !values.assignee_id) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["assignee_id"],
+                message: "Selecione um responsável para tarefa restrita.",
+            })
+        }
+    })
 
 type TaskFormValues = z.infer<typeof taskSchema>
 
@@ -72,10 +80,12 @@ export function TaskDialog() {
             department: "outro",
             status: "TODO",
             brand: "rental",
+            visibility_scope: "TEAM",
             description: "",
             client_name: "",
         },
     })
+    const visibilityScope = form.watch("visibility_scope")
 
     // Fetch dependencies when opening
     useEffect(() => {
@@ -300,6 +310,30 @@ export function TaskDialog() {
 
                             <FormField
                                 control={form.control}
+                                name="visibility_scope"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Modelo de visibilidade</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Selecione" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value="TEAM">Equipe (todos visualizam)</SelectItem>
+                                                <SelectItem value="RESTRICTED">Restrita (responsável + observadores + criador)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4">
+                            <FormField
+                                control={form.control}
                                 name="due_date"
                                 render={({ field }) => (
                                     <FormItem>
@@ -335,6 +369,11 @@ export function TaskDialog() {
                                     <span className="text-xs text-muted-foreground">Nenhum usuário disponível.</span>
                                 )}
                             </div>
+                            {visibilityScope === "RESTRICTED" && (
+                                <p className="text-xs text-muted-foreground">
+                                    Em tarefas restritas, acesso do responsável e observadores selecionados (criador mantém acesso).
+                                </p>
+                            )}
                         </div>
 
                         <FormField
