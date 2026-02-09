@@ -1369,8 +1369,7 @@ export async function getTaskComments(taskId: string) {
     }
     if (!taskAccess) return []
 
-    const supabaseAdmin = createSupabaseServiceClient()
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
         .from('task_comments')
         .select('id, task_id, user_id, parent_id, content, created_at')
         .eq('task_id', taskId)
@@ -1407,7 +1406,7 @@ export async function getTaskComments(taskId: string) {
 
     const usersById = new Map<string, UserRow>()
     if (userIds.length > 0) {
-        const { data: usersData, error: usersError } = await supabaseAdmin
+        const { data: usersData, error: usersError } = await supabase
             .from('users')
             .select('id, name, email')
             .in('id', userIds)
@@ -1477,10 +1476,8 @@ export async function addTaskComment(taskId: string, content: string, parentId?:
         return { error: "Sem permissão para comentar nesta tarefa." }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
-
     if (parentId) {
-        const { data: parentComment, error: parentError } = await supabaseAdmin
+        const { data: parentComment, error: parentError } = await supabase
             .from('task_comments')
             .select('id')
             .eq('id', parentId)
@@ -1496,14 +1493,14 @@ export async function addTaskComment(taskId: string, content: string, parentId?:
         }
     }
 
-    const { error } = await supabaseAdmin
-        .from('task_comments' as any)
+    const { error } = await supabase
+        .from('task_comments')
         .insert({
             task_id: taskId,
             user_id: user.id,
             parent_id: parentId ?? null,
             content: cleaned,
-        } as any)
+        })
 
     if (error) return { error: error.message }
 
