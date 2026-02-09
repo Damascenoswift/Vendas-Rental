@@ -1,11 +1,12 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
 
-import type { Task, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority } from "@/services/task-service"
+import type { Task, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority, TaskProposalOption } from "@/services/task-service"
 import {
     addTaskChecklistItem,
     addTaskComment,
@@ -17,6 +18,7 @@ import {
     getTaskComments,
     getTaskAssignableUsers,
     getTaskObservers,
+    getTaskProposalOptions,
     removeTaskObserver,
     triggerTaskDocAlert,
     toggleTaskChecklistItem,
@@ -40,6 +42,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
 import { useAuthSession } from "@/hooks/use-auth-session"
+import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import {
     Select,
     SelectContent,
@@ -148,6 +151,12 @@ export function TaskDetailsDialog({
     const [editAssigneeId, setEditAssigneeId] = useState("")
     const [editTitle, setEditTitle] = useState("")
     const [editPriority, setEditPriority] = useState<TaskPriority>("MEDIUM")
+    const [editClientName, setEditClientName] = useState("")
+    const [editCodigoInstalacao, setEditCodigoInstalacao] = useState("")
+    const [editIndicacaoId, setEditIndicacaoId] = useState("")
+    const [editContactId, setEditContactId] = useState("")
+    const [editProposalId, setEditProposalId] = useState("")
+    const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const { showToast } = useToast()
     const { session } = useAuthSession()
 
@@ -156,6 +165,11 @@ export function TaskDetailsDialog({
         const done = checklists.filter(item => item.is_done).length
         return { total, done }
     }, [checklists])
+
+    const visibleProposalOptions = useMemo(() => {
+        if (!task?.brand) return proposalOptions
+        return proposalOptions.filter((proposal) => !proposal.brand || proposal.brand === task.brand)
+    }, [proposalOptions, task?.brand])
 
     const cadastroChecklists = useMemo(
         () => checklists.filter((item) => item.phase === 'cadastro' && !isDocAlertChecklist(item)),
@@ -232,6 +246,11 @@ export function TaskDetailsDialog({
         setEditAssigneeId(task.assignee_id ?? "")
         setEditTitle(task.title ?? "")
         setEditPriority(task.priority ?? "MEDIUM")
+        setEditClientName(task.client_name ?? "")
+        setEditCodigoInstalacao(task.codigo_instalacao ?? "")
+        setEditIndicacaoId(task.indicacao_id ?? "")
+        setEditContactId(task.contact_id ?? "")
+        setEditProposalId(task.proposal_id ?? "")
         if (task.due_date) {
             const parsed = new Date(task.due_date)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
@@ -256,21 +275,26 @@ export function TaskDetailsDialog({
     }, [open, task?.id])
 
     useEffect(() => {
-        if (!open) return
-        const fetchUsers = async () => {
-            const data = await getTaskAssignableUsers()
+        if (!open || !task) return
+        const fetchDependencies = async () => {
+            const [userData, proposalData] = await Promise.all([
+                getTaskAssignableUsers(),
+                getTaskProposalOptions(task.brand),
+            ])
+
             setUsers(
-                (data ?? []).map((user) => ({
+                (userData ?? []).map((user) => ({
                     id: user.id,
                     name: user.name || "Sem Nome",
                     email: user.email,
                     department: user.department,
                 }))
             )
+            setProposalOptions(proposalData ?? [])
         }
 
-        fetchUsers()
-    }, [open])
+        fetchDependencies()
+    }, [open, task?.id, task?.brand])
 
     useEffect(() => {
         if (!task) return
@@ -361,6 +385,49 @@ export function TaskDetailsDialog({
         setIsSendingComment(false)
     }
 
+    const handleSelectProposal = (proposalId: string) => {
+        if (proposalId === "__none__") {
+            setEditProposalId("")
+            return
+        }
+
+        const selected = proposalOptions.find((proposal) => proposal.id === proposalId)
+        if (!selected) return
+
+        setEditProposalId(selected.id)
+        if (selected.client_id) setEditIndicacaoId(selected.client_id)
+        if (selected.contact_id) setEditContactId(selected.contact_id)
+        if (selected.client_name) {
+            setEditClientName(selected.client_name)
+        } else if (selected.contact_name) {
+            setEditClientName(selected.contact_name)
+        }
+        if (selected.codigo_instalacao) setEditCodigoInstalacao(selected.codigo_instalacao)
+    }
+
+    const handleSelectTaskLead = (
+        lead: {
+            id: string
+            nome: string
+            codigo_instalacao: string | null
+        },
+        source?: "indicacao" | "contact"
+    ) => {
+        setEditClientName(lead.nome || "")
+        setEditProposalId("")
+
+        if (source === "contact") {
+            setEditContactId(lead.id)
+            setEditIndicacaoId("")
+            setEditCodigoInstalacao("")
+            return
+        }
+
+        setEditIndicacaoId(lead.id)
+        setEditContactId("")
+        setEditCodigoInstalacao(lead.codigo_instalacao || "")
+    }
+
     const handleSaveDetails = async () => {
         setIsSavingDetails(true)
         const trimmedTitle = editTitle.trim()
@@ -369,6 +436,7 @@ export function TaskDetailsDialog({
             setIsSavingDetails(false)
             return
         }
+
         let dueDateIso: string | null = null
         if (editDueDate) {
             const parsed = new Date(editDueDate)
@@ -376,11 +444,24 @@ export function TaskDetailsDialog({
                 dueDateIso = parsed.toISOString()
             }
         }
+
+        const selectedProposal = proposalOptions.find((proposal) => proposal.id === editProposalId) ?? null
+        const cleanedClientName = editClientName.trim()
+        const cleanedCodigoInstalacao = editCodigoInstalacao.trim()
         const updates: Partial<Task> = {
             title: trimmedTitle,
             priority: editPriority,
             due_date: dueDateIso,
             assignee_id: editAssigneeId || null,
+            client_name: cleanedClientName || null,
+            codigo_instalacao: cleanedCodigoInstalacao || null,
+            indicacao_id: editIndicacaoId || null,
+            contact_id: editContactId || null,
+            proposal_id: editProposalId || null,
+        }
+
+        if (selectedProposal?.brand) {
+            updates.brand = selectedProposal.brand
         }
 
         const result = await updateTask(task.id, updates)
@@ -393,6 +474,11 @@ export function TaskDetailsDialog({
                 ...updates,
                 title: trimmedTitle,
                 priority: editPriority,
+                client_name: cleanedClientName || null,
+                codigo_instalacao: cleanedCodigoInstalacao || null,
+                indicacao_id: editIndicacaoId || null,
+                contact_id: editContactId || null,
+                proposal_id: editProposalId || null,
                 assignee: assignee ? { name: assignee.name, email: assignee.email ?? "" } : undefined,
             })
         }
@@ -425,6 +511,7 @@ export function TaskDetailsDialog({
     const visibilityLabel = task.visibility_scope === "RESTRICTED"
         ? "Visibilidade restrita"
         : "Visibilidade equipe"
+    const linkedContactId = editContactId || task.contact_id || ""
 
     const renderChecklistItems = (items: TaskChecklistItem[]) => (
         <div className="space-y-2">
@@ -545,6 +632,71 @@ export function TaskDetailsDialog({
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            <div className="grid gap-3 rounded-md border bg-background/70 p-3">
+                                <h5 className="text-sm font-medium">Vínculo do cliente</h5>
+
+                                <div className="grid gap-1">
+                                    <label className="text-xs text-muted-foreground">Orçamento</label>
+                                    <Select value={editProposalId || "__none__"} onValueChange={handleSelectProposal}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Selecione um orçamento" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__none__">Sem orçamento vinculado</SelectItem>
+                                            {visibleProposalOptions.map((proposal) => {
+                                                const clientLabel = proposal.client_name || proposal.contact_name || "Cliente não identificado"
+                                                return (
+                                                    <SelectItem key={proposal.id} value={proposal.id}>
+                                                        {clientLabel} • {proposal.id.slice(0, 8)}
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <label className="text-xs text-muted-foreground">Contato/Indicação</label>
+                                    <LeadSelect
+                                        value={editIndicacaoId || undefined}
+                                        leadBrand={task.brand}
+                                        onChange={(value) => setEditIndicacaoId(value ?? "")}
+                                        onSelectLead={handleSelectTaskLead}
+                                    />
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <label className="text-xs text-muted-foreground">Nome do cliente</label>
+                                    <Input
+                                        value={editClientName}
+                                        onChange={(event) => setEditClientName(event.target.value)}
+                                        placeholder="Nome do cliente"
+                                    />
+                                </div>
+
+                                <div className="grid gap-1">
+                                    <label className="text-xs text-muted-foreground">Código de instalação</label>
+                                    <Input
+                                        value={editCodigoInstalacao}
+                                        onChange={(event) => setEditCodigoInstalacao(event.target.value)}
+                                        placeholder="Código de instalação"
+                                    />
+                                </div>
+
+                                {linkedContactId && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Contato vinculado:{" "}
+                                        <Link
+                                            href={`/admin/contatos/${linkedContactId}`}
+                                            className="underline underline-offset-2"
+                                        >
+                                            abrir contato 360
+                                        </Link>
+                                    </p>
+                                )}
+                            </div>
+
                             <div className="grid gap-2">
                                 <label className="text-xs text-muted-foreground">Comentário</label>
                                 {replyTo && (

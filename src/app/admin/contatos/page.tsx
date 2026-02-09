@@ -152,6 +152,7 @@ export default async function AdminContactsPage({
                                 <TableHead>Cidade</TableHead>
                                 <TableHead>Criado em</TableHead>
                                 <TableHead>ID</TableHead>
+                                <TableHead className="text-right">Ações</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -174,19 +175,28 @@ export default async function AdminContactsPage({
 
                                 return (
                                     <TableRow key={contact.id}>
-                                        <TableCell className="font-medium">{name}</TableCell>
+                                        <TableCell className="font-medium">
+                                            <Link href={`/admin/contatos/${contact.id}`} className="hover:underline">
+                                                {name}
+                                            </Link>
+                                        </TableCell>
                                         <TableCell>{contact.email || "-"}</TableCell>
                                         <TableCell>{contact.whatsapp || "-"}</TableCell>
                                         <TableCell>{contact.phone || contact.mobile || "-"}</TableCell>
                                         <TableCell>{location}</TableCell>
                                         <TableCell>{formattedDate}</TableCell>
                                         <TableCell>{contact.external_id || "-"}</TableCell>
+                                        <TableCell className="text-right">
+                                            <Button asChild variant="outline" size="sm">
+                                                <Link href={`/admin/contatos/${contact.id}`}>Ver 360</Link>
+                                            </Button>
+                                        </TableCell>
                                     </TableRow>
                                 )
                             })}
                             {(!contacts || contacts.length === 0) && (
                                 <TableRow>
-                                    <TableCell colSpan={7} className="h-24 text-center">
+                                    <TableCell colSpan={8} className="h-24 text-center">
                                         Nenhum contato encontrado.
                                     </TableCell>
                                 </TableRow>
