@@ -4,8 +4,11 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { ensureCrmCardForIndication } from "@/services/crm-card-service"
+import { createTask } from "@/services/task-service"
+import { markDorataContractSigned } from "@/app/actions/crm"
 
 export type InteractionType = 'COMMENT' | 'STATUS_CHANGE' | 'DOC_REQUEST' | 'DOC_APPROVAL'
+type DocValidationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE'
 
 export interface Interaction {
     id: string
@@ -79,13 +82,25 @@ export async function addInteraction(
 
 export async function updateDocValidationStatus(
     indicacaoId: string,
-    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE',
+    status: DocValidationStatus,
     notes?: string
 ) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) return { error: "Unauthorized" }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+        .from('indicacoes')
+        .select('id, nome, marca, user_id')
+        .eq('id', indicacaoId)
+        .maybeSingle()
+
+    if (indicacaoError || !indicacao) {
+        return { error: indicacaoError?.message ?? "Indicação não encontrada" }
+    }
 
     // 1. Update the status column
     const { error: updateError } = await supabase
@@ -105,8 +120,126 @@ export async function updateDocValidationStatus(
         { new_status: status }
     )
 
+    const isDorata = indicacao.marca === 'dorata'
+    const statusLabelByCode: Record<Exclude<DocValidationStatus, 'PENDING'>, string> = {
+        APPROVED: 'Aprovada',
+        INCOMPLETE: 'Incompleta',
+        REJECTED: 'Rejeitada',
+    }
+    const shortStatus = status === 'PENDING' ? 'Pendente' : statusLabelByCode[status]
+
+    let warning: string | null = null
+
+    if (isDorata && status !== 'PENDING') {
+        const { data: financeUsers, error: financeUsersError } = await supabaseAdmin
+            .from('users')
+            .select('id')
+            .eq('department', 'financeiro')
+            .order('name', { ascending: true })
+
+        if (financeUsersError) {
+            console.error('Erro ao buscar usuários do financeiro:', financeUsersError)
+            warning = 'Falha ao buscar equipe financeira para notificação.'
+        }
+
+        const financeIds = (financeUsers ?? []).map((item) => item.id).filter(Boolean)
+        const financeAssigneeId = financeIds[0] ?? undefined
+        const sellerId = indicacao.user_id ?? undefined
+
+        const ensureTaskNotification = async (params: {
+            marker: string
+            title: string
+            description: string
+            department: 'vendas' | 'financeiro'
+            priority: 'MEDIUM' | 'HIGH'
+            assigneeId?: string
+            observerIds?: string[]
+        }) => {
+            const { data: existingTask, error: existingTaskError } = await supabaseAdmin
+                .from('tasks')
+                .select('id')
+                .eq('indicacao_id', indicacaoId)
+                .like('description', `%${params.marker}%`)
+                .limit(1)
+
+            if (existingTaskError) {
+                console.error('Erro ao verificar tarefa de notificação existente:', existingTaskError)
+            }
+
+            if (existingTask && existingTask.length > 0) return
+
+            const taskResult = await createTask({
+                title: params.title,
+                description: `${params.description}\n${params.marker}`,
+                priority: params.priority,
+                status: 'TODO',
+                department: params.department,
+                brand: 'dorata',
+                visibility_scope: params.assigneeId ? 'RESTRICTED' : 'TEAM',
+                assignee_id: params.assigneeId,
+                indicacao_id: indicacaoId,
+                client_name: indicacao.nome ?? undefined,
+                observer_ids: params.observerIds,
+            })
+
+            if (taskResult?.error) {
+                console.error('Erro ao criar tarefa de notificação Dorata:', taskResult.error)
+                warning = warning
+                    ? `${warning} Falha ao criar uma tarefa de notificação.`
+                    : 'Falha ao criar uma tarefa de notificação.'
+            }
+        }
+
+        const sellerMarker = `[dorata_doc_notify:${indicacaoId}:${status}:seller]`
+        await ensureTaskNotification({
+            marker: sellerMarker,
+            title: `Dorata: documentação ${shortStatus.toLowerCase()} - ${indicacao.nome ?? indicacaoId.slice(0, 8)}`,
+            description: [
+                `Status da documentação atualizado para ${shortStatus}.`,
+                'Acompanhar a etapa da venda no CRM Dorata.',
+            ].join('\n'),
+            department: 'vendas',
+            priority: status === 'REJECTED' ? 'HIGH' : 'MEDIUM',
+            assigneeId: sellerId,
+            observerIds: financeIds,
+        })
+
+        if (status === 'APPROVED') {
+            const approvalResult = await markDorataContractSigned(indicacaoId)
+            if (approvalResult?.error) {
+                warning = warning
+                    ? `${warning} ${approvalResult.error}`
+                    : approvalResult.error
+            } else if (approvalResult?.warning) {
+                warning = warning
+                    ? `${warning} ${approvalResult.warning}`
+                    : approvalResult.warning
+            }
+        } else {
+            const financeObserverIds = [sellerId, ...financeIds.filter((id) => id !== financeAssigneeId)]
+                .filter(Boolean) as string[]
+            const financeMarker = `[dorata_doc_notify:${indicacaoId}:${status}:finance]`
+            await ensureTaskNotification({
+                marker: financeMarker,
+                title: `Dorata: documentação ${shortStatus.toLowerCase()} - revisão financeira`,
+                description: [
+                    `Status da documentação atualizado para ${shortStatus}.`,
+                    `Cliente: ${indicacao.nome ?? 'Sem nome'} (${indicacaoId})`,
+                    'Validar impacto financeiro/comissão desta venda no fluxo Dorata.',
+                ].join('\n'),
+                department: 'financeiro',
+                priority: status === 'REJECTED' ? 'HIGH' : 'MEDIUM',
+                assigneeId: financeAssigneeId,
+                observerIds: financeObserverIds,
+            })
+        }
+    }
+
     revalidatePath(`/admin/leads`)
-    return { success: true }
+    revalidatePath(`/admin/crm`)
+    revalidatePath(`/admin/financeiro`)
+    revalidatePath(`/admin/tarefas`)
+    return { success: true, warning }
 }
 
 export async function updateStatusWithComment(

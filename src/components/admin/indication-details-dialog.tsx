@@ -91,6 +91,10 @@ export function IndicationDetailsDialog({
     }, [brand, initialData])
 
     const isDorata = resolvedBrand === "dorata"
+    const initialDocStatus = useMemo(() => {
+        const rawStatus = (initialData as any)?.doc_validation_status
+        return typeof rawStatus === "string" && rawStatus.length > 0 ? rawStatus : "PENDING"
+    }, [initialData])
 
     useEffect(() => {
         setMetadata(null)
@@ -380,7 +384,17 @@ export function IndicationDetailsDialog({
                             </TabsList>
 
                             <TabsContent value="dados" className="space-y-4 mt-4">
-                                <DocChecklist indicacaoId={indicationId} />
+                                <DocChecklist
+                                    indicacaoId={indicationId}
+                                    brand={resolvedBrand}
+                                    currentStatus={initialDocStatus}
+                                    onStatusChange={(nextStatus) => {
+                                        if (resolvedBrand === "dorata" && nextStatus === "APPROVED") {
+                                            setSignedAt((prev) => prev ?? new Date().toISOString())
+                                        }
+                                        router.refresh()
+                                    }}
+                                />
                                 {/* ... metadata details ... */}
                                 {metadata ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border p-4 rounded-md">
