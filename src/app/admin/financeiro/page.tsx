@@ -121,6 +121,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         rentalIndicacoesResult,
         dorataIndicacoesResult,
         paidInvoicesResult,
+        signedContractChecklistsResult,
     ] = await Promise.all([
         supabaseAdmin
             .from('proposals')
@@ -129,7 +130,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .order('created_at', { ascending: false }),
         supabaseAdmin
             .from('indicacoes')
-            .select('id, created_at, nome, status, valor, user_id, assinada_em, compensada_em, users!indicacoes_user_id_fkey(id, name, email)')
+            .select('id, created_at, nome, status, valor, user_id, codigo_instalacao, assinada_em, compensada_em, users!indicacoes_user_id_fkey(id, name, email)')
             .eq('marca', 'rental')
             .order('created_at', { ascending: false }),
         supabaseAdmin
@@ -141,13 +142,20 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         supabaseAdmin
             .from('faturas_conciliacao')
             .select('cliente_id, mes_ano, status_pagamento')
-            .eq('status_pagamento', 'PAGO')
+            .eq('status_pagamento', 'PAGO'),
+        supabaseAdmin
+            .from('task_checklists')
+            .select('created_at, completed_at, title, task:tasks!inner(indicacao_id, codigo_instalacao, brand)')
+            .eq('is_done', true)
+            .ilike('title', '%contrato assinado%')
+            .order('completed_at', { ascending: false }),
     ])
 
     const dorataProposals = dorataProposalsResult.data ?? []
     const rentalIndicacoes = rentalIndicacoesResult.data ?? []
     const dorataIndicacoes = dorataIndicacoesResult.data ?? []
     const paidInvoices = paidInvoicesResult.data ?? []
+    const signedContractChecklists = signedContractChecklistsResult.data ?? []
 
     const formatCurrency = (value: number) => new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -206,6 +214,31 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         }
         if (tx.type === 'override_gestao') {
             paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
+        }
+    }
+
+    const signedTaskDateByLead = new Map<string, string>()
+    const signedTaskDateByInstallCode = new Map<string, string>()
+    for (const item of signedContractChecklists as any[]) {
+        const task = Array.isArray(item.task) ? item.task[0] : item.task
+        if (!task) continue
+
+        const brand = normalizeText(task.brand)
+        if (brand !== 'rental') continue
+
+        const completedAt = ((item.completed_at as string | null) ?? (item.created_at as string | null) ?? null)
+        if (!completedAt) continue
+
+        const leadId = (task.indicacao_id as string | null) ?? null
+        if (leadId) {
+            const current = signedTaskDateByLead.get(leadId)
+            if (!current || completedAt > current) signedTaskDateByLead.set(leadId, completedAt)
+        }
+
+        const installationCode = (task.codigo_instalacao as string | null)?.trim() ?? null
+        if (installationCode) {
+            const current = signedTaskDateByInstallCode.get(installationCode)
+            if (!current || completedAt > current) signedTaskDateByInstallCode.set(installationCode, completedAt)
         }
     }
 
@@ -291,7 +324,13 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         const commissionTotal = base.baseValue * sellerPercent
         const thirtyPercentValue = commissionTotal * 0.3
         const seventyPercentForecast = commissionTotal * 0.7
-        const signed = Boolean(indicacao.assinada_em) || indicacao.status === "CONCLUIDA"
+        const installationCode = (indicacao.codigo_instalacao as string | null)?.trim() ?? null
+        const signedFromTask =
+            signedTaskDateByLead.get(indicacao.id as string) ??
+            (installationCode ? signedTaskDateByInstallCode.get(installationCode) : null) ??
+            null
+        const signedAt = signedFromTask ?? (indicacao.assinada_em as string | null) ?? null
+        const signed = Boolean(signedAt) || indicacao.status === "CONCLUIDA"
         const paidInvoiceDate = paidInvoiceDateByLead.get(indicacao.id as string) ?? null
         const hasPaidInvoice = Boolean(paidInvoiceDate)
 
