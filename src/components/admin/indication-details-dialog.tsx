@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Eye, FileText, Download, Loader2, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import {
     Dialog,
     DialogContent,
@@ -17,11 +18,10 @@ import { LeadInteractions } from "./interactions/lead-interactions"
 import { EnergisaActions } from "./interactions/energisa-actions"
 import { DocChecklist } from "./interactions/doc-checklist"
 import { getProposalsForIndication } from "@/app/actions/proposals"
+import { markDorataContractSigned } from "@/app/actions/crm"
 import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
-
-
-
+import { useRouter } from "next/navigation"
 
 interface IndicationDetailsDialogProps {
     indicationId: string
@@ -69,6 +69,7 @@ export function IndicationDetailsDialog({
     hideDefaultTrigger = false,
     trigger,
 }: IndicationDetailsDialogProps) {
+    const router = useRouter()
     const [internalOpen, setInternalOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [metadata, setMetadata] = useState<any>(null)
@@ -77,6 +78,8 @@ export function IndicationDetailsDialog({
     const [proposalError, setProposalError] = useState<string | null>(null)
     const [proposalLoading, setProposalLoading] = useState(false)
     const [hasLoadedProposals, setHasLoadedProposals] = useState(false)
+    const [isMarkingContractSigned, setIsMarkingContractSigned] = useState(false)
+    const [signedAt, setSignedAt] = useState<string | null>((initialData as any)?.assinada_em ?? null)
     const { showToast } = useToast()
     const isControlled = typeof open === "boolean"
     const isOpen = isControlled ? open : internalOpen
@@ -95,7 +98,8 @@ export function IndicationDetailsDialog({
         setProposals([])
         setProposalError(null)
         setHasLoadedProposals(false)
-    }, [indicationId, userId])
+        setSignedAt((initialData as any)?.assinada_em ?? null)
+    }, [indicationId, userId, initialData])
 
     const toDisplayMetadata = (value: Record<string, unknown> | null) => {
         if (!value) return null
@@ -295,6 +299,44 @@ export function IndicationDetailsDialog({
         setTimeout(() => setIsCopied(false), 2000)
     }
 
+    const handleMarkContractSigned = async () => {
+        if (isMarkingContractSigned || signedAt) return
+
+        setIsMarkingContractSigned(true)
+        try {
+            const result = await markDorataContractSigned(indicationId)
+            if (result?.error) {
+                showToast({
+                    title: "Erro ao marcar contrato",
+                    description: result.error,
+                    variant: "error",
+                })
+                return
+            }
+
+            const resolvedSignedAt = result?.signedAt ?? new Date().toISOString()
+            setSignedAt(resolvedSignedAt)
+
+            showToast({
+                title: "Contrato assinado",
+                description: result?.warning
+                    ? `Comissão liberada, mas com alerta: ${result.warning}`
+                    : "Comissão Dorata liberada e gestor financeiro notificado.",
+                variant: "success",
+            })
+
+            router.refresh()
+        } catch {
+            showToast({
+                title: "Erro inesperado",
+                description: "Não foi possível concluir a atualização do contrato.",
+                variant: "error",
+            })
+        } finally {
+            setIsMarkingContractSigned(false)
+        }
+    }
+
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
             {!hideDefaultTrigger ? (
@@ -329,8 +371,6 @@ export function IndicationDetailsDialog({
                 ) : (
                     <div className="flex-1 py-4">
                         <Tabs defaultValue="dados" className="w-full">
-
-
                             <TabsList className={cn("grid w-full", isDorata ? "grid-cols-5" : "grid-cols-4")}>
                                 <TabsTrigger value="dados">Dados & Docs</TabsTrigger>
                                 {isDorata ? <TabsTrigger value="orcamento">Orçamento</TabsTrigger> : null}
@@ -367,6 +407,37 @@ export function IndicationDetailsDialog({
 
                             {isDorata ? (
                                 <TabsContent value="orcamento" className="space-y-4 mt-4">
+                                    <div className="rounded-lg border p-4 space-y-3 bg-muted/20">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <p className="text-sm font-semibold">Comissão Dorata</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Ao marcar contrato assinado, a comissão fica liberada para recebimento.
+                                                </p>
+                                            </div>
+                                            <Badge variant={signedAt ? "success" : "secondary"}>
+                                                {signedAt ? "Comissão liberada" : "Aguardando contrato assinado"}
+                                            </Badge>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            <Button
+                                                type="button"
+                                                onClick={handleMarkContractSigned}
+                                                disabled={isMarkingContractSigned || Boolean(signedAt)}
+                                            >
+                                                {isMarkingContractSigned ? (
+                                                    <>
+                                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                        Salvando...
+                                                    </>
+                                                ) : signedAt ? "Contrato já assinado" : "Contrato assinado"}
+                                            </Button>
+                                            <span className="text-xs text-muted-foreground">
+                                                Assinado em: {formatDateTime(signedAt)}
+                                            </span>
+                                        </div>
+                                    </div>
+
                                     {proposalLoading ? (
                                         <div className="flex justify-center py-8">
                                             <Loader2 className="h-6 w-6 animate-spin text-primary" />

@@ -9,6 +9,7 @@ import { RentalCommissionSettings } from "@/components/financial/rental-commissi
 import { getPricingRules } from "@/services/proposal-service"
 import { Wallet } from "lucide-react"
 import { getProfile, hasFullAccess } from "@/lib/auth"
+import { Badge } from "@/components/ui/badge"
 import {
     Table,
     TableBody,
@@ -128,7 +129,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     ] = await Promise.all([
         supabaseAdmin
             .from('proposals')
-            .select('id, created_at, total_value, calculation, seller_id, seller:users(id, name, email), cliente:indicacoes(id, nome, marca)')
+            .select('id, created_at, total_value, calculation, seller_id, seller:users(id, name, email), cliente:indicacoes(id, nome, marca, status, assinada_em)')
             .eq('status', 'sent')
             .order('created_at', { ascending: false }),
         supabaseAdmin
@@ -138,7 +139,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .order('created_at', { ascending: false }),
         supabaseAdmin
             .from('indicacoes')
-            .select('id, created_at, nome, status, valor, user_id, users!indicacoes_user_id_fkey(id, name, email)')
+            .select('id, created_at, nome, status, valor, user_id, assinada_em, users!indicacoes_user_id_fkey(id, name, email)')
             .eq('marca', 'dorata')
             .not('valor', 'is', null)
             .order('created_at', { ascending: false }),
@@ -266,22 +267,29 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     )
     const rentalMetadataByLead = new Map(rentalMetadataEntries)
 
-    const dorataProposalsFiltered = dorataProposals.filter(
-        (proposal: any) => proposal?.cliente?.marca === 'dorata'
-    )
+    const dorataProposalsFiltered = dorataProposals.filter((proposal: any) => {
+        const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
+        return cliente?.marca === 'dorata'
+    })
 
     const dorataProposalClientIds = new Set(
         dorataProposalsFiltered
-            .map((proposal: any) => proposal?.cliente?.id)
+            .map((proposal: any) => {
+                const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
+                return cliente?.id
+            })
             .filter(Boolean)
     )
 
     const dorataForecastsFromProposals = dorataProposalsFiltered.map((proposal: any) => {
+        const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
         const calculation = proposal.calculation as any
         const storedCommission = calculation?.commission
         const contractValue = Number(storedCommission?.base_value ?? proposal.total_value ?? 0)
         const commissionPercent = Number(storedCommission?.percent ?? defaultDorataCommissionPercent)
         const commissionValue = Number(storedCommission?.value ?? contractValue * commissionPercent)
+        const signedAt = (cliente?.assinada_em as string | null) ?? null
+        const signed = Boolean(signedAt) || cliente?.status === "CONCLUIDA"
 
         return {
             id: proposal.id as string,
@@ -290,7 +298,10 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             seller: proposal.seller,
             contractValue,
             commissionPercent,
-            commissionValue
+            commissionValue,
+            signedAt,
+            signed,
+            commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
         }
     })
 
@@ -300,6 +311,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             const contractValue = Number(indicacao.valor ?? 0)
             const commissionPercent = Number(defaultDorataCommissionPercent)
             const commissionValue = contractValue * commissionPercent
+            const signedAt = (indicacao.assinada_em as string | null) ?? null
+            const signed = Boolean(signedAt) || indicacao.status === "CONCLUIDA"
 
             return {
                 id: indicacao.id as string,
@@ -308,7 +321,10 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 seller: indicacao.users,
                 contractValue,
                 commissionPercent,
-                commissionValue
+                commissionValue,
+                signedAt,
+                signed,
+                commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
             }
         })
 
@@ -702,12 +718,13 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 <TableHead>Vendedor</TableHead>
                                 <TableHead className="text-right">Contrato</TableHead>
                                 <TableHead className="text-right">Comissão</TableHead>
+                                <TableHead>Status comissão</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {filteredDorataForecasts.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
+                                    <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
                                         Nenhuma previsão Dorata registrada.
                                     </TableCell>
                                 </TableRow>
@@ -718,6 +735,14 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         <TableCell>{item.seller?.name || item.seller?.email || 'Sistema'}</TableCell>
                                         <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
                                         <TableCell className="text-right">{formatCurrency(item.commissionValue)}</TableCell>
+                                        <TableCell>
+                                            <div className="flex flex-col gap-1">
+                                                <Badge variant={item.signed ? "success" : "secondary"}>{item.commissionStatus}</Badge>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {item.signedAt ? `Assinado em ${formatDate(item.signedAt)}` : "Aguardando contrato assinado"}
+                                                </span>
+                                            </div>
+                                        </TableCell>
                                     </TableRow>
                                 ))
                             )}

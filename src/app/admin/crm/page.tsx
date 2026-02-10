@@ -108,6 +108,7 @@ export default async function AdminCrmPage() {
                 email,
                 telefone,
                 status,
+                assinada_em,
                 documento,
                 unidade_consumidora,
                 codigo_cliente,

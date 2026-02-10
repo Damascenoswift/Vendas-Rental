@@ -5,7 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
 import { getRentalDefaultStageName } from "@/services/crm-card-service"
-import { createRentalTasksForIndication } from "@/services/task-service"
+import { createRentalTasksForIndication, createTask } from "@/services/task-service"
 
 export async function updateCrmCardStage(cardId: string, newStageId: string) {
     const supabase = await createClient()
@@ -112,6 +112,173 @@ export async function deleteCrmCard(cardId: string, brand: "dorata" | "rental") 
     const crmPath = brand === "rental" ? "/admin/crm/rental" : "/admin/crm"
     revalidatePath(crmPath)
     return { success: true }
+}
+
+export async function markDorataContractSigned(indicacaoId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Não autorizado" }
+    }
+
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+
+    if (!role || !crmAllowedRoles.includes(role)) {
+        return { error: "Sem permissão para atualizar contrato no CRM." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+        .from("indicacoes")
+        .select("id, nome, marca, status, valor, assinada_em, contrato_enviado_em")
+        .eq("id", indicacaoId)
+        .maybeSingle()
+
+    if (indicacaoError || !indicacao) {
+        return { error: indicacaoError?.message ?? "Indicação não encontrada" }
+    }
+
+    if (indicacao.marca !== "dorata") {
+        return { error: "Ação disponível apenas para indicações Dorata." }
+    }
+
+    const nowIso = new Date().toISOString()
+    const signedAt = indicacao.assinada_em ?? nowIso
+
+    const updates: Record<string, string> = {}
+    if (!indicacao.contrato_enviado_em) {
+        updates.contrato_enviado_em = signedAt
+    }
+    if (!indicacao.assinada_em) {
+        updates.assinada_em = signedAt
+    }
+    if (indicacao.status !== "CONCLUIDA") {
+        updates.status = "CONCLUIDA"
+    }
+
+    if (Object.keys(updates).length > 0) {
+        const { error: updateError } = await supabaseAdmin
+            .from("indicacoes")
+            .update(updates)
+            .eq("id", indicacaoId)
+
+        if (updateError) {
+            return { error: updateError.message }
+        }
+    }
+
+    if (updates.status === "CONCLUIDA") {
+        const { error: statusInteractionError } = await supabaseAdmin
+            .from("indicacao_interactions" as any)
+            .insert({
+                indicacao_id: indicacaoId,
+                user_id: user.id,
+                type: "STATUS_CHANGE",
+                content: "Status alterado para: CONCLUIDA",
+                metadata: { new_status: "CONCLUIDA", source: "crm_dorata_contract_signed" },
+            } as any)
+
+        if (statusInteractionError) {
+            console.error("Erro ao registrar histórico de status (Dorata):", statusInteractionError)
+        }
+    }
+
+    const notificationMarker = `[dorata_commission_release:${indicacaoId}]`
+    let notificationCreated = false
+    let notificationWarning: string | null = null
+
+    const { data: existingNotificationTask, error: existingTaskError } = await supabaseAdmin
+        .from("tasks")
+        .select("id")
+        .eq("indicacao_id", indicacaoId)
+        .like("description", `%${notificationMarker}%`)
+        .limit(1)
+
+    if (existingTaskError) {
+        console.error("Erro ao verificar notificação financeira existente:", existingTaskError)
+        notificationWarning = "Não foi possível validar notificação anterior do gestor."
+    }
+
+    if (!existingNotificationTask || existingNotificationTask.length === 0) {
+        const { data: financeUsers, error: financeUsersError } = await supabaseAdmin
+            .from("users")
+            .select("id, name")
+            .eq("department", "financeiro")
+            .order("name", { ascending: true })
+
+        if (financeUsersError) {
+            console.error("Erro ao buscar usuários financeiros para notificação:", financeUsersError)
+            notificationWarning = "Falha ao buscar gestor de comissões para notificação."
+        }
+
+        const assigneeId = financeUsers?.[0]?.id ?? undefined
+        const observerIds = (financeUsers ?? [])
+            .map((financeUser) => financeUser.id)
+            .filter((id) => id && id !== assigneeId)
+
+        const notificationTaskResult = await createTask({
+            title: `Comissao Dorata liberada - ${indicacao.nome ?? indicacaoId.slice(0, 8)}`,
+            description: [
+                "Contrato marcado como assinado no CRM Dorata.",
+                `Indicacao: ${indicacao.nome ?? "Sem nome"} (${indicacaoId})`,
+                `Valor informado: ${typeof indicacao.valor === "number" ? indicacao.valor : "nao informado"}`,
+                "Acao: validar e processar a comissao Dorata no financeiro.",
+                notificationMarker,
+            ].join("\n"),
+            priority: "HIGH",
+            status: "TODO",
+            department: "financeiro",
+            brand: "dorata",
+            visibility_scope: assigneeId ? "RESTRICTED" : "TEAM",
+            assignee_id: assigneeId,
+            indicacao_id: indicacaoId,
+            client_name: indicacao.nome ?? undefined,
+            observer_ids: observerIds,
+        })
+
+        if (notificationTaskResult?.error) {
+            console.error("Erro ao criar notificação de comissão Dorata:", notificationTaskResult.error)
+            notificationWarning = "Contrato assinado, mas falhou ao criar tarefa para o gestor de comissões."
+        } else {
+            notificationCreated = true
+        }
+    }
+
+    const { error: commissionInteractionError } = await supabaseAdmin
+        .from("indicacao_interactions" as any)
+        .insert({
+            indicacao_id: indicacaoId,
+            user_id: user.id,
+            type: "COMMENT",
+            content: notificationCreated
+                ? "Contrato assinado no CRM Dorata. Comissão liberada e gestor financeiro notificado."
+                : "Contrato assinado no CRM Dorata. Comissão liberada para conferência financeira.",
+            metadata: {
+                source: "crm_dorata_contract_signed",
+                commission_released: true,
+                manager_notified: notificationCreated,
+            },
+        } as any)
+
+    if (commissionInteractionError) {
+        console.error("Erro ao registrar interação de comissão Dorata:", commissionInteractionError)
+    }
+
+    revalidatePath("/admin/crm")
+    revalidatePath("/admin/indicacoes")
+    revalidatePath("/admin/financeiro")
+    revalidatePath("/admin/tarefas")
+    revalidatePath("/dashboard")
+
+    return {
+        success: true,
+        signedAt,
+        notificationCreated,
+        warning: notificationWarning,
+    }
 }
 
 const crmAllowedRoles = [
