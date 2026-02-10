@@ -140,6 +140,15 @@ export function NewTransactionDialog({ users }: { users: UserSummary[] }) {
                         />
                     </div>
 
+                    <div className="grid gap-2">
+                        <Label htmlFor="origin_lead_id">ID da indicação (opcional)</Label>
+                        <Input
+                            id="origin_lead_id"
+                            name="origin_lead_id"
+                            placeholder="UUID da indicação para conciliar pagamento"
+                        />
+                    </div>
+
                     {/* Descrição */}
                     <div className="grid gap-2">
                         <Label htmlFor="description">Descrição</Label>
