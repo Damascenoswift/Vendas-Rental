@@ -60,29 +60,32 @@ function formatDate(value: string | null | undefined) {
     return new Date(value).toLocaleDateString("pt-BR")
 }
 
-function extractRentalBase(metadata: any, fallbackValue: number) {
-    const consumoMedioKwh = toNumber(
-        metadata?.consumoMedioPF ??
-        metadata?.consumoMedioKwh ??
-        metadata?.consumo_medio_kwh ??
-        0
-    )
+function extractRentalBase(metadata: any) {
+    const consumoMedioPf = toNumber(metadata?.consumoMedioPF ?? metadata?.consumo_medio_pf ?? 0)
     const precoKwh = toNumber(metadata?.precoKwh ?? metadata?.preco_kwh ?? 0)
     const descontoRaw = toNumber(metadata?.desconto ?? metadata?.desconto_percent ?? 0)
-    const desconto = Math.min(Math.max(descontoRaw, 0), 100)
-    const precoComDesconto = precoKwh > 0 ? precoKwh * (1 - desconto / 100) : 0
-    const valorContaEnergia = toNumber(metadata?.valorContaEnergia ?? metadata?.valor_conta_energia ?? 0)
-    const precoPelaConta = consumoMedioKwh > 0 ? valorContaEnergia / consumoMedioKwh : 0
+    const descontoPercent = Math.min(Math.max(descontoRaw, 0), 100)
 
-    const precoFinal = precoComDesconto > 0 ? precoComDesconto : (precoKwh > 0 ? precoKwh : precoPelaConta)
-    const calculado = consumoMedioKwh > 0 && precoFinal > 0
-        ? consumoMedioKwh * precoFinal
-        : fallbackValue
+    const hasBase = consumoMedioPf > 0 && precoKwh > 0
+    if (!hasBase) {
+        return {
+            hasBase: false,
+            baseValue: 0,
+            consumoMedioKwh: consumoMedioPf,
+            precoKwh,
+            descontoPercent,
+        }
+    }
+
+    const valorBruto = consumoMedioPf * precoKwh
+    const valorComDesconto = valorBruto * (1 - descontoPercent / 100)
 
     return {
-        baseValue: calculado,
-        consumoMedioKwh,
-        precoKwh: precoFinal,
+        hasBase: true,
+        baseValue: valorComDesconto,
+        consumoMedioKwh: consumoMedioPf,
+        precoKwh,
+        descontoPercent,
     }
 }
 
@@ -316,14 +319,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
     const rentalForecastRows = rentalIndicacoes.map((indicacao: any) => {
         const metadata = rentalMetadataByLead.get(indicacao.id) ?? null
-        const base = extractRentalBase(metadata, Number(indicacao.valor ?? 0))
+        const base = extractRentalBase(metadata)
         const sellerId = indicacao.user_id as string
         const sellerPercent = sellerPercentByUserId.get(sellerId) ?? rentalDefaultCommissionPercent
         const sellerPercentDisplay = sellerPercentDisplayByUserId.get(sellerId) ?? rentalDefaultPercentDisplay
+        const hasCommissionBase = base.hasBase
 
-        const commissionTotal = base.baseValue * sellerPercent
-        const thirtyPercentValue = commissionTotal * 0.3
-        const seventyPercentForecast = commissionTotal * 0.7
+        const commissionTotal = hasCommissionBase ? base.baseValue * sellerPercent : 0
+        const allowsThirtyAdvance = Boolean(managerUserId) && sellerId === managerUserId
+        const thirtyPercentValue = allowsThirtyAdvance ? commissionTotal * 0.3 : 0
+        const postInvoiceForecast = allowsThirtyAdvance ? commissionTotal * 0.7 : commissionTotal
         const installationCode = (indicacao.codigo_instalacao as string | null)?.trim() ?? null
         const signedFromTask =
             signedTaskDateByLead.get(indicacao.id as string) ??
@@ -335,16 +340,22 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         const hasPaidInvoice = Boolean(paidInvoiceDate)
 
         const paidSellerCommission = paidCommissionByLeadBeneficiary.get(`${indicacao.id}:${sellerId}`) ?? 0
-        const thirtyStatus = signed
-            ? (paidSellerCommission >= thirtyPercentValue ? "Pago" : "Liberado")
-            : "Aguardando assinatura"
-        const seventyStatus = hasPaidInvoice
-            ? (paidSellerCommission >= commissionTotal ? "Pago" : "Liberado")
-            : "Aguardando fatura paga"
+        const thirtyStatus = !hasCommissionBase
+            ? "Sem consumo médio PF"
+            : allowsThirtyAdvance
+                ? (signed ? (paidSellerCommission >= thirtyPercentValue ? "Pago" : "Liberado") : "Aguardando assinatura")
+                : "Não se aplica"
+        const seventyStatus = !hasCommissionBase
+            ? "Sem consumo médio PF"
+            : hasPaidInvoice
+                ? (paidSellerCommission >= commissionTotal ? "Pago" : "Liberado")
+                : "Aguardando fatura paga"
 
-        const seventyAdjusted = hasPaidInvoice
-            ? Math.max(commissionTotal - paidSellerCommission, 0)
-            : seventyPercentForecast
+        const seventyAdjusted = !hasCommissionBase
+            ? 0
+            : hasPaidInvoice
+                ? Math.max(commissionTotal - paidSellerCommission, 0)
+                : postInvoiceForecast
 
         return {
             id: indicacao.id as string,
@@ -368,6 +379,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             hasPaidInvoice,
             paidInvoiceDate,
             paidSellerCommission,
+            hasCommissionBase,
+            allowsThirtyAdvance,
         }
     })
 
@@ -379,14 +392,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         ? rentalForecastRows
             .filter((row) => row.sellerId !== managerUserId)
             .map((row) => {
-                const commissionTotal = row.baseValue * managerOverridePercent
+                const commissionTotal = row.hasCommissionBase ? row.baseValue * managerOverridePercent : 0
                 const thirtyPercentValue = commissionTotal * 0.3
                 const seventyPercentForecast = commissionTotal * 0.7
                 const paidOverride = paidOverrideByLeadBeneficiary.get(`${row.id}:${managerUserId}`) ?? 0
 
-                const seventyAdjusted = row.hasPaidInvoice
-                    ? Math.max(commissionTotal - paidOverride, 0)
-                    : seventyPercentForecast
+                const seventyAdjusted = !row.hasCommissionBase
+                    ? 0
+                    : row.hasPaidInvoice
+                        ? Math.max(commissionTotal - paidOverride, 0)
+                        : seventyPercentForecast
 
                 return {
                     ...row,
@@ -397,12 +412,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                     seventyAdjusted,
                     paidOverride,
                     commissionPercentDisplay: managerOverridePercentDisplay,
-                    thirtyStatus: row.signed
-                        ? (paidOverride >= thirtyPercentValue ? "Pago" : "Liberado")
-                        : "Aguardando assinatura",
-                    seventyStatus: row.hasPaidInvoice
-                        ? (paidOverride >= commissionTotal ? "Pago" : "Liberado")
-                        : "Aguardando fatura paga",
+                    thirtyStatus: !row.hasCommissionBase
+                        ? "Sem consumo médio PF"
+                        : row.signed
+                            ? (paidOverride >= thirtyPercentValue ? "Pago" : "Liberado")
+                            : "Aguardando assinatura",
+                    seventyStatus: !row.hasCommissionBase
+                        ? "Sem consumo médio PF"
+                        : row.hasPaidInvoice
+                            ? (paidOverride >= commissionTotal ? "Pago" : "Liberado")
+                            : "Aguardando fatura paga",
                 }
             })
         : []
@@ -533,16 +552,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                         <Wallet className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="text-2xl font-bold">{formatCurrency(totalRentalThirty)}</div>
-                    <p className="text-xs text-muted-foreground">Valor da etapa contrato assinado</p>
+                    <p className="text-xs text-muted-foreground">Somente gestor no contrato assinado</p>
                 </div>
 
                 <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
                     <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">70% Ajustado</h3>
+                        <h3 className="tracking-tight text-sm font-medium">Saldo no Pagamento</h3>
                         <Wallet className="h-4 w-4 text-muted-foreground" />
                     </div>
                     <div className="text-2xl font-bold">{formatCurrency(totalRentalSeventyAdjusted)}</div>
-                    <p className="text-xs text-muted-foreground">Saldo após descontar o que já foi pago</p>
+                    <p className="text-xs text-muted-foreground">Para gestor: 70%; demais: total na fatura paga</p>
                 </div>
 
                 <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
@@ -567,7 +586,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                     <div>
                         <h2 className="text-lg font-semibold">Previsões Rental (30/70)</h2>
                         <p className="text-sm text-muted-foreground">
-                            30% libera em contrato assinado. 70% libera com Fatura PAGO e ajusta pelo já pago.
+                            Base = Consumo Médio PF x Preço kWh x (1 - desconto%). 30% apenas para {managerName}.
                         </p>
                     </div>
                     <Table>
@@ -596,18 +615,18 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         <TableCell>{formatDate(item.createdAt)}</TableCell>
                                         <TableCell>{item.sellerName}</TableCell>
                                         <TableCell>{item.nome}</TableCell>
-                                        <TableCell className="text-right">{formatCurrency(item.baseValue)}</TableCell>
+                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.baseValue) : "—"}</TableCell>
                                         <TableCell className="text-right">{formatPercent(item.commissionPercentDisplay)}</TableCell>
-                                        <TableCell className="text-right">{formatCurrency(item.commissionTotal)}</TableCell>
+                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
                                         <TableCell>
                                             <div className="text-xs">
-                                                <div className="font-medium">{formatCurrency(item.thirtyPercentValue)}</div>
+                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
                                                 <div className="text-muted-foreground">{item.thirtyStatus}</div>
                                             </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="text-xs">
-                                                <div className="font-medium">{formatCurrency(item.seventyAdjusted)}</div>
+                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
                                                 <div className="text-muted-foreground">{item.seventyStatus}</div>
                                             </div>
                                         </TableCell>
@@ -649,16 +668,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         <TableCell>{formatDate(item.createdAt)}</TableCell>
                                         <TableCell>{item.sellerName}</TableCell>
                                         <TableCell>{item.nome}</TableCell>
-                                        <TableCell className="text-right">{formatCurrency(item.commissionTotal)}</TableCell>
+                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
                                         <TableCell>
                                             <div className="text-xs">
-                                                <div className="font-medium">{formatCurrency(item.thirtyPercentValue)}</div>
+                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
                                                 <div className="text-muted-foreground">{item.thirtyStatus}</div>
                                             </div>
                                         </TableCell>
                                         <TableCell>
                                             <div className="text-xs">
-                                                <div className="font-medium">{formatCurrency(item.seventyAdjusted)}</div>
+                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
                                                 <div className="text-muted-foreground">{item.seventyStatus}</div>
                                             </div>
                                         </TableCell>
