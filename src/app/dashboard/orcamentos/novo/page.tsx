@@ -1,19 +1,38 @@
 "use client"
 
+import { useEffect } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { OrcamentoForm } from "@/components/forms/orcamento-form"
 import { useAuthSession } from "@/hooks/use-auth-session"
+import { useRouter } from "next/navigation"
 
 export default function NovoOrcamentoPage() {
-    const { session } = useAuthSession()
+    const { session, status, profile } = useAuthSession()
+    const router = useRouter()
     const userId = session?.user.id
+    const internalRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2']
+    const shouldUseProposalFlow = internalRoles.includes(profile?.role ?? '')
+
+    useEffect(() => {
+        if (status === "authenticated" && shouldUseProposalFlow) {
+            router.replace("/admin/orcamentos/novo")
+        }
+    }, [status, shouldUseProposalFlow, router])
 
     if (!userId) {
         return (
             <div className="flex justify-center p-8">
                 <span className="text-muted-foreground">Carregando...</span>
+            </div>
+        )
+    }
+
+    if (shouldUseProposalFlow) {
+        return (
+            <div className="flex justify-center p-8">
+                <span className="text-muted-foreground">Redirecionando para o novo fluxo de orçamento...</span>
             </div>
         )
     }

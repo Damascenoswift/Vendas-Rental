@@ -560,7 +560,13 @@ export default function DashboardPage() {
           <Link href="/indicacoes">
             <Button size="sm">Nova indicação</Button>
           </Link>
-          <Link href="/dashboard/orcamentos/novo">
+          <Link
+            href={
+              ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')
+                ? "/admin/orcamentos/novo"
+                : "/dashboard/orcamentos/novo"
+            }
+          >
             <Button variant="secondary" size="sm">Solicitar Orçamento</Button>
           </Link>
           <QuickIndicationDialog />

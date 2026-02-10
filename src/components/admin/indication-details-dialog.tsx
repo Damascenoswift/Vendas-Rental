@@ -460,7 +460,11 @@ export function IndicationDetailsDialog({
                                         <div className="text-sm text-destructive">{proposalError}</div>
                                     ) : proposals.length === 0 ? (
                                         <div className="text-center py-6 text-muted-foreground">
-                                            Nenhum orçamento encontrado para esta indicação.
+                                            <p>Nenhum orçamento encontrado para esta indicação.</p>
+                                            <p className="text-xs mt-2">
+                                                Orçamentos do fluxo legado (Solicitar Orçamento) não aparecem aqui. Use o fluxo novo em
+                                                <span className="font-medium"> /admin/orcamentos/novo</span>.
+                                            </p>
                                         </div>
                                     ) : (
                                         <div className="space-y-3">

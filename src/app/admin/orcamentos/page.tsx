@@ -1,10 +1,12 @@
-
 import { createClient } from "@/lib/supabase/server"
+import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { Plus } from "lucide-react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import { redirect } from "next/navigation"
+import { getProfile } from "@/lib/auth"
 import {
     Table,
     TableBody,
@@ -16,17 +18,51 @@ import {
 
 export default async function ProposalsPage() {
     const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
 
-    // Fetch proposals with seller info
-    // For MVP just fetch raw
-    const { data: proposals } = await supabase
+    if (!user) {
+        redirect("/login")
+    }
+
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+    const allowedRoles = [
+        "adm_mestre",
+        "adm_dorata",
+        "supervisor",
+        "suporte_tecnico",
+        "suporte_limitado",
+        "funcionario_n1",
+        "funcionario_n2",
+    ]
+
+    if (!role || !allowedRoles.includes(role)) {
+        redirect("/dashboard")
+    }
+
+    // Use service client here to avoid RLS false-negatives for internal operational roles.
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: proposals, error: proposalsError } = await supabaseAdmin
         .from('proposals')
         .select(`
             *,
-            seller:users(name),
-            cliente:indicacoes(nome)
+            seller:users(name, email),
+            cliente:indicacoes(id, nome)
         `)
         .order('created_at', { ascending: false })
+
+    const normalizedProposals = (proposals ?? []).map((proposal: any) => {
+        const seller = Array.isArray(proposal.seller) ? (proposal.seller[0] ?? null) : proposal.seller
+        const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
+
+        return {
+            ...proposal,
+            seller,
+            cliente,
+        }
+    })
 
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
@@ -55,18 +91,24 @@ export default async function ProposalsPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {!proposals || proposals.length === 0 ? (
+                        {proposalsError ? (
+                            <TableRow>
+                                <TableCell colSpan={6} className="text-center h-24 text-destructive">
+                                    Erro ao carregar orçamentos: {proposalsError.message}
+                                </TableCell>
+                            </TableRow>
+                        ) : normalizedProposals.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                                     Nenhum orçamento encontrado.
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            proposals.map((proposal) => (
+                            normalizedProposals.map((proposal: any) => (
                                 <TableRow key={proposal.id}>
                                     <TableCell>{format(new Date(proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
                                     <TableCell>{proposal.cliente?.nome || '-'}</TableCell>
-                                    <TableCell>{proposal.seller?.name || 'Sistema'}</TableCell>
+                                    <TableCell>{proposal.seller?.name || proposal.seller?.email || 'Sistema'}</TableCell>
                                     <TableCell>{proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}</TableCell>
                                     <TableCell className="capitalize">{proposal.status}</TableCell>
                                     <TableCell className="text-right font-medium">

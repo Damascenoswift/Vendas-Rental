@@ -34,7 +34,7 @@ export async function getProposalsForIndication(indicacaoId: string) {
   const supabaseAdmin = createSupabaseServiceClient()
   const { data: indicacao, error: indicacaoError } = await supabaseAdmin
     .from("indicacoes")
-    .select("id, email, telefone, documento, marca")
+    .select("id, nome, email, telefone, documento, marca, user_id")
     .eq("id", indicacaoId)
     .maybeSingle()
 
@@ -44,24 +44,85 @@ export async function getProposalsForIndication(indicacaoId: string) {
 
   const candidateIds = new Set<string>([indicacaoId])
   const brand = indicacao?.marca === "rental" ? "rental" : "dorata"
+  const normalizeText = (value?: string | null) =>
+    (value ?? "")
+      .trim()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+  const onlyDigits = (value?: string | null) => (value ?? "").replace(/\D/g, "")
 
   if (indicacao) {
-    const matchClauses: string[] = []
-    if (indicacao.email) matchClauses.push(`email.eq.${indicacao.email}`)
-    if (indicacao.telefone) matchClauses.push(`telefone.eq.${indicacao.telefone}`)
-    if (indicacao.documento) matchClauses.push(`documento.eq.${indicacao.documento}`)
+    const emailCurrent = (indicacao.email ?? "").trim().toLowerCase()
+    const phoneCurrent = onlyDigits(indicacao.telefone)
+    const docCurrent = onlyDigits(indicacao.documento)
+    const nameCurrent = normalizeText(indicacao.nome)
 
-    if (matchClauses.length > 0) {
-      const { data: matches } = await supabaseAdmin
+    const candidatePools: any[] = []
+
+    if (indicacao.user_id) {
+      const { data: sameSellerCandidates, error: sameSellerError } = await supabaseAdmin
         .from("indicacoes")
-        .select("id")
+        .select("id, nome, email, telefone, documento, user_id")
         .eq("marca", brand)
-        .or(matchClauses.join(","))
+        .eq("user_id", indicacao.user_id)
+        .order("created_at", { ascending: false })
+        .limit(400)
 
-      ;(matches ?? []).forEach((row) => {
-        if (row?.id) candidateIds.add(row.id)
-      })
+      if (sameSellerError) {
+        console.error("Erro ao buscar candidatas (mesmo vendedor):", sameSellerError)
+      } else {
+        candidatePools.push(...(sameSellerCandidates ?? []))
+      }
     }
+
+    const { data: brandCandidates, error: brandCandidatesError } = await supabaseAdmin
+      .from("indicacoes")
+      .select("id, nome, email, telefone, documento, user_id")
+      .eq("marca", brand)
+      .order("created_at", { ascending: false })
+      .limit(400)
+
+    if (brandCandidatesError) {
+      console.error("Erro ao buscar candidatas para vínculo de orçamento:", brandCandidatesError)
+    } else {
+      candidatePools.push(...(brandCandidates ?? []))
+    }
+
+    const seenCandidateIds = new Set<string>()
+    candidatePools.forEach((row: any) => {
+      const rowId = row?.id as string | undefined
+      if (!rowId || seenCandidateIds.has(rowId)) return
+      seenCandidateIds.add(rowId)
+
+      const emailRow = ((row?.email as string | null) ?? "").trim().toLowerCase()
+      const phoneRow = onlyDigits(row?.telefone as string | null)
+      const docRow = onlyDigits(row?.documento as string | null)
+      const nameRow = normalizeText(row?.nome as string | null)
+
+      const emailMatch = Boolean(emailCurrent && emailRow && emailCurrent === emailRow)
+      const docMatch = Boolean(docCurrent && docRow && docCurrent === docRow)
+
+      const phoneMatch = Boolean(
+        phoneCurrent &&
+          phoneRow &&
+          (
+            phoneCurrent === phoneRow ||
+            phoneRow.endsWith(phoneCurrent.slice(-8)) ||
+            phoneCurrent.endsWith(phoneRow.slice(-8))
+          )
+      )
+
+      const nameMatch = Boolean(
+        nameCurrent &&
+          nameRow &&
+          (nameCurrent === nameRow || nameCurrent.includes(nameRow) || nameRow.includes(nameCurrent))
+      )
+
+      if (emailMatch || docMatch || phoneMatch || nameMatch) {
+        candidateIds.add(rowId)
+      }
+    })
   }
 
   const { data, error } = await supabaseAdmin
