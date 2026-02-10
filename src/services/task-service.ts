@@ -710,7 +710,10 @@ export async function createTask(data: {
         }
     }
 
+    // Avoid INSERT ... RETURNING here: creator may not have SELECT access on RESTRICTED tasks.
+    const taskId = crypto.randomUUID()
     const payload: Record<string, any> = {
+        id: taskId,
         ...taskData,
         visibility_scope: visibilityScope,
         description: description || null,
@@ -719,17 +722,13 @@ export async function createTask(data: {
         completed_by: taskData.status === 'DONE' ? user.id : null,
     }
 
-    let inserted: { id: string } | null = null
     let error: { message?: string | null } | null = null
 
     while (true) {
         const insertResult = await supabase
             .from('tasks')
             .insert(payload)
-            .select('id')
-            .single()
 
-        inserted = insertResult.data
         error = insertResult.error
 
         if (!error) break
@@ -762,11 +761,11 @@ export async function createTask(data: {
     }
 
     const observerIds = Array.from(new Set(observerIdsRaw ?? [])).filter(Boolean)
-    if (observerIds.length > 0 && inserted?.id) {
+    if (observerIds.length > 0) {
         const { error: observersError } = await supabase
             .from('task_observers')
             .insert(observerIds.map((observerId) => ({
-                task_id: inserted.id,
+                task_id: taskId,
                 user_id: observerId,
             })))
 
@@ -776,11 +775,11 @@ export async function createTask(data: {
         }
     }
 
-    if (description && inserted?.id) {
+    if (description) {
         const { error: commentError } = await supabase
             .from('task_comments')
             .insert({
-                task_id: inserted.id,
+                task_id: taskId,
                 user_id: user.id,
                 content: description,
             })
@@ -792,7 +791,7 @@ export async function createTask(data: {
     }
 
     revalidatePath('/admin/tarefas')
-    return { success: true, taskId: inserted?.id ?? null }
+    return { success: true, taskId }
 }
 
 async function insertChecklistTemplate(params: {
