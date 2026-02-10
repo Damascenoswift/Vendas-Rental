@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, type ChangeEvent } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -37,6 +37,7 @@ import { createTask, getTaskAssignableUsers, getTaskLeadById, getTaskProposalOpt
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import { Checkbox } from "@/components/ui/checkbox"
+import { uploadTaskPdfAttachment, validateTaskPdfAttachment } from "@/lib/task-attachments"
 
 const taskSchema = z
     .object({
@@ -73,6 +74,8 @@ export function TaskDialog() {
     const [users, setUsers] = useState<{ id: string, name: string, department: string | null }[]>([])
     const [observerIds, setObserverIds] = useState<string[]>([])
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
+    const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+    const attachmentInputRef = useRef<HTMLInputElement>(null)
 
     const { showToast } = useToast()
 
@@ -83,7 +86,7 @@ export function TaskDialog() {
             department: "outro",
             status: "TODO",
             brand: "rental",
-            visibility_scope: "TEAM",
+            visibility_scope: "RESTRICTED",
             description: "",
             client_name: "",
         },
@@ -106,8 +109,30 @@ export function TaskDialog() {
     useEffect(() => {
         if (!open) {
             setObserverIds([])
+            setAttachmentFile(null)
+            if (attachmentInputRef.current) {
+                attachmentInputRef.current.value = ""
+            }
         }
     }, [open])
+
+    function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0] ?? null
+        if (!file) {
+            setAttachmentFile(null)
+            return
+        }
+
+        const validationError = validateTaskPdfAttachment(file)
+        if (validationError) {
+            showToast({ title: "Arquivo inválido", description: validationError, variant: "error" })
+            event.target.value = ""
+            setAttachmentFile(null)
+            return
+        }
+
+        setAttachmentFile(file)
+    }
 
     async function fetchUsers() {
         const data = await getTaskAssignableUsers()
@@ -154,10 +179,36 @@ export function TaskDialog() {
             if (result.error) {
                 showToast({ title: "Erro ao criar tarefa", description: result.error, variant: "error" })
             } else {
-                showToast({ title: "Tarefa criada!", variant: "success" })
+                const createdTaskId = (result as { taskId?: string | null }).taskId ?? null
+                let attachmentError: string | null = null
+
+                if (attachmentFile && !createdTaskId) {
+                    attachmentError = "A tarefa foi criada, mas não foi possível identificar o ID para anexar o PDF."
+                } else if (attachmentFile && createdTaskId) {
+                    const uploadResult = await uploadTaskPdfAttachment(createdTaskId, attachmentFile)
+                    if (uploadResult.error) {
+                        attachmentError = uploadResult.error
+                    }
+                }
+
+                if (attachmentError) {
+                    showToast({
+                        title: "Tarefa criada com alerta",
+                        description: `Tarefa criada, mas o PDF não foi anexado: ${attachmentError}`,
+                        variant: "info",
+                    })
+                } else if (attachmentFile) {
+                    showToast({ title: "Tarefa criada com PDF anexado!", variant: "success" })
+                } else {
+                    showToast({ title: "Tarefa criada!", variant: "success" })
+                }
                 setOpen(false)
                 form.reset()
                 setObserverIds([])
+                setAttachmentFile(null)
+                if (attachmentInputRef.current) {
+                    attachmentInputRef.current.value = ""
+                }
             }
         } catch (error) {
             console.error(error)
@@ -347,7 +398,7 @@ export function TaskDialog() {
                                             </FormControl>
                                             <SelectContent>
                                                 <SelectItem value="TEAM">Equipe (todos visualizam)</SelectItem>
-                                                <SelectItem value="RESTRICTED">Restrita (responsável + observadores + criador)</SelectItem>
+                                                <SelectItem value="RESTRICTED">Restrita (responsável + observadores)</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -396,7 +447,7 @@ export function TaskDialog() {
                             </div>
                             {visibilityScope === "RESTRICTED" && (
                                 <p className="text-xs text-muted-foreground">
-                                    Em tarefas restritas, acesso do responsável e observadores selecionados (criador mantém acesso).
+                                    Em tarefas restritas, acesso apenas do responsável e observadores selecionados.
                                 </p>
                             )}
                         </div>
@@ -551,6 +602,19 @@ export function TaskDialog() {
                                 </FormItem>
                             )}
                         />
+
+                        <div className="space-y-2">
+                            <FormLabel>Anexo PDF (Opcional)</FormLabel>
+                            <Input
+                                ref={attachmentInputRef}
+                                type="file"
+                                accept="application/pdf,.pdf"
+                                onChange={handleAttachmentChange}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Apenas PDF, até 10MB.
+                            </p>
+                        </div>
 
                         <div className="flex justify-end pt-2">
                             <Button type="button" variant="outline" onClick={() => setOpen(false)} className="mr-2">

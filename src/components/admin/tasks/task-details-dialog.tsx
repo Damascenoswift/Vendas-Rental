@@ -1,10 +1,10 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { AlertTriangle, Trash2, UserPlus, X } from "lucide-react"
+import { AlertTriangle, Paperclip, Trash2, UserPlus, X } from "lucide-react"
 
 import type { Task, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority, TaskProposalOption } from "@/services/task-service"
 import {
@@ -24,6 +24,13 @@ import {
     toggleTaskChecklistItem,
     updateTask,
 } from "@/services/task-service"
+import {
+    formatTaskAttachmentSize,
+    listTaskPdfAttachments,
+    type TaskAttachmentFile,
+    uploadTaskPdfAttachment,
+    validateTaskPdfAttachment,
+} from "@/lib/task-attachments"
 
 import {
     Dialog,
@@ -135,6 +142,7 @@ export function TaskDetailsDialog({
     const [checklists, setChecklists] = useState<TaskChecklistItem[]>([])
     const [observers, setObservers] = useState<TaskObserver[]>([])
     const [comments, setComments] = useState<TaskComment[]>([])
+    const [attachments, setAttachments] = useState<TaskAttachmentFile[]>([])
     const [users, setUsers] = useState<UserOption[]>([])
     const [newChecklistTitle, setNewChecklistTitle] = useState("")
     const [newObserverId, setNewObserverId] = useState<string>("")
@@ -145,6 +153,7 @@ export function TaskDetailsDialog({
     const [isDeleting, setIsDeleting] = useState(false)
     const [isSavingDetails, setIsSavingDetails] = useState(false)
     const [isSendingComment, setIsSendingComment] = useState(false)
+    const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
     const [isActivatingEnergisa, setIsActivatingEnergisa] = useState(false)
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
     const [editDueDate, setEditDueDate] = useState("")
@@ -156,7 +165,9 @@ export function TaskDetailsDialog({
     const [editIndicacaoId, setEditIndicacaoId] = useState("")
     const [editContactId, setEditContactId] = useState("")
     const [editProposalId, setEditProposalId] = useState("")
+    const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
+    const attachmentInputRef = useRef<HTMLInputElement>(null)
     const { showToast } = useToast()
     const { session } = useAuthSession()
 
@@ -241,8 +252,13 @@ export function TaskDetailsDialog({
         setChecklists([])
         setObservers([])
         setComments([])
+        setAttachments([])
         setNewComment("")
         setReplyTo(null)
+        setAttachmentFile(null)
+        if (attachmentInputRef.current) {
+            attachmentInputRef.current.value = ""
+        }
         setEditAssigneeId(task.assignee_id ?? "")
         setEditTitle(task.title ?? "")
         setEditPriority(task.priority ?? "MEDIUM")
@@ -260,14 +276,20 @@ export function TaskDetailsDialog({
 
         const load = async () => {
             setIsLoading(true)
-            const [checklistData, observerData, commentData] = await Promise.all([
+            const [checklistData, observerData, commentData, attachmentResult] = await Promise.all([
                 getTaskChecklists(task.id),
                 getTaskObservers(task.id),
                 getTaskComments(task.id),
+                listTaskPdfAttachments(task.id),
             ])
             setChecklists(checklistData)
             setObservers(observerData)
             setComments(commentData)
+            if (attachmentResult.error) {
+                console.error("Error fetching task attachments:", attachmentResult.error)
+            } else {
+                setAttachments(attachmentResult.data)
+            }
             setIsLoading(false)
         }
 
@@ -383,6 +405,53 @@ export function TaskDetailsDialog({
             setComments(updated)
         }
         setIsSendingComment(false)
+    }
+
+    const refreshTaskAttachments = async (taskId: string) => {
+        const result = await listTaskPdfAttachments(taskId)
+        if (result.error) {
+            console.error("Error fetching task attachments:", result.error)
+            return
+        }
+        setAttachments(result.data)
+    }
+
+    const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0] ?? null
+        if (!file) {
+            setAttachmentFile(null)
+            return
+        }
+
+        const validationError = validateTaskPdfAttachment(file)
+        if (validationError) {
+            showToast({ title: "Arquivo inválido", description: validationError, variant: "error" })
+            event.target.value = ""
+            setAttachmentFile(null)
+            return
+        }
+
+        setAttachmentFile(file)
+    }
+
+    const handleUploadAttachment = async () => {
+        if (!task || !attachmentFile) return
+
+        setIsUploadingAttachment(true)
+        const uploadResult = await uploadTaskPdfAttachment(task.id, attachmentFile)
+        if (uploadResult.error) {
+            showToast({ title: "Erro ao anexar PDF", description: uploadResult.error, variant: "error" })
+            setIsUploadingAttachment(false)
+            return
+        }
+
+        await refreshTaskAttachments(task.id)
+        setAttachmentFile(null)
+        if (attachmentInputRef.current) {
+            attachmentInputRef.current.value = ""
+        }
+        showToast({ title: "PDF anexado com sucesso!", variant: "success" })
+        setIsUploadingAttachment(false)
     }
 
     const handleSelectProposal = (proposalId: string) => {
@@ -849,6 +918,65 @@ export function TaskDetailsDialog({
                                         )}
                                     </div>
                                 </ScrollArea>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Anexos (PDF)</label>
+                                <div className="rounded-md border bg-background p-3 space-y-3">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                        <Input
+                                            ref={attachmentInputRef}
+                                            type="file"
+                                            accept="application/pdf,.pdf"
+                                            onChange={handleAttachmentChange}
+                                            className="sm:max-w-sm"
+                                        />
+                                        <Button
+                                            type="button"
+                                            onClick={handleUploadAttachment}
+                                            disabled={isUploadingAttachment || !attachmentFile}
+                                        >
+                                            {isUploadingAttachment ? "Enviando..." : "Anexar PDF"}
+                                        </Button>
+                                    </div>
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Apenas PDF, até 10MB.
+                                    </p>
+                                    <div className="space-y-2">
+                                        {attachments.map((attachment) => (
+                                            <div
+                                                key={attachment.path}
+                                                className="flex items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2"
+                                            >
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-xs font-medium text-foreground">
+                                                        {attachment.name}
+                                                    </p>
+                                                    <p className="truncate text-[11px] text-muted-foreground">
+                                                        {formatDateTime(attachment.created_at) || "Sem data"} • {formatTaskAttachmentSize(attachment.size)}
+                                                    </p>
+                                                </div>
+                                                {attachment.signedUrl ? (
+                                                    <Button type="button" variant="outline" size="sm" asChild>
+                                                        <a href={attachment.signedUrl} target="_blank" rel="noreferrer" className="gap-1">
+                                                            <Paperclip className="h-3.5 w-3.5" />
+                                                            Abrir PDF
+                                                        </a>
+                                                    </Button>
+                                                ) : (
+                                                    <span className="text-[11px] text-muted-foreground">
+                                                        Sem acesso ao arquivo
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {!isLoading && attachments.length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Nenhum PDF anexado.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="grid gap-1">

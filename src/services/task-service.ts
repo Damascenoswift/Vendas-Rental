@@ -38,24 +38,6 @@ const DOC_EVENT_KEYS: Exclude<TaskChecklistEventKey, null>[] = [
     'DOCS_REJECTED',
 ]
 
-const TASK_BOARD_ALLOWED_ROLES = [
-    'adm_mestre',
-    'adm_dorata',
-    'supervisor',
-    'suporte',
-    'suporte_tecnico',
-    'suporte_limitado',
-    'funcionario_n1',
-    'funcionario_n2',
-    'vendedor_interno',
-    'vendedor_externo',
-] as const
-
-function canManageTaskBoard(role?: string | null, department?: UserProfile['department'] | null) {
-    if (hasFullAccess(role ?? null, department ?? null)) return true
-    return Boolean(role && TASK_BOARD_ALLOWED_ROLES.includes(role as (typeof TASK_BOARD_ALLOWED_ROLES)[number]))
-}
-
 function addDays(base: Date, days: number) {
     return new Date(base.getTime() + days * MS_PER_DAY)
 }
@@ -779,13 +761,7 @@ export async function createTask(data: {
         return { error: error.message }
     }
 
-    const observerIds = Array.from(
-        new Set(
-            visibilityScope === 'RESTRICTED'
-                ? [...(observerIdsRaw ?? []), user.id]
-                : (observerIdsRaw ?? [])
-        )
-    ).filter(Boolean)
+    const observerIds = Array.from(new Set(observerIdsRaw ?? [])).filter(Boolean)
     if (observerIds.length > 0 && inserted?.id) {
         const { error: observersError } = await supabase
             .from('task_observers')
@@ -816,7 +792,7 @@ export async function createTask(data: {
     }
 
     revalidatePath('/admin/tarefas')
-    return { success: true }
+    return { success: true, taskId: inserted?.id ?? null }
 }
 
 async function insertChecklistTemplate(params: {
@@ -1206,9 +1182,9 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         .eq('id', user.id)
         .maybeSingle()
 
-    const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
     if (profileError) return { error: profileError.message }
-    if (!canManageTaskBoard((profile as any)?.role ?? null, department)) {
+    const role = (profile as { role?: string | null } | null)?.role ?? null
+    if (role !== 'adm_mestre') {
         return { error: "Sem permissão para mover tarefas." }
     }
 
