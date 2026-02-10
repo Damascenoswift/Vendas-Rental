@@ -42,6 +42,60 @@ type FinancialPermissionResult =
     | { userId: string }
     | { error: string }
 
+function parseMissingColumnError(message?: string | null) {
+    if (!message) return null
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (!match) return null
+    return { column: match[1], table: match[2] }
+}
+
+async function upsertPricingRuleWithFallback(
+    supabaseAdmin: any,
+    payload: Record<string, unknown>
+) {
+    const candidate: Record<string, unknown> = { ...payload }
+    const onConflictRegex = /no unique or exclusion constraint matching the ON CONFLICT specification/i
+
+    while (true) {
+        const { error } = await supabaseAdmin
+            .from('pricing_rules')
+            .upsert(candidate, { onConflict: 'key' })
+
+        if (!error) return null
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (missingColumn && missingColumn.table === 'pricing_rules' && missingColumn.column in candidate) {
+            delete candidate[missingColumn.column]
+            continue
+        }
+
+        if (!onConflictRegex.test(error.message ?? '')) {
+            return error
+        }
+
+        const { data: existing, error: findError } = await supabaseAdmin
+            .from('pricing_rules')
+            .select('id')
+            .eq('key', String(candidate.key))
+            .maybeSingle()
+
+        if (findError) return findError
+
+        if (existing?.id) {
+            const { error: updateError } = await supabaseAdmin
+                .from('pricing_rules')
+                .update(candidate)
+                .eq('id', existing.id)
+            return updateError ?? null
+        }
+
+        const { error: insertError } = await supabaseAdmin
+            .from('pricing_rules')
+            .insert(candidate)
+        return insertError ?? null
+    }
+}
+
 async function checkFinancialPermission(): Promise<FinancialPermissionResult> {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -143,10 +197,10 @@ export async function upsertSellerRentalCommissionPercent(input: { userId: strin
         return { success: false as const, message: 'Dados inválidos para percentual do vendedor.' }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
     const { userId, percent } = parsed.data
 
-    const { data: seller } = await (supabaseAdmin as any)
+    const sessionClient = await createClient()
+    const { data: seller } = await sessionClient
         .from('users')
         .select('name, email')
         .eq('id', userId)
@@ -155,20 +209,39 @@ export async function upsertSellerRentalCommissionPercent(input: { userId: strin
     const sellerName = seller?.name || seller?.email || userId
     const ruleKey = `rental_commission_percent_user_${userId}`
 
-    const { error } = await (supabaseAdmin as any)
-        .from('pricing_rules')
-        .upsert({
-            name: `Percentual comissão Rental - ${sellerName}`,
-            key: ruleKey,
-            value: Number(percent),
-            unit: '%',
-            description: 'Percentual de comissão Rental específico do vendedor',
-            active: true,
-        }, { onConflict: 'key' })
+    const rulePayload = {
+        name: `Percentual comissão Rental - ${sellerName}`,
+        key: ruleKey,
+        value: Number(percent),
+        unit: '%',
+        description: 'Percentual de comissão Rental específico do vendedor',
+        active: true,
+    }
 
-    if (error) {
-        console.error('Erro ao salvar comissão por vendedor:', error)
-        return { success: false as const, message: 'Erro ao salvar comissão por vendedor.' }
+    let lastError: { message?: string | null } | null = null
+    try {
+        const supabaseAdmin = createSupabaseServiceClient()
+        lastError = await upsertPricingRuleWithFallback(supabaseAdmin, rulePayload)
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin para financeiro:', error)
+        lastError = { message: 'cliente admin indisponível' }
+    }
+
+    if (lastError) {
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        if (!sessionError) {
+            revalidatePath('/admin/financeiro')
+            return { success: true as const, message: 'Comissão do vendedor atualizada.' }
+        }
+        lastError = sessionError
+    }
+
+    if (lastError) {
+        console.error('Erro ao salvar comissão por vendedor:', lastError)
+        return {
+            success: false as const,
+            message: `Erro ao salvar comissão por vendedor: ${lastError.message ?? 'falha desconhecida'}`,
+        }
     }
 
     revalidatePath('/admin/financeiro')
@@ -184,21 +257,40 @@ export async function upsertRentalDefaultCommissionPercent(input: { percent: num
         return { success: false as const, message: 'Percentual padrão inválido.' }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
-    const { error } = await (supabaseAdmin as any)
-        .from('pricing_rules')
-        .upsert({
-            name: 'Percentual comissão Rental (padrão)',
-            key: 'rental_default_commission_percent',
-            value: Number(parsed.data.percent),
-            unit: '%',
-            description: 'Percentual padrão de comissão Rental aplicado quando não houver regra por vendedor',
-            active: true,
-        }, { onConflict: 'key' })
+    const rulePayload = {
+        name: 'Percentual comissão Rental (padrão)',
+        key: 'rental_default_commission_percent',
+        value: Number(parsed.data.percent),
+        unit: '%',
+        description: 'Percentual padrão de comissão Rental aplicado quando não houver regra por vendedor',
+        active: true,
+    }
 
-    if (error) {
-        console.error('Erro ao salvar comissão padrão Rental:', error)
-        return { success: false as const, message: 'Erro ao salvar comissão padrão Rental.' }
+    const sessionClient = await createClient()
+    let lastError: { message?: string | null } | null = null
+    try {
+        const supabaseAdmin = createSupabaseServiceClient()
+        lastError = await upsertPricingRuleWithFallback(supabaseAdmin, rulePayload)
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin para financeiro:', error)
+        lastError = { message: 'cliente admin indisponível' }
+    }
+
+    if (lastError) {
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        if (!sessionError) {
+            revalidatePath('/admin/financeiro')
+            return { success: true as const, message: 'Comissão padrão Rental atualizada.' }
+        }
+        lastError = sessionError
+    }
+
+    if (lastError) {
+        console.error('Erro ao salvar comissão padrão Rental:', lastError)
+        return {
+            success: false as const,
+            message: `Erro ao salvar comissão padrão Rental: ${lastError.message ?? 'falha desconhecida'}`,
+        }
     }
 
     revalidatePath('/admin/financeiro')
@@ -214,21 +306,40 @@ export async function upsertRentalManagerOverridePercent(input: { percent: numbe
         return { success: false as const, message: 'Percentual de override inválido.' }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
-    const { error } = await (supabaseAdmin as any)
-        .from('pricing_rules')
-        .upsert({
-            name: 'Percentual override gestor Rental',
-            key: 'rental_manager_override_percent',
-            value: Number(parsed.data.percent),
-            unit: '%',
-            description: 'Percentual de override do gestor comercial sobre vendas Rental de outros vendedores',
-            active: true,
-        }, { onConflict: 'key' })
+    const rulePayload = {
+        name: 'Percentual override gestor Rental',
+        key: 'rental_manager_override_percent',
+        value: Number(parsed.data.percent),
+        unit: '%',
+        description: 'Percentual de override do gestor comercial sobre vendas Rental de outros vendedores',
+        active: true,
+    }
 
-    if (error) {
-        console.error('Erro ao salvar override do gestor:', error)
-        return { success: false as const, message: 'Erro ao salvar override do gestor.' }
+    const sessionClient = await createClient()
+    let lastError: { message?: string | null } | null = null
+    try {
+        const supabaseAdmin = createSupabaseServiceClient()
+        lastError = await upsertPricingRuleWithFallback(supabaseAdmin, rulePayload)
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin para financeiro:', error)
+        lastError = { message: 'cliente admin indisponível' }
+    }
+
+    if (lastError) {
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        if (!sessionError) {
+            revalidatePath('/admin/financeiro')
+            return { success: true as const, message: 'Override do gestor atualizado.' }
+        }
+        lastError = sessionError
+    }
+
+    if (lastError) {
+        console.error('Erro ao salvar override do gestor:', lastError)
+        return {
+            success: false as const,
+            message: `Erro ao salvar override do gestor: ${lastError.message ?? 'falha desconhecida'}`,
+        }
     }
 
     revalidatePath('/admin/financeiro')
