@@ -341,12 +341,12 @@ export function TaskDetailsDialog({
     const handleToggleChecklist = async (item: TaskChecklistItem, nextChecked: boolean) => {
         if (!task) return
         const result = await toggleTaskChecklistItem(item.id, nextChecked)
+        const updated = await getTaskChecklists(task.id)
+        setChecklists(updated)
         if (result?.error) {
             showToast({ title: "Erro ao atualizar checklist", description: result.error, variant: "error" })
             return
         }
-        const updated = await getTaskChecklists(task.id)
-        setChecklists(updated)
     }
 
     const handleDeleteChecklist = async (itemId: string) => {

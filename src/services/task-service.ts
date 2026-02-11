@@ -103,6 +103,62 @@ function isChecklistAlertOnlyItem(item: { event_key?: string | null; title?: str
     return isDocAlertEventKey(inferred)
 }
 
+type TaskLeadLink = {
+    id: string
+    indicacao_id: string | null
+    proposal_id?: string | null
+    codigo_instalacao?: string | null
+}
+
+async function resolveTaskIndicacaoId(supabase: any, task: TaskLeadLink): Promise<string | null> {
+    if (task.indicacao_id) return task.indicacao_id
+
+    let resolvedId: string | null = null
+
+    if (task.proposal_id) {
+        const { data: proposalData, error: proposalError } = await supabase
+            .from('proposals')
+            .select('client_id')
+            .eq('id', task.proposal_id)
+            .maybeSingle()
+
+        if (proposalError) {
+            console.error("Error resolving indicacao_id from proposal:", proposalError)
+        } else if (proposalData?.client_id) {
+            resolvedId = proposalData.client_id
+        }
+    }
+
+    if (!resolvedId && task.codigo_instalacao) {
+        const { data: leadByInstall, error: leadByInstallError } = await supabase
+            .from('indicacoes')
+            .select('id')
+            .eq('codigo_instalacao', task.codigo_instalacao)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+        if (leadByInstallError) {
+            console.error("Error resolving indicacao_id from installation code:", leadByInstallError)
+        } else if (leadByInstall?.id) {
+            resolvedId = leadByInstall.id
+        }
+    }
+
+    if (!resolvedId) return null
+
+    const { error: linkError } = await supabase
+        .from('tasks')
+        .update({ indicacao_id: resolvedId })
+        .eq('id', task.id)
+
+    if (linkError) {
+        console.error("Error linking task to resolved indication:", linkError)
+    }
+
+    return resolvedId
+}
+
 function buildInteractionFromChecklistEvent(eventKey: Exclude<TaskChecklistEventKey, null>) {
     if (eventKey === 'DOCS_APPROVED') {
         return {
@@ -1293,12 +1349,16 @@ export async function triggerTaskDocAlert(taskId: string, alertType: 'DOCS_INCOM
 
     const { data: task, error: taskError } = await supabase
         .from('tasks')
-        .select('id, indicacao_id')
+        .select('id, indicacao_id, proposal_id, codigo_instalacao')
         .eq('id', taskId)
         .maybeSingle()
 
     if (taskError) return { error: taskError.message }
-    if (!task?.indicacao_id) {
+    const resolvedIndicacaoId = task
+        ? await resolveTaskIndicacaoId(supabase, task as TaskLeadLink)
+        : null
+
+    if (!resolvedIndicacaoId) {
         return { error: "Esta tarefa não está vinculada a uma indicação." }
     }
 
@@ -1311,7 +1371,7 @@ export async function triggerTaskDocAlert(taskId: string, alertType: 'DOCS_INCOM
     const { error: updateLeadError } = await supabaseAdmin
         .from('indicacoes')
         .update(updates)
-        .eq('id', task.indicacao_id)
+        .eq('id', resolvedIndicacaoId)
 
     if (updateLeadError) return { error: updateLeadError.message }
 
@@ -1319,7 +1379,7 @@ export async function triggerTaskDocAlert(taskId: string, alertType: 'DOCS_INCOM
     const { error: interactionError } = await supabaseAdmin
         .from('indicacao_interactions' as any)
         .insert({
-            indicacao_id: task.indicacao_id,
+            indicacao_id: resolvedIndicacaoId,
             user_id: user.id,
             type: interaction.type,
             content: interaction.content,
@@ -1376,7 +1436,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
     let eventKeyColumnAvailable = true
     const { data: itemWithTaskData, error: itemFetchError } = await supabase
         .from('task_checklists')
-        .select('id, task_id, title, event_key, task:tasks!inner(indicacao_id, brand)')
+        .select('id, task_id, title, event_key, task:tasks!inner(id, indicacao_id, brand, proposal_id, codigo_instalacao)')
         .eq('id', itemId)
         .maybeSingle()
 
@@ -1387,7 +1447,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
             eventKeyColumnAvailable = false
             const fallback = await supabase
                 .from('task_checklists')
-                .select('id, task_id, title, task:tasks!inner(indicacao_id, brand)')
+                .select('id, task_id, title, task:tasks!inner(id, indicacao_id, brand, proposal_id, codigo_instalacao)')
                 .eq('id', itemId)
                 .maybeSingle()
 
@@ -1405,13 +1465,27 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
         task_id: string
         title: string | null
         event_key?: string | null
-        task?: { indicacao_id: string | null; brand: Brand | null } | null
+        task?: {
+            id: string
+            indicacao_id: string | null
+            brand: Brand | null
+            proposal_id: string | null
+            codigo_instalacao: string | null
+        } | null
     } | null
 
     const rawEventKey = itemWithTask?.event_key ?? null
     const eventKey =
         (rawEventKey as TaskChecklistEventKey) ??
         inferEventKey(itemWithTask?.title)
+
+    let resolvedIndicacaoId = itemWithTask?.task?.indicacao_id ?? null
+    if (isDone && eventKey && itemWithTask?.task) {
+        resolvedIndicacaoId = await resolveTaskIndicacaoId(supabase, itemWithTask.task as TaskLeadLink)
+        if (!resolvedIndicacaoId) {
+            return { error: "Vincule a tarefa a uma indicação antes de concluir este checklist." }
+        }
+    }
 
     const { error } = await supabase
         .from('task_checklists')
@@ -1449,9 +1523,15 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
     }
 
     // Reflect key milestones/doc commands to the lead of the seller
-    if (isDone && eventKey && itemWithTask?.task?.indicacao_id) {
-        const indicacaoId = itemWithTask.task.indicacao_id
-        const supabaseAdmin = createSupabaseServiceClient()
+    if (isDone && eventKey && resolvedIndicacaoId) {
+        const indicacaoId = resolvedIndicacaoId
+        let supabaseAdmin: any
+        try {
+            supabaseAdmin = createSupabaseServiceClient()
+        } catch (error) {
+            console.error("Error creating service client for checklist sync. Falling back to user client:", error)
+            supabaseAdmin = supabase
+        }
 
         const { data: indicacaoAtual } = await supabaseAdmin
             .from('indicacoes')
@@ -1552,6 +1632,9 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
 
         if (syncLeadError) {
             console.error("Error syncing lead from checklist event:", syncLeadError)
+            return {
+                error: "Checklist atualizado, mas não foi possível sincronizar a indicação vinculada.",
+            }
         } else if (syncedLead) {
             const interaction = buildInteractionFromChecklistEvent(eventKey)
             const { error: interactionError } = await supabaseAdmin
