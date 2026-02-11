@@ -23,11 +23,38 @@ function mapDeleteIndicationError(error: { message?: string | null; details?: st
     if (raw.includes("financeiro_transacoes_origin_lead_id_fkey")) {
         return "Não foi possível excluir: esta indicação está vinculada a transações financeiras."
     }
+    if (raw.includes("financeiro_fechamento_itens_origin_lead_id_fkey")) {
+        return "Não foi possível excluir: esta indicação está vinculada a itens de fechamento financeiro."
+    }
+    if (raw.includes("financeiro_relatorios_manuais_itens_origin_lead_id_fkey")) {
+        return "Não foi possível excluir: esta indicação está vinculada a relatórios financeiros manuais."
+    }
+    if (raw.includes("crm_cards_indicacao_id_fkey")) {
+        return "Não foi possível excluir: esta indicação está vinculada ao CRM."
+    }
+    if (raw.includes("tasks_indicacao_id_fkey")) {
+        return "Não foi possível excluir: esta indicação possui tarefas vinculadas."
+    }
+    if (raw.includes("indicacao_interactions_indicacao_id_fkey")) {
+        return "Não foi possível excluir: esta indicação possui histórico vinculado."
+    }
     if (error.code === "23503") {
         return "Não foi possível excluir: existem registros vinculados a esta indicação."
     }
 
     return "Erro ao excluir indicação"
+}
+
+function isMissingSchemaError(error: { message?: string | null; details?: string | null; code?: string | null }) {
+    const raw = `${error.code ?? ""} ${error.message ?? ""} ${error.details ?? ""}`.toLowerCase()
+    return (
+        error.code === "42P01" ||
+        error.code === "42703" ||
+        error.code === "PGRST204" ||
+        raw.includes("does not exist") ||
+        raw.includes("could not find the") ||
+        raw.includes("schema cache")
+    )
 }
 
 export async function updateIndicationStatus(id: string, newStatus: string) {
@@ -219,22 +246,91 @@ export async function deleteIndication(id: string) {
         return { error: "Erro ao excluir orçamentos vinculados à indicação." }
     }
 
-    // 2) Desvincula transações financeiras (preserva histórico financeiro).
-    // Usa service client para não depender de policy financeira do usuário logado.
+    // 2) Limpeza best-effort de vínculos para priorizar exclusão no painel admin.
+    // Financeiro legado (fallback para schemas antigos onde FK pode não ser ON DELETE SET NULL).
     const { error: unlinkFinanceError } = await supabaseAdmin
         .from("financeiro_transacoes")
         .update({ origin_lead_id: null })
         .eq("origin_lead_id", id)
 
-    if (unlinkFinanceError && unlinkFinanceError.code !== "42P01") {
-        console.error("Erro ao desvincular transações financeiras:", unlinkFinanceError)
-        return { error: "Erro ao desvincular transações financeiras da indicação." }
+    if (unlinkFinanceError && !isMissingSchemaError(unlinkFinanceError)) {
+        const { error: deleteFinanceRowsError } = await supabaseAdmin
+            .from("financeiro_transacoes")
+            .delete()
+            .eq("origin_lead_id", id)
+
+        if (deleteFinanceRowsError && !isMissingSchemaError(deleteFinanceRowsError)) {
+            console.error("Erro ao limpar vínculo financeiro (update/delete):", {
+                unlinkFinanceError,
+                deleteFinanceRowsError,
+            })
+        }
     }
 
-    const { error } = await supabaseAdmin
+    // Tabelas financeiras novas (080): apenas desvincula referência.
+    const { error: unlinkClosureItemsError } = await supabaseAdmin
+        .from("financeiro_fechamento_itens")
+        .update({ origin_lead_id: null })
+        .eq("origin_lead_id", id)
+    if (unlinkClosureItemsError && !isMissingSchemaError(unlinkClosureItemsError)) {
+        console.error("Erro ao desvincular fechamento financeiro da indicação:", unlinkClosureItemsError)
+    }
+
+    const { error: unlinkManualReportsError } = await supabaseAdmin
+        .from("financeiro_relatorios_manuais_itens")
+        .update({ origin_lead_id: null })
+        .eq("origin_lead_id", id)
+    if (unlinkManualReportsError && !isMissingSchemaError(unlinkManualReportsError)) {
+        console.error("Erro ao desvincular relatório manual da indicação:", unlinkManualReportsError)
+    }
+
+    // CRM e histórico de interação (para ambientes com FK sem cascade).
+    const { error: deleteCrmCardsError } = await supabaseAdmin
+        .from("crm_cards")
+        .delete()
+        .eq("indicacao_id", id)
+    if (deleteCrmCardsError && !isMissingSchemaError(deleteCrmCardsError)) {
+        console.error("Erro ao excluir cards CRM vinculados:", deleteCrmCardsError)
+    }
+
+    const { error: deleteInteractionsError } = await supabaseAdmin
+        .from("indicacao_interactions")
+        .delete()
+        .eq("indicacao_id", id)
+    if (deleteInteractionsError && !isMissingSchemaError(deleteInteractionsError)) {
+        console.error("Erro ao excluir interações vinculadas:", deleteInteractionsError)
+    }
+
+    // Tasks geralmente usam ON DELETE SET NULL, mas forçamos em ambientes legados.
+    const { error: unlinkTasksError } = await supabaseAdmin
+        .from("tasks")
+        .update({ indicacao_id: null })
+        .eq("indicacao_id", id)
+    if (unlinkTasksError && !isMissingSchemaError(unlinkTasksError)) {
+        console.error("Erro ao desvincular tarefas da indicação:", unlinkTasksError)
+    }
+
+    let { error } = await supabaseAdmin
         .from("indicacoes")
         .delete()
         .eq("id", id)
+
+    // Retry específico para FK financeira legada.
+    const deleteRaw = `${error?.message ?? ""} ${error?.details ?? ""}`.toLowerCase()
+    if (error && deleteRaw.includes("financeiro_transacoes_origin_lead_id_fkey")) {
+        const { error: forceDeleteFinanceError } = await supabaseAdmin
+            .from("financeiro_transacoes")
+            .delete()
+            .eq("origin_lead_id", id)
+
+        if (!forceDeleteFinanceError || isMissingSchemaError(forceDeleteFinanceError)) {
+            const retry = await supabaseAdmin
+                .from("indicacoes")
+                .delete()
+                .eq("id", id)
+            error = retry.error
+        }
+    }
 
     if (error) {
         console.error("Erro ao excluir indicação:", error)
