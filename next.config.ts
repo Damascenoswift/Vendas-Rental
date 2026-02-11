@@ -7,6 +7,16 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true, // Temporário para permitir deploy
   },
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "rental-v2-clean.vercel.app" }],
+        destination: "https://app.rentalenergia.com.br/:path*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
