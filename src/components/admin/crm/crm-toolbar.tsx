@@ -8,9 +8,10 @@ import { syncCrmCardsFromIndicacoes } from "@/app/actions/crm"
 
 type Props = {
     brand: "dorata" | "rental"
+    canSync?: boolean
 }
 
-export function CrmToolbar({ brand }: Props) {
+export function CrmToolbar({ brand, canSync = true }: Props) {
     const [isPending, startTransition] = useTransition()
     const router = useRouter()
     const { showToast } = useToast()
@@ -42,9 +43,11 @@ export function CrmToolbar({ brand }: Props) {
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={handleSync} disabled={isPending}>
-                {isPending ? "Sincronizando..." : "Sincronizar indicações"}
-            </Button>
+            {canSync ? (
+                <Button onClick={handleSync} disabled={isPending}>
+                    {isPending ? "Sincronizando..." : "Sincronizar indicações"}
+                </Button>
+            ) : null}
         </div>
     )
 }

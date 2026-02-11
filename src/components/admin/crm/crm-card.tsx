@@ -47,6 +47,7 @@ export function CrmCard({
     stageOptions,
     onStageChange,
     onDelete,
+    dragDisabled = false,
 }: {
     item: CrmCardData
     isOverlay?: boolean
@@ -54,12 +55,14 @@ export function CrmCard({
     stageOptions?: Array<{ id: string; name: string }>
     onStageChange?: (stageId: string) => void | Promise<void>
     onDelete?: (item: CrmCardData) => void | Promise<void>
+    dragDisabled?: boolean
 }) {
     const { showToast } = useToast()
     const [isGeneratingContract, setIsGeneratingContract] = useState(false)
     const [isDeleting, setIsDeleting] = useState(false)
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: item.id,
+        disabled: dragDisabled,
     })
 
     const style = {
@@ -150,7 +153,7 @@ export function CrmCard({
             style={style}
             {...attributes}
             {...listeners}
-            className="w-full cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow bg-background"
+            className={`w-full hover:shadow-md transition-shadow bg-background ${dragDisabled ? "" : "cursor-grab active:cursor-grabbing"}`}
             onClick={() => {
                 if (isDragging) return
                 onClick?.(item)

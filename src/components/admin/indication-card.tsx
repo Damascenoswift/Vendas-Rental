@@ -2,11 +2,9 @@
 
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { FileText } from "lucide-react"
-import { Button } from "@/components/ui/button"
 
 export type Indication = {
     id: string
@@ -21,6 +19,7 @@ export type Indication = {
 type Props = {
     item: Indication
     isOverlay?: boolean
+    dragDisabled?: boolean
 }
 
 function getInitials(name: string) {
@@ -32,7 +31,7 @@ function getInitials(name: string) {
         .toUpperCase()
 }
 
-export function IndicationCard({ item, isOverlay }: Props) {
+export function IndicationCard({ item, isOverlay, dragDisabled = false }: Props) {
     const {
         attributes,
         listeners,
@@ -42,6 +41,7 @@ export function IndicationCard({ item, isOverlay }: Props) {
         isDragging,
     } = useSortable({
         id: item.id,
+        disabled: dragDisabled,
     })
 
     const style = {
@@ -76,7 +76,7 @@ export function IndicationCard({ item, isOverlay }: Props) {
             style={style}
             {...attributes}
             {...listeners}
-            className="w-full cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow bg-background"
+            className={`w-full hover:shadow-md transition-shadow bg-background ${dragDisabled ? "" : "cursor-grab active:cursor-grabbing"}`}
         >
             <CardHeader className="p-3 pb-0 space-y-0">
                 <div className="flex justify-between items-start">

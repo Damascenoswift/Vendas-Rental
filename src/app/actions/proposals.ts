@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
+import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 
 const proposalViewRoles = [
   "adm_mestre",
@@ -30,16 +31,26 @@ export async function getProposalsForIndication(indicacaoId: string) {
   if (!role || !proposalViewRoles.includes(role)) {
     return { error: "Sem permissão para acessar orçamentos." }
   }
+  const supervisorVisibleUserIds =
+    role === "supervisor" ? await getSupervisorVisibleUserIds(user.id) : null
 
   const supabaseAdmin = createSupabaseServiceClient()
-  const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+  let indicacaoQuery = supabaseAdmin
     .from("indicacoes")
     .select("id, nome, email, telefone, documento, marca, user_id")
     .eq("id", indicacaoId)
-    .maybeSingle()
+
+  if (role === "supervisor") {
+    indicacaoQuery = indicacaoQuery.in("user_id", supervisorVisibleUserIds ?? [user.id])
+  }
+
+  const { data: indicacao, error: indicacaoError } = await indicacaoQuery.maybeSingle()
 
   if (indicacaoError) {
     return { error: indicacaoError.message }
+  }
+  if (!indicacao) {
+    return { error: "Indicação fora do escopo permitido." }
   }
 
   const candidateIds = new Set<string>([indicacaoId])
@@ -76,12 +87,17 @@ export async function getProposalsForIndication(indicacaoId: string) {
       }
     }
 
-    const { data: brandCandidates, error: brandCandidatesError } = await supabaseAdmin
+    let brandCandidatesQuery = supabaseAdmin
       .from("indicacoes")
       .select("id, nome, email, telefone, documento, user_id")
       .eq("marca", brand)
       .order("created_at", { ascending: false })
       .limit(400)
+    if (role === "supervisor") {
+      brandCandidatesQuery = brandCandidatesQuery.in("user_id", supervisorVisibleUserIds ?? [user.id])
+    }
+
+    const { data: brandCandidates, error: brandCandidatesError } = await brandCandidatesQuery
 
     if (brandCandidatesError) {
       console.error("Erro ao buscar candidatas para vínculo de orçamento:", brandCandidatesError)

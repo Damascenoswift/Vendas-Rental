@@ -12,6 +12,9 @@ interface ProfileFormProps {
     initialName: string
     initialPhone: string
     email: string
+    role?: string
+    initialCompanyName?: string
+    initialSupervisedCompanyName?: string
 }
 
 const initialState: { error?: string; success?: string } = {
@@ -24,7 +27,14 @@ const passwordInitialState: { error?: string; success?: string } = {
     success: "",
 }
 
-export function ProfileForm({ initialName, initialPhone, email }: ProfileFormProps) {
+export function ProfileForm({
+    initialName,
+    initialPhone,
+    email,
+    role,
+    initialCompanyName = "",
+    initialSupervisedCompanyName = "",
+}: ProfileFormProps) {
     const [state, formAction, isPending] = useActionState(updateProfile, initialState)
     const { showToast } = useToast()
 
@@ -80,6 +90,30 @@ export function ProfileForm({ initialName, initialPhone, email }: ProfileFormPro
                         minLength={10}
                     />
                 </div>
+
+                {role === "vendedor_interno" ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="company_name">Empresa</Label>
+                        <Input
+                            id="company_name"
+                            name="company_name"
+                            defaultValue={initialCompanyName}
+                            placeholder="Ex: Acme Energia"
+                        />
+                    </div>
+                ) : null}
+
+                {role === "supervisor" ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="supervised_company_name">Empresa Supervisionada</Label>
+                        <Input
+                            id="supervised_company_name"
+                            name="supervised_company_name"
+                            defaultValue={initialSupervisedCompanyName}
+                            placeholder="Ex: Acme Energia"
+                        />
+                    </div>
+                ) : null}
 
                 <Button type="submit" disabled={isPending}>
                     {isPending ? "Salvando..." : "Salvar Alterações"}

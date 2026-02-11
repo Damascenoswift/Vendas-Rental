@@ -8,9 +8,10 @@ type Props = {
     id: string
     title: string
     items: Indication[]
+    dragDisabled?: boolean
 }
 
-export function KanbanColumn({ id, title, items }: Props) {
+export function KanbanColumn({ id, title, items, dragDisabled = false }: Props) {
     const { setNodeRef } = useDroppable({
         id: id,
     })
@@ -27,7 +28,7 @@ export function KanbanColumn({ id, title, items }: Props) {
             <div ref={setNodeRef} className="flex-1 p-2 space-y-2 min-h-[150px]">
                 <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                     {items.map((item) => (
-                        <IndicationCard key={item.id} item={item} />
+                        <IndicationCard key={item.id} item={item} dragDisabled={dragDisabled} />
                     ))}
                 </SortableContext>
             </div>

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
+import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { CrmBoard } from "@/components/admin/crm/crm-board"
 import { CrmToolbar } from "@/components/admin/crm/crm-toolbar"
 
@@ -43,6 +44,8 @@ export default async function AdminCrmRentalPage() {
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
+    const supervisorVisibleUserIds =
+        role === "supervisor" ? await getSupervisorVisibleUserIds(user.id) : null
 
     const { data: pipeline, error: pipelineError } = await supabaseAdmin
         .from("crm_pipelines")
@@ -92,40 +95,89 @@ export default async function AdminCrmRentalPage() {
         )
     }
 
-    let cards: any[] = []
-    const { data: cardsData, error: cardsError } = await supabaseAdmin
-        .from("crm_cards")
-        .select(`
-            id,
-            stage_id,
-            indicacao_id,
-            title,
-            created_at,
-            indicacoes (
-                id,
-                tipo,
-                nome,
-                email,
-                telefone,
-                status,
-                documento,
-                unidade_consumidora,
-                codigo_cliente,
-                codigo_instalacao,
-                valor,
-                marca,
-                user_id
-            )
-        `)
-        .eq("pipeline_id", pipeline.id)
-        .order("created_at", { ascending: false })
+    let scopedIndicacaoIds: string[] | null = null
+    if (role === "supervisor") {
+        const { data: scopedIndicacoes, error: scopedIndicacoesError } = await supabaseAdmin
+            .from("indicacoes")
+            .select("id")
+            .eq("marca", "rental")
+            .in("user_id", supervisorVisibleUserIds ?? [user.id])
 
-    if (cardsError) {
-        const { data: fallbackCards, error: fallbackError } = await supabaseAdmin
+        if (scopedIndicacoesError) {
+            return (
+                <div className="container mx-auto py-10">
+                    <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+                        <h3 className="font-bold">Erro ao aplicar escopo</h3>
+                        <p className="text-sm">{scopedIndicacoesError.message}</p>
+                    </div>
+                </div>
+            )
+        }
+
+        scopedIndicacaoIds = (scopedIndicacoes ?? []).map((item: { id: string }) => item.id)
+    }
+
+    let cards: any[] = []
+    let cardsData: any[] = []
+    let cardsError: { message: string } | null = null
+    if (role === "supervisor" && (!scopedIndicacaoIds || scopedIndicacaoIds.length === 0)) {
+        cardsData = []
+    } else {
+        let cardsQuery = supabaseAdmin
             .from("crm_cards")
-            .select("id, stage_id, indicacao_id, title, created_at")
+            .select(`
+                id,
+                stage_id,
+                indicacao_id,
+                title,
+                created_at,
+                indicacoes (
+                    id,
+                    tipo,
+                    nome,
+                    email,
+                    telefone,
+                    status,
+                    documento,
+                    unidade_consumidora,
+                    codigo_cliente,
+                    codigo_instalacao,
+                    valor,
+                    marca,
+                    user_id
+                )
+            `)
             .eq("pipeline_id", pipeline.id)
             .order("created_at", { ascending: false })
+
+        if (role === "supervisor") {
+            cardsQuery = cardsQuery.in("indicacao_id", scopedIndicacaoIds ?? [])
+        }
+
+        const cardsResult = await cardsQuery
+        cardsData = cardsResult.data ?? []
+        cardsError = cardsResult.error as { message: string } | null
+    }
+
+    if (cardsError) {
+        let fallbackCards: any[] = []
+        let fallbackError: { message: string } | null = null
+
+        if (role !== "supervisor" || (scopedIndicacaoIds && scopedIndicacaoIds.length > 0)) {
+            let fallbackQuery = supabaseAdmin
+                .from("crm_cards")
+                .select("id, stage_id, indicacao_id, title, created_at")
+                .eq("pipeline_id", pipeline.id)
+                .order("created_at", { ascending: false })
+
+            if (role === "supervisor") {
+                fallbackQuery = fallbackQuery.in("indicacao_id", scopedIndicacaoIds ?? [])
+            }
+
+            const fallbackResult = await fallbackQuery
+            fallbackCards = fallbackResult.data ?? []
+            fallbackError = fallbackResult.error as { message: string } | null
+        }
 
         if (fallbackError) {
             return (
@@ -137,9 +189,9 @@ export default async function AdminCrmRentalPage() {
                 </div>
             )
         }
-        cards = fallbackCards ?? []
+        cards = fallbackCards
     } else {
-        cards = cardsData ?? []
+        cards = cardsData
     }
 
     return (
@@ -151,10 +203,10 @@ export default async function AdminCrmRentalPage() {
                         {pipeline.name} {pipeline.description ? `- ${pipeline.description}` : ""}
                     </p>
                 </div>
-                <CrmToolbar brand="rental" />
+                <CrmToolbar brand="rental" canSync={role !== "supervisor"} />
             </div>
 
-            <CrmBoard stages={stages ?? []} cards={cards} brand="rental" />
+            <CrmBoard stages={stages ?? []} cards={cards} brand="rental" canEdit={role !== "supervisor"} />
         </div>
     )
 }

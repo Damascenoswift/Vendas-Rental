@@ -284,7 +284,6 @@ export async function markDorataContractSigned(indicacaoId: string) {
 const crmAllowedRoles = [
     "adm_mestre",
     "adm_dorata",
-    "supervisor",
     "suporte",
     "suporte_tecnico",
     "suporte_limitado",

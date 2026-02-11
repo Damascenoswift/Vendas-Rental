@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
+import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { AdminIndicacoesClient } from "@/components/admin/admin-indicacoes-client"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -46,10 +47,8 @@ export default async function AdminIndicacoesPage() {
         .order("created_at", { ascending: false })
 
     if (role === 'supervisor') {
-        const { getSubordinates } = await import('@/app/actions/auth-admin')
-        const subordinates = await getSubordinates(user.id) as any[]
-        const allRelevantUserIds = [user.id, ...subordinates.map(s => s.id)]
-        query = query.in("user_id", allRelevantUserIds)
+        const visibleUserIds = await getSupervisorVisibleUserIds(user.id)
+        query = query.in("user_id", visibleUserIds)
     }
 
     const { data: indicacoes, error } = await query

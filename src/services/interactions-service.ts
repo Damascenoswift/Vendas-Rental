@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { ensureCrmCardForIndication } from "@/services/crm-card-service"
 import { createTask } from "@/services/task-service"
 import { markDorataContractSigned } from "@/app/actions/crm"
+import { getProfile } from "@/lib/auth"
 
 export type InteractionType = 'COMMENT' | 'STATUS_CHANGE' | 'DOC_REQUEST' | 'DOC_APPROVAL'
 type DocValidationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE'
@@ -60,6 +61,23 @@ export async function addInteraction(
     if (!user) {
         return { error: "User not authenticated" }
     }
+    const profile = await getProfile(supabase, user.id)
+    if (profile?.role === 'supervisor') {
+        const supabaseAdmin = createSupabaseServiceClient()
+        const { data: targetIndicacao, error: targetIndicacaoError } = await supabaseAdmin
+            .from('indicacoes')
+            .select('id, user_id')
+            .eq('id', indicacaoId)
+            .maybeSingle()
+
+        if (targetIndicacaoError || !targetIndicacao) {
+            return { error: targetIndicacaoError?.message ?? "Indicação não encontrada" }
+        }
+
+        if (targetIndicacao.user_id !== user.id) {
+            return { error: "Supervisor possui acesso apenas de visualização das indicações da equipe." }
+        }
+    }
 
     const { error } = await supabase
         .from('indicacao_interactions')
@@ -91,6 +109,7 @@ export async function updateDocValidationStatus(
     if (!user) return { error: "Unauthorized" }
 
     const supabaseAdmin = createSupabaseServiceClient()
+    const profile = await getProfile(supabase, user.id)
 
     const { data: indicacao, error: indicacaoError } = await supabaseAdmin
         .from('indicacoes')
@@ -100,6 +119,9 @@ export async function updateDocValidationStatus(
 
     if (indicacaoError || !indicacao) {
         return { error: indicacaoError?.message ?? "Indicação não encontrada" }
+    }
+    if (profile?.role === 'supervisor' && indicacao.user_id !== user.id) {
+        return { error: "Supervisor possui acesso apenas de visualização das indicações da equipe." }
     }
 
     // 1. Update the status column
@@ -251,6 +273,24 @@ export async function updateStatusWithComment(
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) return { error: "Unauthorized" }
+    const profile = await getProfile(supabase, user.id)
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    if (profile?.role === 'supervisor') {
+        const { data: targetIndicacao, error: targetIndicacaoError } = await supabaseAdmin
+            .from('indicacoes')
+            .select('id, user_id')
+            .eq('id', indicacaoId)
+            .maybeSingle()
+
+        if (targetIndicacaoError || !targetIndicacao) {
+            return { error: targetIndicacaoError?.message ?? "Indicação não encontrada" }
+        }
+
+        if (targetIndicacao.user_id !== user.id) {
+            return { error: "Supervisor possui acesso apenas de visualização das indicações da equipe." }
+        }
+    }
 
     // 1. Build status update payload (including key contract milestones)
     const { data: currentIndicacaoData } = await supabase
@@ -309,7 +349,6 @@ export async function updateStatusWithComment(
         )
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
     const { data: indicacao, error: indicacaoError } = await supabaseAdmin
         .from('indicacoes')
         .select('id, nome, user_id, marca, status')
@@ -362,6 +401,23 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { error: "Unauthorized" }
+    const profile = await getProfile(supabase, user.id)
+    if (profile?.role === 'supervisor') {
+        const supabaseAdmin = createSupabaseServiceClient()
+        const { data: targetIndicacao, error: targetIndicacaoError } = await supabaseAdmin
+            .from('indicacoes')
+            .select('id, user_id')
+            .eq('id', indicacaoId)
+            .maybeSingle()
+
+        if (targetIndicacaoError || !targetIndicacao) {
+            return { error: targetIndicacaoError?.message ?? "Indicação não encontrada" }
+        }
+
+        if (targetIndicacao.user_id !== user.id) {
+            return { error: "Supervisor possui acesso apenas de visualização das indicações da equipe." }
+        }
+    }
 
     const { error } = await supabase
         .from('energisa_logs')

@@ -39,6 +39,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
     const [view, setView] = useState<"list" | "kanban">("list")
+    const isSupervisorViewOnly = role === "supervisor"
 
     // ... (useMemos remain the same) 
     // Extract unique vendors
@@ -84,6 +85,14 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
         role === 'funcionario_n1' ||
         department === 'financeiro'
 
+    const formatCurrency = (value: number | null | undefined) => {
+        if (typeof value !== "number") return "—"
+        return new Intl.NumberFormat("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+        }).format(value)
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
@@ -127,7 +136,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
 
             {view === 'kanban' ? (
                 <div className="h-[calc(100vh-300px)] min-h-[500px]">
-                    <IndicationsKanban items={filteredIndicacoes} />
+                    <IndicationsKanban items={filteredIndicacoes} canEdit={!isSupervisorViewOnly} />
                 </div>
             ) : (
                 <div className="rounded-md border">
@@ -174,12 +183,22 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
                                             {vendedorInfo}
                                         </TableCell>
                                         <TableCell>
-                                            <div className="w-[180px]">
-                                                <IndicationStatusSelect id={ind.id} initialStatus={ind.status} brand={ind.marca} />
-                                            </div>
+                                            {isSupervisorViewOnly ? (
+                                                <Badge variant="secondary" className="capitalize">
+                                                    {String(ind.status).replaceAll("_", " ").toLowerCase()}
+                                                </Badge>
+                                            ) : (
+                                                <div className="w-[180px]">
+                                                    <IndicationStatusSelect id={ind.id} initialStatus={ind.status} brand={ind.marca} />
+                                                </div>
+                                            )}
                                         </TableCell>
                                         <TableCell className="text-right">
-                                            <IndicationValueEdit id={ind.id} initialValue={ind.valor} />
+                                            {isSupervisorViewOnly ? (
+                                                <span className="font-medium text-sm">{formatCurrency(ind.valor)}</span>
+                                            ) : (
+                                                <IndicationValueEdit id={ind.id} initialValue={ind.valor} />
+                                            )}
                                         </TableCell>
                                         <TableCell>
                                             <div className="flex items-center gap-2">
@@ -191,27 +210,30 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
                                                     ].filter(Boolean)}
                                                     initialData={ind}
                                                 />
-                                                <IndicationFlags
-                                                    id={ind.id}
-                                                    assinadaEm={(ind as any).assinada_em ?? null}
-                                                    compensadaEm={(ind as any).compensada_em ?? null}
-                                                />
-                                                <IndicationFillButton
-                                                    indication={{
-                                                        tipo: ind.tipo,
-                                                        nome: ind.nome,
-                                                        email: ind.email,
-                                                        telefone: ind.telefone,
-                                                        documento: ind.documento,
-                                                    }}
-                                                    vendedorName={vendedorInfo}
-                                                />
-                                                {/* Contract Generation Button */}
-                                                {(role === 'adm_mestre' || role === 'adm_dorata' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
-                                                    <GenerateContractButton indicationId={ind.id} />
-                                                )}
-                                                {canDelete && (
-                                                    <DeleteIndicationButton id={ind.id} />
+                                                {!isSupervisorViewOnly && (
+                                                    <>
+                                                        <IndicationFlags
+                                                            id={ind.id}
+                                                            assinadaEm={(ind as any).assinada_em ?? null}
+                                                            compensadaEm={(ind as any).compensada_em ?? null}
+                                                        />
+                                                        <IndicationFillButton
+                                                            indication={{
+                                                                tipo: ind.tipo,
+                                                                nome: ind.nome,
+                                                                email: ind.email,
+                                                                telefone: ind.telefone,
+                                                                documento: ind.documento,
+                                                            }}
+                                                            vendedorName={vendedorInfo}
+                                                        />
+                                                        {(role === 'adm_mestre' || role === 'adm_dorata' || role === 'funcionario_n1' || role === 'funcionario_n2') && (
+                                                            <GenerateContractButton indicationId={ind.id} />
+                                                        )}
+                                                        {canDelete && (
+                                                            <DeleteIndicationButton id={ind.id} />
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                         </TableCell>

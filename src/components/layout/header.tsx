@@ -5,7 +5,6 @@ import { Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Sidebar } from "./sidebar"
-import { useState } from "react"
 // Note: We are reusing the Sidebar component content for mobile sheet, 
 // but we need to adapt it slightly or create a MobileNav variant. 
 // For now, let's just create a header that shows user info.
@@ -16,6 +15,11 @@ export function Header() {
     // Derived from original layout
     const email = session?.user.email
     const name = session?.user.user_metadata?.nome || email?.split('@')[0] || "Usuário"
+    const companyDisplay =
+        profile?.supervisedCompanyName ||
+        profile?.companyName ||
+        email ||
+        "—"
 
     return (
         <header className="flex h-14 items-center gap-4 border-b bg-background px-6 lg:h-[60px]">
@@ -37,7 +41,7 @@ export function Header() {
             <div className="flex items-center gap-4">
                 <div className="text-right hidden md:block">
                     <p className="text-sm font-medium leading-none">{name}</p>
-                    <p className="text-xs text-muted-foreground">{profile?.companyName || email}</p>
+                    <p className="text-xs text-muted-foreground">{companyDisplay}</p>
                 </div>
                 {/* Provide a simple avatar fallback */}
                 <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold ring-2 ring-background">

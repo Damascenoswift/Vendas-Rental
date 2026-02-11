@@ -35,6 +35,9 @@ export default async function ProfilePage() {
                     initialName={profile.name || ""}
                     initialPhone={profile.phone || ""}
                     email={profile.email || user.email || ""}
+                    role={profile.role}
+                    initialCompanyName={profile.companyName || ""}
+                    initialSupervisedCompanyName={profile.supervisedCompanyName || ""}
                 />
             </div>
         </div>

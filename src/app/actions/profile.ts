@@ -9,6 +9,8 @@ import { z } from "zod"
 const profileSchema = z.object({
     name: z.string().min(3, "Nome deve ter pelo menos 3 caracteres"),
     phone: z.string().min(10, "Telefone inválido"),
+    company_name: z.string().optional(),
+    supervised_company_name: z.string().optional(),
 })
 
 const passwordSchema = z.object({
@@ -40,10 +42,14 @@ export async function updateProfile(
 
     const name = formData.get("name") as string
     const phone = formData.get("phone") as string
+    const companyName = (formData.get("company_name") as string | null) ?? ""
+    const supervisedCompanyName = (formData.get("supervised_company_name") as string | null) ?? ""
 
     const validatedFields = profileSchema.safeParse({
         name,
         phone,
+        company_name: companyName.trim() || undefined,
+        supervised_company_name: supervisedCompanyName.trim() || undefined,
     })
 
     if (!validatedFields.success) {
@@ -55,13 +61,33 @@ export async function updateProfile(
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
+    const { data: currentProfile, error: currentProfileError } = await supabaseAdmin
+        .from("users")
+        .select("role")
+        .eq("id", user.id)
+        .single()
+
+    if (currentProfileError || !currentProfile) {
+        console.error("Erro ao buscar função do perfil:", currentProfileError)
+        return { error: "Erro ao validar perfil antes da atualização." }
+    }
+
+    const updatePayload: Record<string, string | null> = {
+        name: validatedFields.data.name,
+        phone: validatedFields.data.phone,
+    }
+
+    if (currentProfile.role === "vendedor_interno") {
+        updatePayload.company_name = validatedFields.data.company_name?.trim() || null
+    }
+
+    if (currentProfile.role === "supervisor") {
+        updatePayload.supervised_company_name = validatedFields.data.supervised_company_name?.trim() || null
+    }
 
     const { error } = await supabaseAdmin
         .from("users")
-        .update({
-            name: validatedFields.data.name,
-            phone: validatedFields.data.phone,
-        })
+        .update(updatePayload)
         .eq("id", user.id)
 
     if (error) {

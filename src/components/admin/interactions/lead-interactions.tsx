@@ -13,9 +13,10 @@ import { useAuthSession } from "@/hooks/use-auth-session"
 
 interface LeadInteractionsProps {
     indicacaoId: string
+    readOnly?: boolean
 }
 
-export function LeadInteractions({ indicacaoId }: LeadInteractionsProps) {
+export function LeadInteractions({ indicacaoId, readOnly = false }: LeadInteractionsProps) {
     const [interactions, setInteractions] = useState<Interaction[]>([])
     const [newComment, setNewComment] = useState("")
     const [loading, setLoading] = useState(false)
@@ -43,6 +44,7 @@ export function LeadInteractions({ indicacaoId }: LeadInteractionsProps) {
     }, [interactions])
 
     const handleSend = async () => {
+        if (readOnly) return
         if (!newComment.trim()) return
 
         setLoading(true)
@@ -116,23 +118,29 @@ export function LeadInteractions({ indicacaoId }: LeadInteractionsProps) {
                 </div>
             </ScrollArea>
 
-            <div className="p-3 border-t bg-background flex gap-2">
-                <Textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    placeholder="Escreva um comentário..."
-                    className="min-h-[40px] max-h-[100px] resize-none"
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault()
-                            handleSend()
-                        }
-                    }}
-                />
-                <Button size="icon" onClick={handleSend} disabled={loading || !newComment.trim()}>
-                    <Send className="h-4 w-4" />
-                </Button>
-            </div>
+            {readOnly ? (
+                <div className="p-3 border-t bg-muted/40 text-xs text-muted-foreground">
+                    Supervisor possui acesso apenas de visualização para interações da equipe.
+                </div>
+            ) : (
+                <div className="p-3 border-t bg-background flex gap-2">
+                    <Textarea
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        placeholder="Escreva um comentário..."
+                        className="min-h-[40px] max-h-[100px] resize-none"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                handleSend()
+                            }
+                        }}
+                    />
+                    <Button size="icon" onClick={handleSend} disabled={loading || !newComment.trim()}>
+                        <Send className="h-4 w-4" />
+                    </Button>
+                </div>
+            )}
         </div>
     )
 }

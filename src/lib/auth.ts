@@ -19,6 +19,7 @@ export type UserProfile = {
   id: string
   role: UserRole
   companyName: string | null
+  supervisedCompanyName: string | null
   department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
@@ -66,12 +67,15 @@ export function buildUserProfile(user: User | null): UserProfile | null {
   const normalizedRole = normalizeRole(role, department)
   const companyName =
     (user.user_metadata?.company_name as string | undefined) ?? null
+  const supervisedCompanyName =
+    (user.user_metadata?.supervised_company_name as string | undefined) ?? null
   const allowedBrands = getAllowedBrands(normalizedRole)
 
   return {
     id: user.id,
     role: normalizedRole,
     companyName,
+    supervisedCompanyName,
     department,
     allowedBrands,
     name: user.user_metadata?.nome,
@@ -83,7 +87,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
   const { data, error } = await supabase
     .from('users')
-    .select('role, department, allowed_brands, name, phone, email')
+    .select('role, department, allowed_brands, name, phone, email, company_name, supervised_company_name')
     .eq('id', userId)
     .single()
 
@@ -101,7 +105,8 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
   return {
     id: userId,
     role: normalizedRole,
-    companyName: null, // A tabela users ainda não tem company_name, mantendo null por enquanto
+    companyName: (data as { company_name?: string | null }).company_name ?? null,
+    supervisedCompanyName: (data as { supervised_company_name?: string | null }).supervised_company_name ?? null,
     department,
     allowedBrands,
     name: data.name || undefined,

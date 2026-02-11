@@ -11,7 +11,6 @@ import {
     useSensors,
     DragStartEvent,
     DragOverEvent,
-    DragCancelEvent,
     DragEndEvent,
 } from "@dnd-kit/core"
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
@@ -32,9 +31,10 @@ type Props = {
     stages: Stage[]
     cards: CrmCardData[]
     brand: "dorata" | "rental"
+    canEdit?: boolean
 }
 
-export function CrmBoard({ stages, cards, brand }: Props) {
+export function CrmBoard({ stages, cards, brand, canEdit = true }: Props) {
     const [items, setItems] = useState<CrmCardData[]>(cards)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [activeOriginalStageId, setActiveOriginalStageId] = useState<string | null>(null)
@@ -54,6 +54,7 @@ export function CrmBoard({ stages, cards, brand }: Props) {
 
     const persistCardStageChange = useCallback(
         async (cardId: string, previousStageId: string, newStageId: string) => {
+            if (!canEdit) return
             if (previousStageId === newStageId) return
 
             setItems((prev) =>
@@ -76,11 +77,12 @@ export function CrmBoard({ stages, cards, brand }: Props) {
                 })
             }
         },
-        [showToast]
+        [canEdit, showToast]
     )
 
     const handleDeleteCard = useCallback(
         async (card: CrmCardData) => {
+            if (!canEdit) return
             if (brand !== "dorata") return
             const confirmed = window.confirm("Deseja excluir este card do CRM Dorata?")
             if (!confirmed) return
@@ -102,10 +104,11 @@ export function CrmBoard({ stages, cards, brand }: Props) {
                 })
             }
         },
-        [brand, items, selectedCardId, showToast]
+        [canEdit, brand, items, selectedCardId, showToast]
     )
 
     function handleDragStart(event: DragStartEvent) {
+        if (!canEdit) return
         const draggedId = event.active.id as string
         const activeItem = items.find((item) => item.id === draggedId)
         setActiveId(draggedId)
@@ -113,6 +116,7 @@ export function CrmBoard({ stages, cards, brand }: Props) {
     }
 
     function handleDragOver(event: DragOverEvent) {
+        if (!canEdit) return
         const { active, over } = event
         if (!over) return
 
@@ -132,7 +136,8 @@ export function CrmBoard({ stages, cards, brand }: Props) {
         }
     }
 
-    function handleDragCancel(_event: DragCancelEvent) {
+    function handleDragCancel() {
+        if (!canEdit) return
         if (!activeId || !activeOriginalStageId) {
             setActiveId(null)
             setActiveOriginalStageId(null)
@@ -149,6 +154,12 @@ export function CrmBoard({ stages, cards, brand }: Props) {
     }
 
     async function handleDragEnd(event: DragEndEvent) {
+        if (!canEdit) {
+            setActiveId(null)
+            setActiveOriginalStageId(null)
+            return
+        }
+
         const { active, over } = event
         const draggedId = active.id as string
         const originalStageId = activeOriginalStageId
@@ -226,7 +237,8 @@ export function CrmBoard({ stages, cards, brand }: Props) {
                             if (!card) return
                             await persistCardStageChange(cardId, card.stage_id, stageId)
                         }}
-                        onCardDelete={brand === "dorata" ? handleDeleteCard : undefined}
+                        onCardDelete={canEdit && brand === "dorata" ? handleDeleteCard : undefined}
+                        canEdit={canEdit}
                     />
                 ))}
             </div>

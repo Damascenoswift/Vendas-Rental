@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { ensureCrmCardForIndication } from '@/services/crm-card-service'
 import { createRentalTasksForIndication } from '@/services/task-service'
+import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
 import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
 
 function parseMissingColumnError(message?: string | null) {
@@ -36,27 +37,28 @@ export async function createIndicationAction(payload: any) {
     const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
     const finalPayload = { ...payload }
+    const targetUserId = typeof payload?.user_id === 'string' ? payload.user_id : ''
+    if (!targetUserId) {
+        return { success: false, message: 'Vendedor da indicação é obrigatório.' }
+    }
 
-    // If the actor is a supervisor and they are attributing to someone else
-    if (profile?.role === 'supervisor' && payload.user_id !== user.id) {
-        // Double check if the target user is actually their subordinate
-        const { data: targetUser } = await supabaseAdmin
-            .from('users')
-            .select('supervisor_id')
-            .eq('id', payload.user_id)
-            .single()
+    const canManageOthers =
+        hasFullAccess(role ?? null, department) ||
+        ['funcionario_n1', 'funcionario_n2'].includes(role ?? '')
 
-        if (targetUser?.supervisor_id === user.id) {
-            finalPayload.created_by_supervisor_id = user.id
-        } else {
-            // If they are trying to attribute to someone NOT their subordinate,
-            // we might want to block this or just ignore the attribution.
-            // For now, let's allow if they are admin, but the prompt says
-            // supervisors manage THEIR salespeople.
-            if (!hasFullAccess(role ?? null, department) && !['funcionario_n1', 'funcionario_n2'].includes(role ?? '')) {
-                return { success: false, message: 'Você só pode atribuir indicações para seus subordinados.' }
-            }
+    // Regular sellers can only create on their own user id.
+    if (profile?.role !== 'supervisor' && !canManageOthers && targetUserId !== user.id) {
+        return { success: false, message: 'Você só pode criar indicações no seu próprio usuário.' }
+    }
+
+    // Supervisor can assign only to internal subordinates.
+    if (profile?.role === 'supervisor' && targetUserId !== user.id) {
+        const permission = await assertSupervisorCanAssignInternalVendor(user.id, targetUserId)
+        if (!permission.allowed) {
+            return { success: false, message: permission.message }
         }
+
+        finalPayload.created_by_supervisor_id = user.id
     }
 
     const insertPayload = { ...finalPayload }

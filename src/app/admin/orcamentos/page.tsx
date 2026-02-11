@@ -7,6 +7,7 @@ import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
+import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import {
     Table,
     TableBody,
@@ -44,16 +45,53 @@ export default async function ProposalsPage() {
 
     // Use service client here to avoid RLS false-negatives for internal operational roles.
     const supabaseAdmin = createSupabaseServiceClient()
-    const { data: proposals, error: proposalsError } = await supabaseAdmin
-        .from('proposals')
-        .select(`
-            *,
-            seller:users(name, email),
-            cliente:indicacoes(id, nome)
-        `)
-        .order('created_at', { ascending: false })
+    let scopedClientIds: string[] | null = null
+    if (role === "supervisor") {
+        const visibleUserIds = await getSupervisorVisibleUserIds(user.id)
+        const { data: scopedIndicacoes, error: scopedIndicacoesError } = await supabaseAdmin
+            .from("indicacoes")
+            .select("id")
+            .in("user_id", visibleUserIds)
 
-    const normalizedProposals = (proposals ?? []).map((proposal: any) => {
+        if (scopedIndicacoesError) {
+            return (
+                <div className="flex-1 space-y-4 p-8 pt-6">
+                    <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+                        <h3 className="font-bold">Erro ao aplicar escopo do supervisor</h3>
+                        <p className="text-sm">{scopedIndicacoesError.message}</p>
+                    </div>
+                </div>
+            )
+        }
+
+        scopedClientIds = (scopedIndicacoes ?? []).map((item: { id: string }) => item.id)
+    }
+
+    let proposals: any[] = []
+    let proposalsError: { message: string } | null = null
+
+    if (role === "supervisor" && (!scopedClientIds || scopedClientIds.length === 0)) {
+        proposals = []
+    } else {
+        let proposalsQuery = supabaseAdmin
+            .from('proposals')
+            .select(`
+                *,
+                seller:users(name, email),
+                cliente:indicacoes(id, nome)
+            `)
+            .order('created_at', { ascending: false })
+
+        if (role === "supervisor") {
+            proposalsQuery = proposalsQuery.in("client_id", scopedClientIds ?? [])
+        }
+
+        const proposalsResult = await proposalsQuery
+        proposals = proposalsResult.data ?? []
+        proposalsError = proposalsResult.error as { message: string } | null
+    }
+
+    const normalizedProposals = proposals.map((proposal: any) => {
         const seller = Array.isArray(proposal.seller) ? (proposal.seller[0] ?? null) : proposal.seller
         const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
 

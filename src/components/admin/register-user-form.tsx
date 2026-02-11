@@ -105,6 +105,22 @@ export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
                 </div>
             )}
 
+            {selectedRole === 'vendedor_interno' && (
+                <div className="space-y-2">
+                    <Label htmlFor="company_name">Empresa do Vendedor Interno</Label>
+                    <Input id="company_name" name="company_name" placeholder="Ex: Acme Energia" />
+                    {state.errors?.company_name && <p className="text-red-500 text-xs">{state.errors.company_name[0]}</p>}
+                </div>
+            )}
+
+            {selectedRole === 'supervisor' && (
+                <div className="space-y-2">
+                    <Label htmlFor="supervised_company_name">Empresa Supervisionada</Label>
+                    <Input id="supervised_company_name" name="supervised_company_name" placeholder="Ex: Acme Energia" />
+                    {state.errors?.supervised_company_name && <p className="text-red-500 text-xs">{state.errors.supervised_company_name[0]}</p>}
+                </div>
+            )}
+
             <div>
                 <label className="mb-2 block text-sm font-medium">Setor / Departamento</label>
                 <select

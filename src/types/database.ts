@@ -17,6 +17,9 @@ export interface Database {
           allowed_brands: Database['public']['Enums']['brand_enum'][] | null
           name: string | null
           phone: string | null
+          company_name: string | null
+          supervised_company_name: string | null
+          supervisor_id: string | null
           status: string | null
           created_at: string
           updated_at: string
@@ -29,6 +32,9 @@ export interface Database {
           allowed_brands?: Database['public']['Enums']['brand_enum'][] | null
           name?: string | null
           phone?: string | null
+          company_name?: string | null
+          supervised_company_name?: string | null
+          supervisor_id?: string | null
           status?: string | null
           created_at?: string
           updated_at?: string
@@ -41,6 +47,9 @@ export interface Database {
           allowed_brands?: Database['public']['Enums']['brand_enum'][] | null
           name?: string | null
           phone?: string | null
+          company_name?: string | null
+          supervised_company_name?: string | null
+          supervisor_id?: string | null
           status?: string | null
           created_at?: string
           updated_at?: string

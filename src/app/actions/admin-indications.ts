@@ -6,7 +6,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile, hasFullAccess, type UserProfile } from "@/lib/auth"
 import { ensureCrmCardForIndication } from "@/services/crm-card-service"
 
-const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2']
+const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2']
 
 function mapDeleteIndicationError(error: { message?: string | null; details?: string | null; code?: string | null }) {
     const raw = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase()

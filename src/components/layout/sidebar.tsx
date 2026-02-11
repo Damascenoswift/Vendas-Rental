@@ -97,6 +97,10 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 
+                        {['supervisor', 'vendedor_interno'].includes(role) && (
+                            <NavItem href="/financeiro" label="Meu Financeiro" icon={Wallet} />
+                        )}
+
                         {(role === 'adm_mestre' || role === 'adm_dorata') && (
                             <NavItem href="/admin/usuarios" label="Usuários" icon={Users} />
                         )}

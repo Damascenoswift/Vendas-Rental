@@ -22,6 +22,7 @@ import { markDorataContractSigned } from "@/app/actions/crm"
 import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import { useAuthSession } from "@/hooks/use-auth-session"
 
 interface IndicationDetailsDialogProps {
     indicationId: string
@@ -81,8 +82,13 @@ export function IndicationDetailsDialog({
     const [isMarkingContractSigned, setIsMarkingContractSigned] = useState(false)
     const [signedAt, setSignedAt] = useState<string | null>((initialData as any)?.assinada_em ?? null)
     const { showToast } = useToast()
+    const { session, profile } = useAuthSession()
     const isControlled = typeof open === "boolean"
     const isOpen = isControlled ? open : internalOpen
+    const isSupervisorTeamReadOnly =
+        profile?.role === "supervisor" &&
+        Boolean(session?.user.id) &&
+        session?.user.id !== userId
 
     const resolvedBrand = useMemo(() => {
         if (brand) return brand
@@ -434,18 +440,24 @@ export function IndicationDetailsDialog({
                                             </Badge>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-3">
-                                            <Button
-                                                type="button"
-                                                onClick={handleMarkContractSigned}
-                                                disabled={isMarkingContractSigned || Boolean(signedAt)}
-                                            >
-                                                {isMarkingContractSigned ? (
-                                                    <>
-                                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                                        Salvando...
-                                                    </>
-                                                ) : signedAt ? "Contrato já assinado" : "Contrato assinado"}
-                                            </Button>
+                                            {!isSupervisorTeamReadOnly ? (
+                                                <Button
+                                                    type="button"
+                                                    onClick={handleMarkContractSigned}
+                                                    disabled={isMarkingContractSigned || Boolean(signedAt)}
+                                                >
+                                                    {isMarkingContractSigned ? (
+                                                        <>
+                                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                            Salvando...
+                                                        </>
+                                                    ) : signedAt ? "Contrato já assinado" : "Contrato assinado"}
+                                                </Button>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">
+                                                    Supervisor possui acesso apenas de visualização para a equipe.
+                                                </span>
+                                            )}
                                             <span className="text-xs text-muted-foreground">
                                                 Assinado em: {formatDateTime(signedAt)}
                                             </span>
@@ -551,11 +563,11 @@ export function IndicationDetailsDialog({
                             </TabsContent>
 
                             <TabsContent value="energisa" className="mt-4 h-full">
-                                <EnergisaActions indicacaoId={indicationId} />
+                                <EnergisaActions indicacaoId={indicationId} readOnly={isSupervisorTeamReadOnly} />
                             </TabsContent>
 
                             <TabsContent value="atividades" className="mt-4 h-full">
-                                <LeadInteractions indicacaoId={indicationId} />
+                                <LeadInteractions indicacaoId={indicationId} readOnly={isSupervisorTeamReadOnly} />
                             </TabsContent>
                         </Tabs>
                     </div>

@@ -14,6 +14,7 @@ import { Loader2, Plus, History } from "lucide-react"
 interface EnergisaActionsProps {
     indicacaoId: string
     variant?: "default" | "compact"
+    readOnly?: boolean
 }
 
 const ACTION_TYPES = [
@@ -26,7 +27,7 @@ const ACTION_TYPES = [
     { value: 'TRANSFER_SUCCESS', label: 'Titularidade Concluída' }
 ]
 
-export function EnergisaActions({ indicacaoId, variant = "default" }: EnergisaActionsProps) {
+export function EnergisaActions({ indicacaoId, variant = "default", readOnly = false }: EnergisaActionsProps) {
     const [logs, setLogs] = useState<EnergisaLog[]>([])
     const [actionType, setActionType] = useState("")
     const [notes, setNotes] = useState("")
@@ -78,7 +79,7 @@ export function EnergisaActions({ indicacaoId, variant = "default" }: EnergisaAc
                 <CardContent className="space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <Select value={actionType} onValueChange={setActionType}>
-                            <SelectTrigger>
+                            <SelectTrigger disabled={readOnly}>
                                 <SelectValue placeholder="Tipo de Ação" />
                             </SelectTrigger>
                             <SelectContent>
@@ -91,16 +92,22 @@ export function EnergisaActions({ indicacaoId, variant = "default" }: EnergisaAc
                             placeholder="Observação (ex: Nº Protocolo, Motivo...)"
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
+                            disabled={readOnly}
                         />
                     </div>
                     <Button
                         size="sm"
                         onClick={handleAddLog}
-                        disabled={loading || !actionType}
+                        disabled={readOnly || loading || !actionType}
                         className="w-full"
                     >
                         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Registrar"}
                     </Button>
+                    {readOnly ? (
+                        <p className="text-xs text-muted-foreground">
+                            Supervisor possui acesso apenas de visualização para ações da equipe.
+                        </p>
+                    ) : null}
                 </CardContent>
             </Card>
 

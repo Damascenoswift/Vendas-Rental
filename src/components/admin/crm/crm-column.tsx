@@ -14,9 +14,20 @@ type Props = {
     onCardClick?: (item: CrmCardData) => void
     onCardStageChange?: (cardId: string, stageId: string) => void | Promise<void>
     onCardDelete?: (item: CrmCardData) => void | Promise<void>
+    canEdit?: boolean
 }
 
-export function CrmColumn({ id, title, isClosed, items, stageOptions, onCardClick, onCardStageChange, onCardDelete }: Props) {
+export function CrmColumn({
+    id,
+    title,
+    isClosed,
+    items,
+    stageOptions,
+    onCardClick,
+    onCardStageChange,
+    onCardDelete,
+    canEdit = true,
+}: Props) {
     const { setNodeRef } = useDroppable({ id })
 
     return (
@@ -42,9 +53,10 @@ export function CrmColumn({ id, title, isClosed, items, stageOptions, onCardClic
                             key={item.id}
                             item={item}
                             onClick={onCardClick}
-                            stageOptions={stageOptions}
-                            onStageChange={(stageId) => onCardStageChange?.(item.id, stageId)}
-                            onDelete={onCardDelete ? () => onCardDelete(item) : undefined}
+                            stageOptions={canEdit ? stageOptions : undefined}
+                            onStageChange={canEdit ? (stageId) => onCardStageChange?.(item.id, stageId) : undefined}
+                            onDelete={canEdit && onCardDelete ? () => onCardDelete(item) : undefined}
+                            dragDisabled={!canEdit}
                         />
                     ))}
                 </SortableContext>

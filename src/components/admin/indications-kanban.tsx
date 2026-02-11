@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast"
 
 type Props = {
     items: Indication[]
+    canEdit?: boolean
 }
 
 const COLUMNS = [
@@ -34,7 +35,7 @@ const COLUMNS = [
     { id: "REJEITADA", title: "Rejeitada" },
 ]
 
-export function IndicationsKanban({ items: initialItems }: Props) {
+export function IndicationsKanban({ items: initialItems, canEdit = true }: Props) {
     const [items, setItems] = useState<Indication[]>(initialItems)
     const [activeId, setActiveId] = useState<string | null>(null)
     const { showToast } = useToast()
@@ -51,10 +52,12 @@ export function IndicationsKanban({ items: initialItems }: Props) {
     )
 
     function handleDragStart(event: DragStartEvent) {
+        if (!canEdit) return
         setActiveId(event.active.id as string)
     }
 
     function handleDragOver(event: DragOverEvent) {
+        if (!canEdit) return
         const { active, over } = event
         if (!over) return
 
@@ -79,6 +82,11 @@ export function IndicationsKanban({ items: initialItems }: Props) {
     }
 
     async function handleDragEnd(event: DragEndEvent) {
+        if (!canEdit) {
+            setActiveId(null)
+            return
+        }
+
         const { active, over } = event
         setActiveId(null)
 
@@ -152,6 +160,7 @@ export function IndicationsKanban({ items: initialItems }: Props) {
                         id={col.id}
                         title={col.title}
                         items={items.filter((i) => i.status === col.id)}
+                        dragDisabled={!canEdit}
                     />
                 ))}
             </div>

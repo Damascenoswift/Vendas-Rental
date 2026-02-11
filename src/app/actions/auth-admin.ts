@@ -56,6 +56,8 @@ const createUserSchema = z.object({
     department: z.enum(['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'outro']).optional(),
     brands: z.array(z.enum(['rental', 'dorata'])).min(1, 'Selecione pelo menos uma marca'),
     supervisor_id: z.string().optional(),
+    company_name: z.string().optional(),
+    supervised_company_name: z.string().optional(),
 })
 
 export type CreateUserState = {
@@ -127,6 +129,8 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         department: optionalString(formData.get('department')),
         brands: formData.getAll('brands'),
         supervisor_id: optionalString(formData.get('supervisor_id')),
+        company_name: optionalString(formData.get('company_name')),
+        supervised_company_name: optionalString(formData.get('supervised_company_name')),
     }
 
     const validated = createUserSchema.safeParse(rawData)
@@ -139,7 +143,20 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { email, password, name, phone, role, brands, department, supervisor_id } = validated.data
+    const {
+        email,
+        password,
+        name,
+        phone,
+        role,
+        brands,
+        department,
+        supervisor_id,
+        company_name,
+        supervised_company_name,
+    } = validated.data
+    const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
+    const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
 
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -153,6 +170,8 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
             role: role,
             department: department || 'outro',
             brands,
+            company_name: normalizedCompanyName,
+            supervised_company_name: normalizedSupervisedCompanyName,
         }
     })
 
@@ -176,7 +195,9 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         allowed_brands: brands,
         status: 'active',
         name: name,
-        phone: phone
+        phone: phone,
+        company_name: normalizedCompanyName,
+        supervised_company_name: normalizedSupervisedCompanyName,
     }
 
     if (department) {
@@ -239,15 +260,26 @@ export async function getUsers(options?: { includeInactive?: boolean }) {
     return users.filter(user => user.status !== 'inactive')
 }
 
-export async function getSubordinates(supervisorId: string) {
-    const supabaseAdmin = createSupabaseServiceClient()
+type SubordinateRole = 'vendedor_interno' | 'vendedor_externo'
 
-    const { data: subordinates, error } = await supabaseAdmin
+export async function getSubordinates(
+    supervisorId: string,
+    options?: { roles?: SubordinateRole[]; includeInactive?: boolean }
+) {
+    const supabaseAdmin = createSupabaseServiceClient()
+    const roles = options?.roles?.length ? options.roles : ['vendedor_interno']
+
+    let query = supabaseAdmin
         .from('users')
-        .select('id, name, email')
+        .select('id, name, email, role, status')
         .eq('supervisor_id', supervisorId)
-        .in('status', ['active', 'ATIVO'])
-        .order('name', { ascending: true })
+        .in('role', roles)
+
+    if (!options?.includeInactive) {
+        query = query.in('status', ['active', 'ATIVO'])
+    }
+
+    const { data: subordinates, error } = await query.order('name', { ascending: true })
 
     if (error) {
         console.error('Erro ao buscar subordinados:', error)
@@ -312,6 +344,10 @@ export async function syncUsersFromAuth() {
             const name = metadata.nome || metadata.name || authUser.email || 'Usuário'
             const phone = metadata.telefone || metadata.phone
             const department = metadata.department || 'outro'
+            const companyName = typeof metadata.company_name === 'string' ? metadata.company_name : null
+            const supervisedCompanyName = typeof metadata.supervised_company_name === 'string'
+                ? metadata.supervised_company_name
+                : null
 
             return {
                 id: authUser.id,
@@ -322,6 +358,8 @@ export async function syncUsersFromAuth() {
                 phone,
                 department,
                 status: metadata.status || 'active',
+                company_name: companyName,
+                supervised_company_name: supervisedCompanyName,
             }
         })
 
@@ -420,6 +458,8 @@ const updateUserSchema = z.object({
     status: z.enum(['active', 'inactive', 'suspended']).optional(),
     password: z.string().optional(),
     supervisor_id: z.string().optional(),
+    company_name: z.string().optional(),
+    supervised_company_name: z.string().optional(),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -439,6 +479,8 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         status: optionalString(formData.get('status')),
         password: formData.get('password') || undefined,
         supervisor_id: optionalString(formData.get('supervisor_id')),
+        company_name: optionalString(formData.get('company_name')),
+        supervised_company_name: optionalString(formData.get('supervised_company_name')),
     }
 
     const validated = updateUserSchema.safeParse(rawData)
@@ -451,8 +493,23 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         }
     }
 
-    const { userId, email, role, brands, department, name, phone, status, password, supervisor_id } = validated.data
+    const {
+        userId,
+        email,
+        role,
+        brands,
+        department,
+        name,
+        phone,
+        status,
+        password,
+        supervisor_id,
+        company_name,
+        supervised_company_name,
+    } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
+    const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
+    const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
 
     // 1. Update public.users table (Profile)
     const updatePayload: any = {
@@ -463,7 +520,9 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         phone,
         email,
         status: status || 'active',
-        supervisor_id: supervisor_id || null // Set to null if empty string
+        supervisor_id: supervisor_id || null, // Set to null if empty string
+        company_name: normalizedCompanyName,
+        supervised_company_name: normalizedSupervisedCompanyName,
     }
 
     const { error: profileError } = await supabaseAdmin
@@ -485,6 +544,8 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
             telefone: phone,
             brands,
             department: department || 'outro',
+            company_name: normalizedCompanyName,
+            supervised_company_name: normalizedSupervisedCompanyName,
         }
     }
 

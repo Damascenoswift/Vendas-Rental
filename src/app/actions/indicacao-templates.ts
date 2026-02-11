@@ -7,6 +7,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
 import { createIndicationAction } from '@/app/actions/indicacoes'
+import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
 
 type TemplateBasePayload = Record<string, any>
 
@@ -68,17 +69,16 @@ export async function createIndicationTemplate(payload: z.infer<typeof templateS
 
   // If assigning to another vendor, validate permissions (supervisor or admin)
   if (parsed.data.vendedor_id !== user.id) {
-    const { data: targetUser } = await supabaseAdmin
-      .from('users')
-      .select('supervisor_id')
-      .eq('id', parsed.data.vendedor_id)
-      .single()
-
-    const isSubordinate = targetUser?.supervisor_id === user.id
-    const isAdmin = hasFullAccess(role ?? null, department) || ['funcionario_n1', 'funcionario_n2'].includes(role ?? '')
-
-    if (!isSubordinate && !isAdmin) {
-      return { success: false, message: 'Você só pode atribuir templates para seus subordinados.' }
+    if (role === 'supervisor') {
+      const permission = await assertSupervisorCanAssignInternalVendor(user.id, parsed.data.vendedor_id)
+      if (!permission.allowed) {
+        return { success: false, message: permission.message }
+      }
+    } else {
+      const isAdmin = hasFullAccess(role ?? null, department) || ['funcionario_n1', 'funcionario_n2'].includes(role ?? '')
+      if (!isAdmin) {
+        return { success: false, message: 'Você não tem permissão para atribuir templates para este vendedor.' }
+      }
     }
   }
 
