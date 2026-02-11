@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthSession } from "@/hooks/use-auth-session"
+import { getIndicationStorageDetails } from "@/app/actions/indication-assets"
 
 interface IndicationDetailsDialogProps {
     indicationId: string
@@ -167,38 +168,30 @@ export function IndicationDetailsDialog({
         setIsLoading(true)
         try {
             const candidateOwnerIds = Array.from(
-                new Set([userId, ...fallbackUserIds].map((value) => value?.trim()).filter(Boolean) as string[])
+                new Set([userId, session?.user.id, ...fallbackUserIds].map((value) => value?.trim()).filter(Boolean) as string[])
             )
 
             let finalMetadata: Record<string, unknown> | null = null
             let finalFiles: FileItem[] = []
-            for (const ownerId of candidateOwnerIds) {
-                const [ownerMetadata, ownerFiles] = await Promise.all([
-                    readMetadataForOwner(ownerId),
-                    listFilesForOwner(ownerId),
-                ])
+            const serverResult = await getIndicationStorageDetails({
+                indicationId,
+                ownerIds: candidateOwnerIds,
+            })
 
-                if (ownerMetadata || ownerFiles.length > 0) {
-                    finalMetadata = ownerMetadata
-                    finalFiles = ownerFiles
-                    break
-                }
-            }
+            if (serverResult.success) {
+                finalMetadata = serverResult.metadata
+                finalFiles = serverResult.files
+            } else {
+                // Fallback to client-side reads if server action is unavailable in current environment.
+                for (const ownerId of candidateOwnerIds) {
+                    const [ownerMetadata, ownerFiles] = await Promise.all([
+                        readMetadataForOwner(ownerId),
+                        listFilesForOwner(ownerId),
+                    ])
 
-            if (!finalMetadata && finalFiles.length === 0) {
-                const { data: rootItems } = await supabase.storage
-                    .from("indicacoes")
-                    .list("", { limit: 1000 })
-
-                const scannedOwnerIds = (rootItems ?? [])
-                    .map((item) => item.name)
-                    .filter((name) => name && !candidateOwnerIds.includes(name))
-
-                for (const ownerId of scannedOwnerIds) {
-                    const metadataFromScan = await readMetadataForOwner(ownerId)
-                    if (metadataFromScan) {
-                        finalMetadata = metadataFromScan
-                        finalFiles = await listFilesForOwner(ownerId)
+                    if (ownerMetadata || ownerFiles.length > 0) {
+                        finalMetadata = ownerMetadata
+                        finalFiles = ownerFiles
                         break
                     }
                 }

@@ -145,7 +145,7 @@ export function Sidebar({ className }: SidebarProps) {
                         </h2>
                         <div className="space-y-1">
                             {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                <NavItem href="/admin/crm" label="CRM" icon={KanbanSquare} />
+                                <NavItem href="/admin/crm" label="CRM" icon={KanbanSquare} exactMatch />
                             )}
 
                             {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (

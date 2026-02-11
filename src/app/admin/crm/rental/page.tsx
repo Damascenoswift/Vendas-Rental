@@ -131,23 +131,27 @@ export default async function AdminCrmRentalPage() {
                 indicacao_id,
                 title,
                 created_at,
-                indicacoes (
+                indicacoes!inner (
                     id,
                     tipo,
                     nome,
                     email,
                     telefone,
                     status,
+                    doc_validation_status,
+                    assinada_em,
                     documento,
                     unidade_consumidora,
                     codigo_cliente,
                     codigo_instalacao,
                     valor,
                     marca,
-                    user_id
+                    user_id,
+                    created_by_supervisor_id
                 )
             `)
             .eq("pipeline_id", pipeline.id)
+            .eq("indicacoes.marca", "rental")
             .order("created_at", { ascending: false })
 
         if (role === "supervisor") {

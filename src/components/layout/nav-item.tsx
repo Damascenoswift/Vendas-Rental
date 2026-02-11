@@ -10,15 +10,15 @@ interface NavItemProps {
     label: string
     icon: LucideIcon
     active?: boolean
+    exactMatch?: boolean
     onClick?: () => void
 }
 
-export function NavItem({ href, label, icon: Icon, onClick }: NavItemProps) {
+export function NavItem({ href, label, icon: Icon, exactMatch = false, onClick }: NavItemProps) {
     const pathname = usePathname()
-    // Check exact match or sub-paths for admin sections, but accurate for dashboard root
-    const isActive = href === "/dashboard"
-        ? pathname === "/dashboard"
-        : pathname.startsWith(href)
+    const isActive = exactMatch
+        ? pathname === href
+        : pathname === href || pathname.startsWith(`${href}/`)
 
     return (
         <Link

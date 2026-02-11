@@ -198,6 +198,9 @@ export function CrmBoard({ stages, cards, brand, canEdit = true }: Props) {
 
     const activeCard = items.find((i) => i.id === activeId)
     const selectedCard = items.find((i) => i.id === selectedCardId) ?? null
+    const selectedFallbackUserIds = selectedCard?.indicacoes?.created_by_supervisor_id
+        ? [selectedCard.indicacoes.created_by_supervisor_id]
+        : []
 
     function handleCardClick(item: CrmCardData) {
         if (!item.indicacoes?.user_id) {
@@ -251,6 +254,7 @@ export function CrmBoard({ stages, cards, brand, canEdit = true }: Props) {
                 <IndicationDetailsDialog
                     indicationId={selectedCard.indicacao_id}
                     userId={selectedCard.indicacoes.user_id}
+                    fallbackUserIds={selectedFallbackUserIds}
                     initialData={selectedCard.indicacoes}
                     brand={(selectedCard.indicacoes?.marca as "dorata" | "rental" | null) ?? null}
                     open={isDetailsOpen}

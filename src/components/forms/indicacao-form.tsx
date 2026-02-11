@@ -16,7 +16,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { supabase } from "@/lib/supabase"
 import {
   formatCep,
   formatCnpj,
@@ -29,8 +28,7 @@ import { useToast } from "@/hooks/use-toast"
 import type { Brand } from "@/lib/auth"
 
 import { createIndicationAction } from "@/app/actions/indicacoes"
-
-const STORAGE_BUCKET = "indicacoes"
+import { uploadIndicationAssets } from "@/app/actions/indication-assets"
 
 // =============================
 // Zod Schemas (PF/PJ)
@@ -412,33 +410,15 @@ export function IndicacaoForm({
       }
 
       const storageOwnerId = values.vendedorId || userId
-
-      // Salvar metadata completo no Storage
-      const storageClient = supabase.storage.from(STORAGE_BUCKET)
       const metadata = { ...values }
-      const metadataUpload = await storageClient.upload(
-        `${storageOwnerId}/${indicationId}/metadata.json`,
-        new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-        { upsert: true, cacheControl: "3600", contentType: "application/json" }
-      )
+      const uploadFormData = new FormData()
+      uploadFormData.append("indicationId", indicationId)
+      uploadFormData.append("ownerId", storageOwnerId)
+      uploadFormData.append("metadata", JSON.stringify(metadata))
 
-      if (metadataUpload.error) {
-        console.error("Storage Upload Error (Metadata):", metadataUpload.error)
-        showToast({ variant: "error", title: "Dados complementares", description: "Não foi possível salvar os detalhes." })
-      }
-
-      // Upload de documentos
-      const uploads: Array<Promise<unknown>> = []
       const pushUpload = (name: string, f: File | null) => {
         if (!f) return
-        const path = `${storageOwnerId}/${indicationId}/${name}`
-        const uploadPromise = storageClient.upload(path, f, { upsert: true, cacheControl: "3600" })
-
-        uploadPromise.then(({ error }) => {
-          if (error) console.error(`File Upload Error (${name}):`, error)
-        })
-
-        uploads.push(uploadPromise)
+        uploadFormData.append(name, f)
       }
 
       if (values.tipoPessoa === "PF") {
@@ -452,7 +432,27 @@ export function IndicacaoForm({
         pushUpload("doc_representante", filesPJ.documentoRepresentante)
       }
 
-      await Promise.all(uploads)
+      const uploadResult = await uploadIndicationAssets(uploadFormData)
+      if (!uploadResult.success) {
+        console.error("Storage Upload Error:", uploadResult)
+        const metadataError = "metadataError" in uploadResult ? uploadResult.metadataError : null
+        const fileErrors = "fileErrors" in uploadResult && Array.isArray(uploadResult.fileErrors)
+          ? uploadResult.fileErrors
+          : []
+        const genericError = "error" in uploadResult ? uploadResult.error : null
+
+        const uploadErrors = [
+          metadataError ? `metadata: ${metadataError}` : null,
+          fileErrors.length > 0 ? `${fileErrors.length} arquivo(s) não enviado(s)` : null,
+          genericError ?? null,
+        ].filter(Boolean)
+
+        showToast({
+          variant: "error",
+          title: "Cadastro salvo com pendências",
+          description: uploadErrors.join(" | ") || "Não foi possível salvar todos os anexos.",
+        })
+      }
 
       showToast({ variant: "success", title: "Indicação criada", description: "Cadastro concluído com sucesso." })
       if (onCreated) await onCreated()
