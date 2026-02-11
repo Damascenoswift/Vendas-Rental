@@ -8,6 +8,28 @@ import { ensureCrmCardForIndication } from "@/services/crm-card-service"
 
 const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'supervisor', 'funcionario_n1', 'funcionario_n2']
 
+function mapDeleteIndicationError(error: { message?: string | null; details?: string | null; code?: string | null }) {
+    const raw = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase()
+
+    if (raw.includes("proposals_client_id_fkey")) {
+        return "Não foi possível excluir: existem orçamentos vinculados a esta indicação."
+    }
+    if (raw.includes("alocacoes_clientes_cliente_id_fkey")) {
+        return "Não foi possível excluir: esta indicação possui alocações de energia vinculadas."
+    }
+    if (raw.includes("faturas_conciliacao_cliente_id_fkey")) {
+        return "Não foi possível excluir: esta indicação possui faturas de conciliação vinculadas."
+    }
+    if (raw.includes("financeiro_transacoes_origin_lead_id_fkey")) {
+        return "Não foi possível excluir: esta indicação está vinculada a transações financeiras."
+    }
+    if (error.code === "23503") {
+        return "Não foi possível excluir: existem registros vinculados a esta indicação."
+    }
+
+    return "Erro ao excluir indicação"
+}
+
 export async function updateIndicationStatus(id: string, newStatus: string) {
     const supabase = await createClient()
     const {
@@ -185,9 +207,28 @@ export async function deleteIndication(id: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
 
-    // Delete associated storage files first (optional but good practice)
-    // For now, we'll just delete the record. Supabase might cascade or leave files.
-    // Given the complexity of storage deletion (listing files etc), we focus on the record.
+    // 1) Remove orçamentos vinculados (principal causa de bloqueio por FK).
+    const { error: deleteProposalsError } = await supabaseAdmin
+        .from("proposals")
+        .delete()
+        .eq("client_id", id)
+
+    if (deleteProposalsError) {
+        console.error("Erro ao excluir orçamentos vinculados:", deleteProposalsError)
+        return { error: "Erro ao excluir orçamentos vinculados à indicação." }
+    }
+
+    // 2) Desvincula transações financeiras (preserva histórico financeiro).
+    // Usa client do usuário para respeitar RLS/policies de finanças.
+    const { error: unlinkFinanceError } = await supabase
+        .from("financeiro_transacoes")
+        .update({ origin_lead_id: null })
+        .eq("origin_lead_id", id)
+
+    if (unlinkFinanceError && unlinkFinanceError.code !== "42P01") {
+        console.error("Erro ao desvincular transações financeiras:", unlinkFinanceError)
+        return { error: "Erro ao desvincular transações financeiras da indicação." }
+    }
 
     const { error } = await supabaseAdmin
         .from("indicacoes")
@@ -196,9 +237,11 @@ export async function deleteIndication(id: string) {
 
     if (error) {
         console.error("Erro ao excluir indicação:", error)
-        return { error: "Erro ao excluir indicação" }
+        return { error: mapDeleteIndicationError(error) }
     }
 
     revalidatePath("/admin/indicacoes")
+    revalidatePath("/admin/orcamentos")
+    revalidatePath("/dashboard")
     return { success: true }
 }
