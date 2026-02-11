@@ -103,11 +103,301 @@ async function checkFinancialPermission(): Promise<FinancialPermissionResult> {
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
-    if (!profile || (!hasFullAccess(role) && !['funcionario_n1', 'funcionario_n2'].includes(role ?? ''))) {
+    const department = profile?.department ?? null
+    if (
+        !profile ||
+        (
+            !hasFullAccess(role, department) &&
+            !['funcionario_n1', 'funcionario_n2'].includes(role ?? '') &&
+            department !== 'financeiro'
+        )
+    ) {
         return { error: 'Permissão negada.' }
     }
 
     return { userId: user.id }
+}
+
+const closureSelectableTypeSchema = z.enum([
+    'comissao_venda',
+    'comissao_dorata',
+    'override_gestao',
+])
+
+const closeableItemSchema = z.object({
+    source_kind: z.enum(['rental_sistema', 'dorata_sistema', 'manual_elyakim']),
+    source_ref_id: z.string().min(1, 'Origem inválida'),
+    brand: z.enum(['rental', 'dorata']),
+    beneficiary_user_id: z.string().uuid('Beneficiário inválido'),
+    transaction_type: closureSelectableTypeSchema,
+    amount: z.coerce.number().positive('Valor inválido'),
+    description: z.string().max(500).optional().nullable(),
+    origin_lead_id: z.union([z.string().uuid(), z.null()]).optional(),
+    client_name: z.string().max(200).optional().nullable(),
+})
+
+const createManualItemSchema = z.object({
+    competencia: z.string().min(7, 'Competência obrigatória'),
+    beneficiary_user_id: z.string().uuid('Beneficiário inválido'),
+    brand: z.enum(['rental', 'dorata']).default('rental'),
+    transaction_type: closureSelectableTypeSchema.default('comissao_venda'),
+    client_name: z.string().min(2, 'Cliente obrigatório').max(200),
+    amount: z.coerce.number().positive('Valor deve ser positivo'),
+    origin_lead_id: z.union([z.string().uuid(), z.literal(''), z.null()]).optional(),
+    external_ref: z.string().max(200).optional().nullable(),
+    observacao: z.string().max(500).optional().nullable(),
+})
+
+function normalizeCompetenciaDate(value?: string | null) {
+    const fallback = new Date().toISOString().slice(0, 10)
+    if (!value) return `${fallback.slice(0, 7)}-01`
+    const raw = value.trim()
+    if (/^\d{4}-\d{2}$/.test(raw)) return `${raw}-01`
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+    return `${fallback.slice(0, 7)}-01`
+}
+
+function normalizeDate(value?: string | null) {
+    const fallback = new Date().toISOString().slice(0, 10)
+    if (!value) return fallback
+    const raw = value.trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+    return fallback
+}
+
+async function buildClosureCode(supabaseAdmin: any, competenciaDate: string) {
+    const yearMonth = competenciaDate.slice(0, 7).replace('-', '')
+    const prefix = `FECH-${yearMonth}`
+
+    const { count, error } = await supabaseAdmin
+        .from('financeiro_fechamentos')
+        .select('id', { count: 'exact', head: true })
+        .like('codigo', `${prefix}-%`)
+
+    if (error) {
+        return `${prefix}-${Date.now().toString().slice(-6)}`
+    }
+
+    const next = (count ?? 0) + 1
+    return `${prefix}-${String(next).padStart(4, '0')}`
+}
+
+export async function closeCommissionBatchFromForm(formData: FormData): Promise<void> {
+    const permission = await checkFinancialPermission()
+    if ('error' in permission) return
+
+    const rawSelected = formData.getAll('selected_items')
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
+
+    if (rawSelected.length === 0) {
+        return
+    }
+
+    const decodedItems: Array<z.infer<typeof closeableItemSchema>> = []
+    for (const encoded of rawSelected) {
+        try {
+            const parsedJson = JSON.parse(decodeURIComponent(encoded))
+            const parsedItem = closeableItemSchema.safeParse(parsedJson)
+            if (!parsedItem.success) {
+                return
+            }
+            decodedItems.push(parsedItem.data)
+        } catch {
+            return
+        }
+    }
+
+    const competencia = normalizeCompetenciaDate(formData.get('competencia')?.toString() ?? null)
+    const paymentDate = normalizeDate(formData.get('payment_date')?.toString() ?? null)
+    const observacaoRaw = formData.get('observacao')?.toString().trim()
+    const observacao = observacaoRaw && observacaoRaw.length > 0 ? observacaoRaw : null
+
+    const totalValor = decodedItems.reduce((sum, item) => sum + Number(item.amount), 0)
+    const supabaseAdmin = createSupabaseServiceClient()
+    const codigo = await buildClosureCode(supabaseAdmin, competencia)
+    const { data: fechamento, error: fechamentoError } = await supabaseAdmin
+        .from('financeiro_fechamentos')
+        .insert({
+            codigo,
+            competencia,
+            status: 'fechado',
+            total_itens: decodedItems.length,
+            total_valor: totalValor,
+            fechado_em: new Date().toISOString(),
+            fechado_por: permission.userId,
+            observacao,
+        })
+        .select('id')
+        .single()
+
+    if (fechamentoError || !fechamento?.id) {
+        console.error('Erro ao criar fechamento financeiro:', fechamentoError)
+        return
+    }
+
+    const fechamentoItemsPayload = decodedItems.map((item) => ({
+        fechamento_id: fechamento.id,
+        brand: item.brand,
+        beneficiary_user_id: item.beneficiary_user_id,
+        transaction_type: item.transaction_type,
+        source_kind: item.source_kind,
+        source_ref_id: item.source_ref_id,
+        origin_lead_id: item.origin_lead_id ?? null,
+        descricao: item.description ?? null,
+        valor_liberado: Number(item.amount),
+        valor_pago: Number(item.amount),
+        pagamento_em: paymentDate,
+        snapshot: {
+            client_name: item.client_name ?? null,
+            closed_by: permission.userId,
+        },
+    }))
+
+    const { data: insertedItems, error: fechamentoItemsError } = await supabaseAdmin
+        .from('financeiro_fechamento_itens')
+        .insert(fechamentoItemsPayload)
+        .select('id, source_kind, source_ref_id')
+
+    if (fechamentoItemsError) {
+        console.error('Erro ao inserir itens do fechamento:', fechamentoItemsError)
+        await supabaseAdmin
+            .from('financeiro_fechamentos')
+            .update({ status: 'cancelado' })
+            .eq('id', fechamento.id)
+        return
+    }
+
+    const transacoesPayload = decodedItems.map((item) => ({
+        beneficiary_user_id: item.beneficiary_user_id,
+        origin_lead_id: item.origin_lead_id ?? null,
+        type: item.transaction_type,
+        amount: Number(item.amount),
+        description: item.description || `Fechamento ${codigo}`,
+        status: 'pago',
+        due_date: paymentDate,
+        created_by: permission.userId,
+    }))
+
+    const { error: transacoesError } = await supabaseAdmin
+        .from('financeiro_transacoes')
+        .insert(transacoesPayload)
+
+    if (transacoesError) {
+        console.error('Erro ao registrar transações do fechamento:', transacoesError)
+        await supabaseAdmin
+            .from('financeiro_fechamentos')
+            .update({ status: 'cancelado' })
+            .eq('id', fechamento.id)
+        return
+    }
+
+    const manualInserted = insertedItems?.filter((item: any) => item.source_kind === 'manual_elyakim') ?? []
+    if (manualInserted.length > 0) {
+        const manualIds = manualInserted.map((item: any) => item.source_ref_id)
+        const closureItemIdByManualId = new Map<string, string>()
+        for (const item of manualInserted) {
+            closureItemIdByManualId.set(item.source_ref_id as string, item.id as string)
+        }
+
+        for (const manualId of manualIds) {
+            const fechamentoItemId = closureItemIdByManualId.get(manualId) ?? null
+            const { error: manualUpdateError } = await supabaseAdmin
+                .from('financeiro_relatorios_manuais_itens')
+                .update({
+                    status: 'pago',
+                    paid_at: new Date().toISOString(),
+                    fechamento_item_id: fechamentoItemId,
+                })
+                .eq('id', manualId)
+
+            if (manualUpdateError) {
+                console.error('Erro ao atualizar item manual após fechamento:', manualUpdateError)
+            }
+        }
+    }
+
+    revalidatePath('/admin/financeiro')
+    return
+}
+
+export async function createManualElyakimItemFromForm(formData: FormData): Promise<void> {
+    const permission = await checkFinancialPermission()
+    if ('error' in permission) return
+
+    const parsed = createManualItemSchema.safeParse({
+        competencia: formData.get('competencia'),
+        beneficiary_user_id: formData.get('beneficiary_user_id'),
+        brand: formData.get('brand') ?? 'rental',
+        transaction_type: formData.get('transaction_type') ?? 'comissao_venda',
+        client_name: formData.get('client_name'),
+        amount: formData.get('amount'),
+        origin_lead_id: formData.get('origin_lead_id'),
+        external_ref: formData.get('external_ref'),
+        observacao: formData.get('observacao'),
+    })
+
+    if (!parsed.success) {
+        return
+    }
+
+    const competencia = normalizeCompetenciaDate(parsed.data.competencia)
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: existingReport } = await supabaseAdmin
+        .from('financeiro_relatorios_manuais')
+        .select('id')
+        .eq('fonte', 'elyakim')
+        .eq('competencia', competencia)
+        .eq('status', 'liberado')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+    let reportId = existingReport?.id ?? null
+    if (!reportId) {
+        const { data: reportInserted, error: reportError } = await supabaseAdmin
+            .from('financeiro_relatorios_manuais')
+            .insert({
+                fonte: 'elyakim',
+                competencia,
+                status: 'liberado',
+                created_by: permission.userId,
+                observacao: parsed.data.observacao ?? null,
+            })
+            .select('id')
+            .single()
+
+        if (reportError || !reportInserted?.id) {
+            console.error('Erro ao criar cabeçalho de relatório Elyakim:', reportError)
+            return
+        }
+        reportId = reportInserted.id
+    }
+
+    const { error: itemError } = await supabaseAdmin
+        .from('financeiro_relatorios_manuais_itens')
+        .insert({
+            report_id: reportId,
+            beneficiary_user_id: parsed.data.beneficiary_user_id,
+            brand: parsed.data.brand,
+            transaction_type: parsed.data.transaction_type,
+            client_name: parsed.data.client_name,
+            origin_lead_id: parsed.data.origin_lead_id || null,
+            valor: Number(parsed.data.amount),
+            status: 'liberado',
+            external_ref: parsed.data.external_ref ?? null,
+            observacao: parsed.data.observacao ?? null,
+            created_by: permission.userId,
+        })
+
+    if (itemError) {
+        console.error('Erro ao criar item manual Elyakim:', itemError)
+        return
+    }
+
+    revalidatePath('/admin/financeiro')
+    return
 }
 
 export async function createTransaction(prevState: CreateTransactionState, formData: FormData): Promise<CreateTransactionState> {

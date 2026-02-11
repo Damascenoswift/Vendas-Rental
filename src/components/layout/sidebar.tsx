@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { NavItem } from "./nav-item"
 import {
@@ -18,8 +17,6 @@ import {
     Calculator,
     KanbanSquare
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
@@ -96,7 +93,7 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem href="/admin/energia" label="Energia" icon={Zap} />
                         )}
 
-                        {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                        {(['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) || department === 'financeiro') && (
                             <NavItem href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 

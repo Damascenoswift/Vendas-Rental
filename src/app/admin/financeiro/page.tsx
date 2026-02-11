@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
-import { getFinancialSummary } from "@/app/actions/financial"
+import { closeCommissionBatchFromForm, createManualElyakimItemFromForm, getFinancialSummary } from "@/app/actions/financial"
 import { FinancialList } from "@/components/financial/financial-list"
 import { getUsers } from "@/app/actions/auth-admin"
 import { NewTransactionDialog } from "@/components/financial/new-transaction-dialog"
@@ -10,6 +10,7 @@ import { getPricingRules } from "@/services/proposal-service"
 import { Wallet } from "lucide-react"
 import { getProfile, hasFullAccess } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
     Table,
     TableBody,
@@ -20,6 +21,19 @@ import {
 } from "@/components/ui/table"
 
 export const dynamic = "force-dynamic"
+
+type CloseableFinancialItem = {
+    source_kind: "rental_sistema" | "dorata_sistema" | "manual_elyakim"
+    source_ref_id: string
+    brand: "rental" | "dorata"
+    beneficiary_user_id: string
+    beneficiary_name: string
+    transaction_type: "comissao_venda" | "comissao_dorata" | "override_gestao"
+    amount: number
+    description: string
+    origin_lead_id: string | null
+    client_name: string | null
+}
 
 type FinancialSearchParams = {
     seller?: string | string[]
@@ -98,7 +112,15 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
-    if (!profile || (!hasFullAccess(role) && !['funcionario_n1', 'funcionario_n2'].includes(role ?? ''))) {
+    const department = profile?.department ?? null
+    if (
+        !profile ||
+        (
+            !hasFullAccess(role, department) &&
+            !['funcionario_n1', 'funcionario_n2'].includes(role ?? '') &&
+            department !== 'financeiro'
+        )
+    ) {
         redirect("/dashboard")
     }
 
@@ -126,6 +148,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         dorataIndicacoesResult,
         paidInvoicesResult,
         signedContractChecklistsResult,
+        closingsResult,
+        manualItemsResult,
     ] = await Promise.all([
         supabaseAdmin
             .from('proposals')
@@ -153,6 +177,17 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .eq('is_done', true)
             .ilike('title', '%contrato assinado%')
             .order('completed_at', { ascending: false }),
+        supabaseAdmin
+            .from('financeiro_fechamentos')
+            .select('id, codigo, competencia, status, total_itens, total_valor, fechado_em, fechado_por, observacao, created_at')
+            .order('fechado_em', { ascending: false })
+            .order('created_at', { ascending: false })
+            .limit(80),
+        supabaseAdmin
+            .from('financeiro_relatorios_manuais_itens')
+            .select('id, report_id, beneficiary_user_id, brand, transaction_type, client_name, origin_lead_id, valor, status, external_ref, observacao, created_at, paid_at')
+            .order('created_at', { ascending: false })
+            .limit(300),
     ])
 
     const dorataProposals = dorataProposalsResult.data ?? []
@@ -160,6 +195,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const dorataIndicacoes = dorataIndicacoesResult.data ?? []
     const paidInvoices = paidInvoicesResult.data ?? []
     const signedContractChecklists = signedContractChecklistsResult.data ?? []
+    const closings = closingsResult.data ?? []
+    const manualItems = manualItemsResult.data ?? []
 
     const formatCurrency = (value: number) => new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -193,6 +230,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const managerUser = (users as any[]).find((item) => normalizeText(item.name) === "guilherme damasceno")
     const managerUserId = managerUser?.id ?? null
     const managerName = managerUser?.name || "Guilherme Damasceno"
+    const usersById = new Map((users as any[]).map((item) => [item.id, item]))
 
     const paidInvoiceDateByLead = new Map<string, string>()
     for (const invoice of paidInvoices) {
@@ -206,6 +244,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
     const paidCommissionByLeadBeneficiary = new Map<string, number>()
     const paidOverrideByLeadBeneficiary = new Map<string, number>()
+    const paidDorataByLeadBeneficiary = new Map<string, number>()
     for (const tx of transactions as any[]) {
         if (tx.status !== 'pago') continue
         if (!tx.origin_lead_id || !tx.beneficiary_user_id) continue
@@ -218,6 +257,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         }
         if (tx.type === 'override_gestao') {
             paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
+        }
+        if (tx.type === 'comissao_dorata') {
+            paidDorataByLeadBeneficiary.set(key, (paidDorataByLeadBeneficiary.get(key) ?? 0) + amount)
         }
     }
 
@@ -496,6 +538,132 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const overridePaymentsTotal = overridePayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
     const totalBalance = filteredTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0)
 
+    const manualItemsRows = (manualItems as any[]).map((item) => {
+        const beneficiary = usersById.get(item.beneficiary_user_id)
+        return {
+            id: item.id as string,
+            reportId: item.report_id as string,
+            beneficiaryUserId: item.beneficiary_user_id as string,
+            beneficiaryName: beneficiary?.name || beneficiary?.email || "Sem usuário",
+            beneficiaryEmail: beneficiary?.email || "",
+            brand: (item.brand as "rental" | "dorata") || "rental",
+            transactionType: (item.transaction_type as "comissao_venda" | "comissao_dorata" | "override_gestao") || "comissao_venda",
+            clientName: (item.client_name as string | null) ?? null,
+            originLeadId: (item.origin_lead_id as string | null) ?? null,
+            value: Number(item.valor ?? 0),
+            status: (item.status as string) || "liberado",
+            externalRef: (item.external_ref as string | null) ?? null,
+            observacao: (item.observacao as string | null) ?? null,
+            createdAt: (item.created_at as string) ?? null,
+            paidAt: (item.paid_at as string | null) ?? null,
+        }
+    })
+
+    const filteredManualItemsRows = sellerFilterId
+        ? manualItemsRows.filter((item) => item.beneficiaryUserId === sellerFilterId)
+        : manualItemsRows
+
+    const closeableItems: CloseableFinancialItem[] = []
+
+    for (const row of filteredRentalForecastRows) {
+        if (!row.hasCommissionBase || !row.sellerId) continue
+
+        const releaseCap = row.allowsThirtyAdvance
+            ? (row.hasPaidInvoice ? row.commissionTotal : row.signed ? row.thirtyPercentValue : 0)
+            : (row.hasPaidInvoice ? row.commissionTotal : 0)
+        const availableAmount = Math.max(releaseCap - row.paidSellerCommission, 0)
+        if (availableAmount <= 0) continue
+
+        closeableItems.push({
+            source_kind: "rental_sistema",
+            source_ref_id: `rental:${row.id}:${row.sellerId}:comissao_venda`,
+            brand: "rental",
+            beneficiary_user_id: row.sellerId,
+            beneficiary_name: row.sellerName,
+            transaction_type: "comissao_venda",
+            amount: availableAmount,
+            description: `Fechamento Rental - ${row.nome}`,
+            origin_lead_id: row.id,
+            client_name: row.nome,
+        })
+    }
+
+    for (const row of filteredManagerOverrideRows) {
+        if (!row.hasCommissionBase || !row.beneficiaryUserId) continue
+
+        const releaseCap = row.hasPaidInvoice
+            ? row.commissionTotal
+            : row.signed
+                ? row.thirtyPercentValue
+                : 0
+        const availableAmount = Math.max(releaseCap - row.paidOverride, 0)
+        if (availableAmount <= 0) continue
+
+        closeableItems.push({
+            source_kind: "rental_sistema",
+            source_ref_id: `rental:${row.id}:${row.beneficiaryUserId}:override_gestao`,
+            brand: "rental",
+            beneficiary_user_id: row.beneficiaryUserId,
+            beneficiary_name: row.beneficiaryName,
+            transaction_type: "override_gestao",
+            amount: availableAmount,
+            description: `Override Rental - ${row.nome} (${row.sellerName})`,
+            origin_lead_id: row.id,
+            client_name: row.nome,
+        })
+    }
+
+    for (const row of filteredDorataForecasts) {
+        if (!row.signed || !row.sellerId) continue
+        const paid = paidDorataByLeadBeneficiary.get(`${row.id}:${row.sellerId}`) ?? 0
+        const availableAmount = Math.max(row.commissionValue - paid, 0)
+        if (availableAmount <= 0) continue
+
+        const beneficiary = usersById.get(row.sellerId)
+        closeableItems.push({
+            source_kind: "dorata_sistema",
+            source_ref_id: `dorata:${row.id}:${row.sellerId}:comissao_dorata`,
+            brand: "dorata",
+            beneficiary_user_id: row.sellerId,
+            beneficiary_name: beneficiary?.name || beneficiary?.email || row.seller?.name || row.seller?.email || "Sem usuário",
+            transaction_type: "comissao_dorata",
+            amount: availableAmount,
+            description: `Fechamento Dorata - ${(row as any).nome ?? row.id.slice(0, 8)}`,
+            origin_lead_id: row.id,
+            client_name: (row as any).nome ?? null,
+        })
+    }
+
+    for (const manualItem of filteredManualItemsRows) {
+        if (manualItem.status !== "liberado") continue
+        if (manualItem.value <= 0) continue
+
+        closeableItems.push({
+            source_kind: "manual_elyakim",
+            source_ref_id: manualItem.id,
+            brand: manualItem.brand,
+            beneficiary_user_id: manualItem.beneficiaryUserId,
+            beneficiary_name: manualItem.beneficiaryName,
+            transaction_type: manualItem.transactionType,
+            amount: manualItem.value,
+            description: manualItem.observacao || `Manual Elyakim - ${manualItem.clientName ?? manualItem.id.slice(0, 8)}`,
+            origin_lead_id: manualItem.originLeadId,
+            client_name: manualItem.clientName,
+        })
+    }
+
+    closeableItems.sort((a, b) => b.amount - a.amount)
+
+    const closeableTotal = closeableItems.reduce((sum, item) => sum + item.amount, 0)
+    const closeableRentalTotal = closeableItems
+        .filter((item) => item.brand === "rental")
+        .reduce((sum, item) => sum + item.amount, 0)
+    const closeableDorataTotal = closeableItems
+        .filter((item) => item.brand === "dorata")
+        .reduce((sum, item) => sum + item.amount, 0)
+
+    const filteredClosings = closings as any[]
+
     return (
         <div className="max-w-7xl mx-auto py-8 px-4 space-y-8">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -532,263 +700,613 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">Caixa / Líquido</h3>
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className={`text-2xl font-bold ${totalBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
-                        {formatCurrency(totalBalance)}
-                    </div>
-                    <p className="text-xs text-muted-foreground">Saldo acumulado dos lançamentos filtrados</p>
-                </div>
+            <Tabs defaultValue="previsoes" className="space-y-4">
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="previsoes">Previsões</TabsTrigger>
+                    <TabsTrigger value="liberado">Liberado para pagar</TabsTrigger>
+                    <TabsTrigger value="historico">Histórico</TabsTrigger>
+                </TabsList>
 
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">Base Rental</h3>
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="text-2xl font-bold">{formatCurrency(totalRentalBase)}</div>
-                    <p className="text-xs text-muted-foreground">Σ (kWh x preço) por indicação</p>
-                </div>
+                <TabsContent value="previsoes" className="space-y-8 mt-0">
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <h3 className="tracking-tight text-sm font-medium">Caixa / Líquido</h3>
+                                <Wallet className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div className={`text-2xl font-bold ${totalBalance >= 0 ? "text-green-600" : "text-red-500"}`}>
+                                {formatCurrency(totalBalance)}
+                            </div>
+                            <p className="text-xs text-muted-foreground">Saldo acumulado dos lançamentos filtrados</p>
+                        </div>
 
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">Comissão Rental</h3>
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="text-2xl font-bold">{formatCurrency(totalRentalCommission)}</div>
-                    <p className="text-xs text-muted-foreground">Total projetado de comissão do vendedor</p>
-                </div>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <h3 className="tracking-tight text-sm font-medium">Base Rental</h3>
+                                <Wallet className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div className="text-2xl font-bold">{formatCurrency(totalRentalBase)}</div>
+                            <p className="text-xs text-muted-foreground">Σ (kWh x preço) por indicação</p>
+                        </div>
 
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">Entrada 30%</h3>
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="text-2xl font-bold">{formatCurrency(totalRentalThirty)}</div>
-                    <p className="text-xs text-muted-foreground">Somente gestor no contrato assinado</p>
-                </div>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <h3 className="tracking-tight text-sm font-medium">Comissão Rental</h3>
+                                <Wallet className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div className="text-2xl font-bold">{formatCurrency(totalRentalCommission)}</div>
+                            <p className="text-xs text-muted-foreground">Total projetado de comissão do vendedor</p>
+                        </div>
 
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">Saldo no Pagamento</h3>
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="text-2xl font-bold">{formatCurrency(totalRentalSeventyAdjusted)}</div>
-                    <p className="text-xs text-muted-foreground">Para gestor: 70%; demais: total na fatura paga</p>
-                </div>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <h3 className="tracking-tight text-sm font-medium">Entrada 30%</h3>
+                                <Wallet className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div className="text-2xl font-bold">{formatCurrency(totalRentalThirty)}</div>
+                            <p className="text-xs text-muted-foreground">Somente gestor no contrato assinado</p>
+                        </div>
 
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <h3 className="tracking-tight text-sm font-medium">Override {managerName}</h3>
-                        <Wallet className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="text-2xl font-bold">{formatCurrency(totalManagerOverride)}</div>
-                    <p className="text-xs text-muted-foreground">{formatPercent(managerOverridePercentDisplay)} sobre vendas de terceiros</p>
-                </div>
-            </div>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <h3 className="tracking-tight text-sm font-medium">Saldo no Pagamento</h3>
+                                <Wallet className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div className="text-2xl font-bold">{formatCurrency(totalRentalSeventyAdjusted)}</div>
+                            <p className="text-xs text-muted-foreground">Para gestor: 70%; demais: total na fatura paga</p>
+                        </div>
 
-            <RentalCommissionSettings
-                managerName={managerName}
-                defaultPercent={rentalDefaultPercentDisplay}
-                managerOverridePercent={managerOverridePercentDisplay}
-                sellerRates={commissionSettingsRows}
-            />
-
-            <div className="grid gap-6 xl:grid-cols-2">
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
-                    <div>
-                        <h2 className="text-lg font-semibold">Previsões Rental (30/70)</h2>
-                        <p className="text-sm text-muted-foreground">
-                            Base = Consumo Médio PF x Preço kWh x (1 - desconto%). 30% apenas para {managerName}.
-                        </p>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <h3 className="tracking-tight text-sm font-medium">Override {managerName}</h3>
+                                <Wallet className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div className="text-2xl font-bold">{formatCurrency(totalManagerOverride)}</div>
+                            <p className="text-xs text-muted-foreground">{formatPercent(managerOverridePercentDisplay)} sobre vendas de terceiros</p>
+                        </div>
                     </div>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Data</TableHead>
-                                <TableHead>Vendedor</TableHead>
-                                <TableHead>Cliente</TableHead>
-                                <TableHead className="text-right">Base</TableHead>
-                                <TableHead className="text-right">% Com.</TableHead>
-                                <TableHead className="text-right">Comissão</TableHead>
-                                <TableHead>30%</TableHead>
-                                <TableHead>70%</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredRentalForecastRows.length === 0 ? (
+
+                    <RentalCommissionSettings
+                        managerName={managerName}
+                        defaultPercent={rentalDefaultPercentDisplay}
+                        managerOverridePercent={managerOverridePercentDisplay}
+                        sellerRates={commissionSettingsRows}
+                    />
+
+                    <div className="grid gap-6 xl:grid-cols-2">
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
+                            <div>
+                                <h2 className="text-lg font-semibold">Previsões Rental (30/70)</h2>
+                                <p className="text-sm text-muted-foreground">
+                                    Base = Consumo Médio PF x Preço kWh x (1 - desconto%). 30% apenas para {managerName}.
+                                </p>
+                            </div>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead>Vendedor</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead className="text-right">Base</TableHead>
+                                        <TableHead className="text-right">% Com.</TableHead>
+                                        <TableHead className="text-right">Comissão</TableHead>
+                                        <TableHead>30%</TableHead>
+                                        <TableHead>70%</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredRentalForecastRows.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                                                Nenhuma previsão Rental registrada.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        filteredRentalForecastRows.map((item) => (
+                                            <TableRow key={item.id}>
+                                                <TableCell>{formatDate(item.createdAt)}</TableCell>
+                                                <TableCell>{item.sellerName}</TableCell>
+                                                <TableCell>{item.nome}</TableCell>
+                                                <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.baseValue) : "—"}</TableCell>
+                                                <TableCell className="text-right">{formatPercent(item.commissionPercentDisplay)}</TableCell>
+                                                <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs">
+                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
+                                                        <div className="text-muted-foreground">{item.thirtyStatus}</div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs">
+                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
+                                                        <div className="text-muted-foreground">{item.seventyStatus}</div>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
+                            <div>
+                                <h2 className="text-lg font-semibold">Override Gestor ({managerName})</h2>
+                                <p className="text-sm text-muted-foreground">
+                                    Override de {formatPercent(managerOverridePercentDisplay)} aplicado nas vendas Rental de outros vendedores.
+                                </p>
+                            </div>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead>Origem</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead className="text-right">Comissão</TableHead>
+                                        <TableHead>30%</TableHead>
+                                        <TableHead>70%</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredManagerOverrideRows.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                                                Nenhum override do gestor para o filtro atual.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        filteredManagerOverrideRows.map((item) => (
+                                            <TableRow key={`override-${item.id}`}>
+                                                <TableCell>{formatDate(item.createdAt)}</TableCell>
+                                                <TableCell>{item.sellerName}</TableCell>
+                                                <TableCell>{item.nome}</TableCell>
+                                                <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs">
+                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
+                                                        <div className="text-muted-foreground">{item.thirtyStatus}</div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-xs">
+                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
+                                                        <div className="text-muted-foreground">{item.seventyStatus}</div>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </div>
+
+                    <div className="grid gap-6 xl:grid-cols-2">
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                            <div>
+                                <h2 className="text-lg font-semibold">Previsões Dorata</h2>
+                                <p className="text-sm text-muted-foreground">Orçamentos enviados e indicações Dorata com valor informado.</p>
+                            </div>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Data</TableHead>
+                                        <TableHead>Vendedor</TableHead>
+                                        <TableHead className="text-right">Contrato</TableHead>
+                                        <TableHead className="text-right">Comissão</TableHead>
+                                        <TableHead>Status comissão</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredDorataForecasts.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                                                Nenhuma previsão Dorata registrada.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        filteredDorataForecasts.map((item) => (
+                                            <TableRow key={item.id}>
+                                                <TableCell>{formatDate(item.created_at)}</TableCell>
+                                                <TableCell>{item.seller?.name || item.seller?.email || 'Sistema'}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(item.commissionValue)}</TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-1">
+                                                        <Badge variant={item.signed ? "success" : "secondary"}>{item.commissionStatus}</Badge>
+                                                        <span className="text-xs text-muted-foreground">
+                                                            {item.signedAt ? `Assinado em ${formatDate(item.signedAt)}` : "Aguardando contrato assinado"}
+                                                        </span>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                            <div className="rounded-md bg-muted/50 p-3 text-sm">
+                                <span className="font-medium">Totais Dorata:</span>{" "}
+                                Contrato {formatCurrency(totalDorataContract)} | Comissão {formatCurrency(totalDorataCommission)}
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold">Pagamentos Dorata</h2>
+                                    <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_dorata.</p>
+                                </div>
+                                <span className="text-sm font-semibold">{formatCurrency(dorataPaymentsTotal)}</span>
+                            </div>
+                            <FinancialList transactions={dorataPayments as any[]} />
+                        </div>
+                    </div>
+
+                    <div className="grid gap-6 xl:grid-cols-2">
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold">Pagamentos Rental</h2>
+                                    <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_venda.</p>
+                                </div>
+                                <span className="text-sm font-semibold">{formatCurrency(rentalPaymentsTotal)}</span>
+                            </div>
+                            <FinancialList transactions={rentalPayments as any[]} />
+                        </div>
+
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-lg font-semibold">Pagamentos Override</h2>
+                                    <p className="text-sm text-muted-foreground">Lançamentos do tipo override_gestao.</p>
+                                </div>
+                                <span className="text-sm font-semibold">{formatCurrency(overridePaymentsTotal)}</span>
+                            </div>
+                            <FinancialList transactions={overridePayments as any[]} />
+                        </div>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="liberado" className="space-y-6 mt-0">
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <p className="text-sm text-muted-foreground">Total liberado</p>
+                            <p className="text-2xl font-bold">{formatCurrency(closeableTotal)}</p>
+                        </div>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <p className="text-sm text-muted-foreground">Liberado Rental</p>
+                            <p className="text-2xl font-bold">{formatCurrency(closeableRentalTotal)}</p>
+                        </div>
+                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                            <p className="text-sm text-muted-foreground">Liberado Dorata</p>
+                            <p className="text-2xl font-bold">{formatCurrency(closeableDorataTotal)}</p>
+                        </div>
+                    </div>
+
+                    <form action={closeCommissionBatchFromForm} className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="competencia" className="text-sm font-medium">Competência</label>
+                                <input
+                                    id="competencia"
+                                    name="competencia"
+                                    type="month"
+                                    defaultValue={new Date().toISOString().slice(0, 7)}
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="payment_date" className="text-sm font-medium">Data de pagamento</label>
+                                <input
+                                    id="payment_date"
+                                    name="payment_date"
+                                    type="date"
+                                    defaultValue={new Date().toISOString().slice(0, 10)}
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                            </div>
+                            <div className="flex-1 flex flex-col gap-1">
+                                <label htmlFor="observacao" className="text-sm font-medium">Observação</label>
+                                <input
+                                    id="observacao"
+                                    name="observacao"
+                                    type="text"
+                                    placeholder="Ex: fechamento quinzenal fevereiro"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90"
+                            >
+                                Fechar pagamento selecionado
+                            </button>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Selecionar</TableHead>
+                                        <TableHead>Marca</TableHead>
+                                        <TableHead>Beneficiário</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                        <TableHead>Origem</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead className="text-right">Valor disponível</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {closeableItems.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                                Nenhum item liberado para fechar no momento.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        closeableItems.map((item) => (
+                                            <TableRow key={`${item.source_kind}:${item.source_ref_id}:${item.transaction_type}:${item.beneficiary_user_id}`}>
+                                                <TableCell>
+                                                    <input
+                                                        type="checkbox"
+                                                        name="selected_items"
+                                                        value={encodeURIComponent(JSON.stringify({
+                                                            source_kind: item.source_kind,
+                                                            source_ref_id: item.source_ref_id,
+                                                            brand: item.brand,
+                                                            beneficiary_user_id: item.beneficiary_user_id,
+                                                            transaction_type: item.transaction_type,
+                                                            amount: Number(item.amount.toFixed(2)),
+                                                            description: item.description,
+                                                            origin_lead_id: item.origin_lead_id,
+                                                            client_name: item.client_name,
+                                                        }))}
+                                                        className="h-4 w-4 rounded border-gray-300 text-primary"
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={item.brand === "rental" ? "secondary" : "default"}>
+                                                        {item.brand === "rental" ? "Rental" : "Dorata"}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>{item.beneficiary_name}</TableCell>
+                                                <TableCell>{item.client_name || "—"}</TableCell>
+                                                <TableCell>
+                                                    {item.source_kind === "manual_elyakim" ? "Manual Elyakim" : "Sistema"}
+                                                </TableCell>
+                                                <TableCell>{item.transaction_type}</TableCell>
+                                                <TableCell className="text-right font-medium">{formatCurrency(item.amount)}</TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </form>
+
+                    <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                        <div>
+                            <h2 className="text-lg font-semibold">Relatório Elyakim (manual)</h2>
+                            <p className="text-sm text-muted-foreground">
+                                Use quando a comissão da Rental ainda não estiver 100% no app. O item entra como liberado e aparece na lista de fechamento.
+                            </p>
+                        </div>
+
+                        <form action={createManualElyakimItemFromForm} className="grid gap-4 md:grid-cols-2">
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_competencia" className="text-sm font-medium">Competência</label>
+                                <input
+                                    id="manual_competencia"
+                                    name="competencia"
+                                    type="month"
+                                    defaultValue={new Date().toISOString().slice(0, 7)}
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    required
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_beneficiary_user_id" className="text-sm font-medium">Beneficiário</label>
+                                <select
+                                    id="manual_beneficiary_user_id"
+                                    name="beneficiary_user_id"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    required
+                                >
+                                    <option value="">Selecione...</option>
+                                    {sellerOptions.map((seller) => (
+                                        <option key={`manual-user-${seller.id}`} value={seller.id}>
+                                            {seller.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_brand" className="text-sm font-medium">Marca</label>
+                                <select
+                                    id="manual_brand"
+                                    name="brand"
+                                    defaultValue="rental"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                    <option value="rental">Rental</option>
+                                    <option value="dorata">Dorata</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_transaction_type" className="text-sm font-medium">Tipo</label>
+                                <select
+                                    id="manual_transaction_type"
+                                    name="transaction_type"
+                                    defaultValue="comissao_venda"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                >
+                                    <option value="comissao_venda">comissao_venda</option>
+                                    <option value="comissao_dorata">comissao_dorata</option>
+                                    <option value="override_gestao">override_gestao</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1 md:col-span-2">
+                                <label htmlFor="manual_client_name" className="text-sm font-medium">Cliente</label>
+                                <input
+                                    id="manual_client_name"
+                                    name="client_name"
+                                    type="text"
+                                    placeholder="Nome do cliente"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    required
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_amount" className="text-sm font-medium">Valor (R$)</label>
+                                <input
+                                    id="manual_amount"
+                                    name="amount"
+                                    type="number"
+                                    step="0.01"
+                                    min="0.01"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    required
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_origin_lead_id" className="text-sm font-medium">ID indicação (opcional)</label>
+                                <input
+                                    id="manual_origin_lead_id"
+                                    name="origin_lead_id"
+                                    type="text"
+                                    placeholder="UUID da indicação"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_external_ref" className="text-sm font-medium">Referência externa</label>
+                                <input
+                                    id="manual_external_ref"
+                                    name="external_ref"
+                                    type="text"
+                                    placeholder="Ex: Elyakim #142"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <label htmlFor="manual_observacao" className="text-sm font-medium">Observação</label>
+                                <input
+                                    id="manual_observacao"
+                                    name="observacao"
+                                    type="text"
+                                    placeholder="Comentário opcional"
+                                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                />
+                            </div>
+                            <div className="md:col-span-2">
+                                <button
+                                    type="submit"
+                                    className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90"
+                                >
+                                    Adicionar item manual
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="historico" className="space-y-6 mt-0">
+                    <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                        <div>
+                            <h2 className="text-lg font-semibold">Fechamentos realizados</h2>
+                            <p className="text-sm text-muted-foreground">
+                                Histórico dos lotes pagos de comissão.
+                            </p>
+                        </div>
+                        <Table>
+                            <TableHeader>
                                 <TableRow>
-                                    <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
-                                        Nenhuma previsão Rental registrada.
-                                    </TableCell>
+                                    <TableHead>Código</TableHead>
+                                    <TableHead>Competência</TableHead>
+                                    <TableHead>Data fechamento</TableHead>
+                                    <TableHead>Fechado por</TableHead>
+                                    <TableHead className="text-right">Itens</TableHead>
+                                    <TableHead className="text-right">Total</TableHead>
+                                    <TableHead>Status</TableHead>
                                 </TableRow>
-                            ) : (
-                                filteredRentalForecastRows.map((item) => (
-                                    <TableRow key={item.id}>
-                                        <TableCell>{formatDate(item.createdAt)}</TableCell>
-                                        <TableCell>{item.sellerName}</TableCell>
-                                        <TableCell>{item.nome}</TableCell>
-                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.baseValue) : "—"}</TableCell>
-                                        <TableCell className="text-right">{formatPercent(item.commissionPercentDisplay)}</TableCell>
-                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
-                                        <TableCell>
-                                            <div className="text-xs">
-                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
-                                                <div className="text-muted-foreground">{item.thirtyStatus}</div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="text-xs">
-                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
-                                                <div className="text-muted-foreground">{item.seventyStatus}</div>
-                                            </div>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredClosings.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                            Nenhum fechamento registrado ainda.
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
-
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
-                    <div>
-                        <h2 className="text-lg font-semibold">Override Gestor ({managerName})</h2>
-                        <p className="text-sm text-muted-foreground">
-                            Override de {formatPercent(managerOverridePercentDisplay)} aplicado nas vendas Rental de outros vendedores.
-                        </p>
+                                ) : (
+                                    filteredClosings.map((closing: any) => {
+                                        const closer = usersById.get(closing.fechado_por)
+                                        return (
+                                            <TableRow key={closing.id}>
+                                                <TableCell className="font-medium">{closing.codigo}</TableCell>
+                                                <TableCell>{formatDate(closing.competencia)}</TableCell>
+                                                <TableCell>{formatDate(closing.fechado_em || closing.created_at)}</TableCell>
+                                                <TableCell>{closer?.name || closer?.email || "Sistema"}</TableCell>
+                                                <TableCell className="text-right">{closing.total_itens || 0}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(Number(closing.total_valor || 0))}</TableCell>
+                                                <TableCell>
+                                                    <Badge variant={closing.status === "fechado" ? "success" : "secondary"}>
+                                                        {closing.status}
+                                                    </Badge>
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
                     </div>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Data</TableHead>
-                                <TableHead>Origem</TableHead>
-                                <TableHead>Cliente</TableHead>
-                                <TableHead className="text-right">Comissão</TableHead>
-                                <TableHead>30%</TableHead>
-                                <TableHead>70%</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredManagerOverrideRows.length === 0 ? (
+
+                    <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                        <div>
+                            <h2 className="text-lg font-semibold">Itens manuais Elyakim</h2>
+                            <p className="text-sm text-muted-foreground">
+                                Histórico dos lançamentos manuais e respectivos status de pagamento.
+                            </p>
+                        </div>
+                        <Table>
+                            <TableHeader>
                                 <TableRow>
-                                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                                        Nenhum override do gestor para o filtro atual.
-                                    </TableCell>
+                                    <TableHead>Data</TableHead>
+                                    <TableHead>Beneficiário</TableHead>
+                                    <TableHead>Cliente</TableHead>
+                                    <TableHead>Marca</TableHead>
+                                    <TableHead>Tipo</TableHead>
+                                    <TableHead className="text-right">Valor</TableHead>
+                                    <TableHead>Status</TableHead>
                                 </TableRow>
-                            ) : (
-                                filteredManagerOverrideRows.map((item) => (
-                                    <TableRow key={`override-${item.id}`}>
-                                        <TableCell>{formatDate(item.createdAt)}</TableCell>
-                                        <TableCell>{item.sellerName}</TableCell>
-                                        <TableCell>{item.nome}</TableCell>
-                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
-                                        <TableCell>
-                                            <div className="text-xs">
-                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
-                                                <div className="text-muted-foreground">{item.thirtyStatus}</div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="text-xs">
-                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
-                                                <div className="text-muted-foreground">{item.seventyStatus}</div>
-                                            </div>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredManualItemsRows.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                            Nenhum item manual registrado.
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-2">
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                    <div>
-                        <h2 className="text-lg font-semibold">Previsões Dorata</h2>
-                        <p className="text-sm text-muted-foreground">Orçamentos enviados e indicações Dorata com valor informado.</p>
+                                ) : (
+                                    filteredManualItemsRows.map((item) => (
+                                        <TableRow key={`manual-${item.id}`}>
+                                            <TableCell>{formatDate(item.createdAt)}</TableCell>
+                                            <TableCell>{item.beneficiaryName}</TableCell>
+                                            <TableCell>{item.clientName || "—"}</TableCell>
+                                            <TableCell>{item.brand === "rental" ? "Rental" : "Dorata"}</TableCell>
+                                            <TableCell>{item.transactionType}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(item.value)}</TableCell>
+                                            <TableCell>
+                                                <Badge variant={item.status === "pago" ? "success" : "secondary"}>{item.status}</Badge>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
                     </div>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Data</TableHead>
-                                <TableHead>Vendedor</TableHead>
-                                <TableHead className="text-right">Contrato</TableHead>
-                                <TableHead className="text-right">Comissão</TableHead>
-                                <TableHead>Status comissão</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredDorataForecasts.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
-                                        Nenhuma previsão Dorata registrada.
-                                    </TableCell>
-                                </TableRow>
-                            ) : (
-                                filteredDorataForecasts.map((item) => (
-                                    <TableRow key={item.id}>
-                                        <TableCell>{formatDate(item.created_at)}</TableCell>
-                                        <TableCell>{item.seller?.name || item.seller?.email || 'Sistema'}</TableCell>
-                                        <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
-                                        <TableCell className="text-right">{formatCurrency(item.commissionValue)}</TableCell>
-                                        <TableCell>
-                                            <div className="flex flex-col gap-1">
-                                                <Badge variant={item.signed ? "success" : "secondary"}>{item.commissionStatus}</Badge>
-                                                <span className="text-xs text-muted-foreground">
-                                                    {item.signedAt ? `Assinado em ${formatDate(item.signedAt)}` : "Aguardando contrato assinado"}
-                                                </span>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                    <div className="rounded-md bg-muted/50 p-3 text-sm">
-                        <span className="font-medium">Totais Dorata:</span>{" "}
-                        Contrato {formatCurrency(totalDorataContract)} | Comissão {formatCurrency(totalDorataCommission)}
-                    </div>
-                </div>
-
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-lg font-semibold">Pagamentos Dorata</h2>
-                            <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_dorata.</p>
-                        </div>
-                        <span className="text-sm font-semibold">{formatCurrency(dorataPaymentsTotal)}</span>
-                    </div>
-                    <FinancialList transactions={dorataPayments as any[]} />
-                </div>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-2">
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-lg font-semibold">Pagamentos Rental</h2>
-                            <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_venda.</p>
-                        </div>
-                        <span className="text-sm font-semibold">{formatCurrency(rentalPaymentsTotal)}</span>
-                    </div>
-                    <FinancialList transactions={rentalPayments as any[]} />
-                </div>
-
-                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h2 className="text-lg font-semibold">Pagamentos Override</h2>
-                            <p className="text-sm text-muted-foreground">Lançamentos do tipo override_gestao.</p>
-                        </div>
-                        <span className="text-sm font-semibold">{formatCurrency(overridePaymentsTotal)}</span>
-                    </div>
-                    <FinancialList transactions={overridePayments as any[]} />
-                </div>
-            </div>
+                </TabsContent>
+            </Tabs>
         </div>
     )
 }
