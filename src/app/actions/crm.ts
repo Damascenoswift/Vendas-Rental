@@ -290,7 +290,7 @@ const crmAllowedRoles = [
     "suporte_limitado",
     "funcionario_n1",
     "funcionario_n2",
-] as const
+]
 
 function chunkArray<T>(items: T[], size: number) {
     const chunks: T[][] = []

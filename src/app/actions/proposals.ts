@@ -13,7 +13,7 @@ const proposalViewRoles = [
   "suporte_limitado",
   "funcionario_n1",
   "funcionario_n2",
-] as const
+]
 
 export async function getProposalsForIndication(indicacaoId: string) {
   const supabase = await createClient()

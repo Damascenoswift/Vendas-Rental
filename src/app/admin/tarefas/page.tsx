@@ -16,12 +16,17 @@ function normalizeScope(value?: string | null): TaskScope {
     return "all"
 }
 
-export default async function TasksPage({ searchParams }: { searchParams: { brand?: string; scope?: string } }) {
-    const brand = (searchParams?.brand === 'rental' || searchParams?.brand === 'dorata')
-        ? searchParams.brand as Brand
+export default async function TasksPage({
+    searchParams,
+}: {
+    searchParams?: Promise<{ brand?: string; scope?: string }>
+}) {
+    const resolvedSearchParams = searchParams ? await searchParams : undefined
+    const brand = (resolvedSearchParams?.brand === 'rental' || resolvedSearchParams?.brand === 'dorata')
+        ? resolvedSearchParams.brand as Brand
         : undefined
 
-    const scope = normalizeScope(searchParams?.scope)
+    const scope = normalizeScope(resolvedSearchParams?.scope)
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     const profile = user ? await getProfile(supabase, user.id) : null

@@ -43,7 +43,7 @@ export default async function InventoryPage() {
 }
 
 async function InventoryContent() {
-    let products = []
+    let products: Awaited<ReturnType<typeof getProducts>> = []
     let loadError: string | null = null
 
     try {

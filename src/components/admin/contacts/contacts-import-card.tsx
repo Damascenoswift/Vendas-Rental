@@ -47,7 +47,7 @@ export function ContactsImportCard() {
                 title: "Importação concluída",
                 description: `${result.imported} contato(s) importado(s).${result.skipped ? ` ${result.skipped} ignorado(s).` : ""}`,
             })
-            setJsonText("")
+            setCsvText("")
             setFileName(null)
         } else {
             showToast({ variant: "error", title: "Erro na importação", description: result.error })

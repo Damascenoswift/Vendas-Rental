@@ -35,8 +35,9 @@ const allowedRoles = [
 export default async function AdminContactsPage({
     searchParams,
 }: {
-    searchParams?: SearchParams
+    searchParams?: Promise<SearchParams>
 }) {
+    const resolvedSearchParams = searchParams ? await searchParams : undefined
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -59,9 +60,9 @@ export default async function AdminContactsPage({
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const queryText = typeof searchParams?.q === "string" ? searchParams.q.trim() : ""
+    const queryText = typeof resolvedSearchParams?.q === "string" ? resolvedSearchParams.q.trim() : ""
 
-    const page = Number.parseInt(searchParams?.page ?? "1", 10) || 1
+    const page = Number.parseInt(resolvedSearchParams?.page ?? "1", 10) || 1
     const perPage = 50
     const from = (page - 1) * perPage
     const to = from + perPage - 1

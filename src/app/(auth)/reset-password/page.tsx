@@ -28,6 +28,7 @@ export default function ResetPasswordPage() {
   const [info, setInfo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -38,12 +39,12 @@ export default function ResetPasswordPage() {
     let isMounted = true
 
     const initialize = async () => {
-      // O Supabase envia um access_token na URL. O client já consome automaticamente quando chamamos setSession via updateUser.
-      // Apenas checamos se existe sessão temporária disponível.
       const { data } = await supabase.auth.getSession()
       if (!isMounted) return
-      if (!data.session) {
-        setInfo("Valide o link do email e tente novamente.")
+      const sessionExists = Boolean(data.session)
+      setHasSession(sessionExists)
+      if (!sessionExists) {
+        setInfo("Link inválido ou expirado. Solicite uma nova redefinição em \"Esqueci minha senha\" na tela de login.")
       }
       setIsReady(true)
     }
@@ -55,6 +56,11 @@ export default function ResetPasswordPage() {
   }, [])
 
   const onSubmit = async (values: FormValues) => {
+    if (!hasSession) {
+      setError("Sessão de redefinição inválida. Solicite um novo link no login.")
+      return
+    }
+
     setError(null)
     setInfo(null)
     const { error: updateError } = await supabase.auth.updateUser({
@@ -83,45 +89,58 @@ export default function ResetPasswordPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
       <div className="w-full max-w-sm rounded-xl border bg-background p-6 shadow-sm">
         <h1 className="mb-4 text-2xl font-semibold">Redefinir senha</h1>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Nova senha</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="••••••" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="confirmPassword"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirmar senha</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="••••••" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        {hasSession ? (
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nova senha</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="confirmPassword"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Confirmar senha</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {error ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
-            ) : null}
+              {error ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
+              ) : null}
+              {info ? (
+                <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">{info}</div>
+              ) : null}
+
+              <Button type="submit" className="w-full">Atualizar senha</Button>
+            </form>
+          </Form>
+        ) : (
+          <div className="space-y-4">
             {info ? (
-              <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">{info}</div>
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
+                {info}
+              </div>
             ) : null}
-
-            <Button type="submit" className="w-full">Atualizar senha</Button>
-          </form>
-        </Form>
+            <Button type="button" className="w-full" onClick={() => router.replace("/login")}>
+              Voltar para o login
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

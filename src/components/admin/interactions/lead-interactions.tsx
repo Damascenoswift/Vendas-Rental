@@ -65,7 +65,7 @@ export function LeadInteractions({ indicacaoId }: LeadInteractionsProps) {
                 <h3 className="text-sm font-semibold">Histórico de Atividades</h3>
             </div>
 
-            <ScrollArea className="flex-1 p-4" viewportRef={scrollRef}>
+            <ScrollArea className="flex-1 p-4">
                 <div className="space-y-4">
                     {interactions.length === 0 && (
                         <p className="text-center text-sm text-muted-foreground py-10">

@@ -466,7 +466,6 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervisor_id: supervisor_id || null // Set to null if empty string
     }
 
-    // @ts-ignore
     const { error: profileError } = await supabaseAdmin
         .from('users')
         .update(updatePayload)

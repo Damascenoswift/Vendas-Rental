@@ -82,7 +82,7 @@ export default async function AdminLeadsPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {leads?.map((lead) => {
+                        {leads?.map((lead: any) => {
                             // Extract vendedor name safely
                             const vendedorNome = (lead.users as any)?.name || (lead.users as any)?.email || 'Desconhecido'
 

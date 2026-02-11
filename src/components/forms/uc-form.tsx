@@ -182,7 +182,7 @@ export function UcForm({ clientes }: UcFormProps) {
                                 <FormControl>
                                     <Checkbox
                                         checked={field.value}
-                                        onCheckedChange={(value) => field.onChange(Boolean(value))}
+                                        onChange={(event) => field.onChange(event.currentTarget.checked)}
                                     />
                                 </FormControl>
                                 <FormLabel className="mb-0">Atendido via consórcio</FormLabel>
@@ -199,7 +199,7 @@ export function UcForm({ clientes }: UcFormProps) {
                                 <FormControl>
                                     <Checkbox
                                         checked={field.value}
-                                        onCheckedChange={(value) => field.onChange(Boolean(value))}
+                                        onChange={(event) => field.onChange(event.currentTarget.checked)}
                                     />
                                 </FormControl>
                                 <FormLabel className="mb-0">Transferida para consórcio</FormLabel>
@@ -216,7 +216,7 @@ export function UcForm({ clientes }: UcFormProps) {
                                 <FormControl>
                                     <Checkbox
                                         checked={field.value}
-                                        onCheckedChange={(value) => field.onChange(Boolean(value))}
+                                        onChange={(event) => field.onChange(event.currentTarget.checked)}
                                     />
                                 </FormControl>
                                 <FormLabel className="mb-0">UC ativa</FormLabel>

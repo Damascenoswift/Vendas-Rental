@@ -6,8 +6,8 @@ import { ProposalCalculator } from "@/components/admin/proposals/proposal-calcul
 export const dynamic = "force-dynamic"
 
 export default async function NewProposalPage() {
-    let products = []
-    let pricingRules = []
+    let products: Awaited<ReturnType<typeof getProducts>> = []
+    let pricingRules: Awaited<ReturnType<typeof getPricingRules>> = []
     let loadError: string | null = null
 
     try {

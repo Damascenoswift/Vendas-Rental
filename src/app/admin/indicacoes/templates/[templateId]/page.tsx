@@ -7,10 +7,11 @@ import { IndicationTemplateItems } from "@/components/admin/indicacao-template-i
 export const dynamic = "force-dynamic"
 
 type PageProps = {
-  params: { templateId: string }
+  params: Promise<{ templateId: string }>
 }
 
 export default async function IndicationTemplateDetailPage({ params }: PageProps) {
+  const { templateId } = await params
   const supabase = await createClient()
   const {
     data: { user },
@@ -38,7 +39,7 @@ export default async function IndicationTemplateDetailPage({ params }: PageProps
   const { data: template, error: templateError } = await supabase
     .from("indicacao_templates")
     .select("id, name, vendedor_id, base_payload")
-    .eq("id", params.templateId)
+    .eq("id", templateId)
     .single()
 
   if (templateError || !template) {

@@ -1133,7 +1133,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     }
 
     async function tryUpdateStatus(client: any, updates: Record<string, string | null>) {
-        let payload = { ...updates }
+        const payload = { ...updates }
         let { data, error } = await client
             .from('tasks')
             .update(payload)
@@ -1254,7 +1254,7 @@ export async function getTaskChecklists(taskId: string) {
         return []
     }
 
-    return data as TaskChecklistItem[]
+    return data as unknown as TaskChecklistItem[]
 }
 
 export async function addTaskChecklistItem(
@@ -1759,7 +1759,7 @@ export async function getTaskObservers(taskId: string) {
         return []
     }
 
-    return data as TaskObserver[]
+    return data as unknown as TaskObserver[]
 }
 
 export async function addTaskObserver(taskId: string, userId: string) {

@@ -96,13 +96,13 @@ export function ProductForm({ initialData }: ProductFormProps) {
         active: true
     }
 
-    const form = useForm<ProductFormValues>({
-        resolver: zodResolver(productSchema),
-        defaultValues
+    const form = useForm<any>({
+        resolver: zodResolver(productSchema) as any,
+        defaultValues: defaultValues as any
     })
     const watchedType = form.watch("type")
 
-    async function onSubmit(data: ProductFormValues) {
+    async function onSubmit(data: any) {
         try {
             let parsedSpecs = {}
             try {

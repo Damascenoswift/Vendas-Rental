@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { useState, useEffect } from "react"
-import { supabase } from "@/lib/supabase"
 
 interface ProfileFormProps {
     initialName: string
@@ -89,16 +88,17 @@ export function ProfileForm({ initialName, initialPhone, email }: ProfileFormPro
 
             <div className="border-t pt-6">
                 <h3 className="mb-4 text-lg font-medium">Alterar Senha</h3>
-                <PasswordChangeForm email={email} />
+                <PasswordChangeForm />
             </div>
         </div>
     )
 }
 
-function PasswordChangeForm({ email }: { email: string }) {
-    const [password, setPassword] = useState("")
+function PasswordChangeForm() {
+    const [currentPassword, setCurrentPassword] = useState("")
+    const [newPassword, setNewPassword] = useState("")
+    const [confirmPassword, setConfirmPassword] = useState("")
     const [state, formAction, isPending] = useActionState(updatePassword, passwordInitialState)
-    const [isSendingReset, setIsSendingReset] = useState(false)
     const { showToast } = useToast()
 
     useEffect(() => {
@@ -115,67 +115,55 @@ function PasswordChangeForm({ email }: { email: string }) {
                 title: "Sucesso",
                 description: state.success,
             })
-            setPassword("")
+            setCurrentPassword("")
+            setNewPassword("")
+            setConfirmPassword("")
         }
     }, [state, showToast])
-
-    const handleSendResetLink = async () => {
-        if (!email) {
-            showToast({
-                variant: "error",
-                title: "Erro",
-                description: "Email não disponível para envio do link.",
-            })
-            return
-        }
-
-        setIsSendingReset(true)
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/reset-password`,
-        })
-        setIsSendingReset(false)
-
-        if (error) {
-            showToast({
-                variant: "error",
-                title: "Erro",
-                description: "Não foi possível enviar o link de redefinição.",
-            })
-            return
-        }
-
-        showToast({
-            variant: "success",
-            title: "Sucesso",
-            description: "Enviamos um link para redefinir sua senha. Verifique sua caixa de entrada e spam.",
-        })
-    }
 
     return (
         <form action={formAction} className="space-y-4">
             <div className="space-y-2">
-                <Label htmlFor="new-password">Nova Senha</Label>
+                <Label htmlFor="current-password">Senha atual</Label>
+                <Input
+                    id="current-password"
+                    name="currentPassword"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="••••••"
+                />
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="new-password">Nova senha</Label>
                 <Input
                     id="new-password"
-                    name="password"
+                    name="newPassword"
                     type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="••••••"
                     minLength={6}
                 />
             </div>
-            <Button type="submit" variant="secondary" disabled={isPending || !password}>
-                {isPending ? "Atualizando..." : "Redefinir Senha"}
-            </Button>
+            <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirmar nova senha</Label>
+                <Input
+                    id="confirm-password"
+                    name="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••"
+                    minLength={6}
+                />
+            </div>
             <Button
-                type="button"
-                variant="ghost"
-                className="w-full"
-                onClick={handleSendResetLink}
-                disabled={isSendingReset}
+                type="submit"
+                variant="secondary"
+                disabled={isPending || !currentPassword || !newPassword || !confirmPassword}
             >
-                {isSendingReset ? "Enviando link..." : "Enviar link de redefinição"}
+                {isPending ? "Atualizando..." : "Alterar senha"}
             </Button>
         </form>
     )

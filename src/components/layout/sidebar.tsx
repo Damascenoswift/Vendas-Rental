@@ -26,7 +26,7 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 
-interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> { }
+type SidebarProps = React.HTMLAttributes<HTMLDivElement>
 
 export function Sidebar({ className }: SidebarProps) {
     const { profile } = useAuthSession()

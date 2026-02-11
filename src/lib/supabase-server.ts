@@ -1,7 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 
-import type { Database } from '@/types/database'
-
 type ServiceClientOptions = {
   accessToken?: string
 }
@@ -22,7 +20,7 @@ export function createSupabaseServiceClient({
     if (!anonKey) {
       throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY não está configurada')
     }
-    return createClient<Database>(supabaseUrl, anonKey, {
+    return createClient(supabaseUrl, anonKey, {
       global: {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -39,7 +37,7 @@ export function createSupabaseServiceClient({
     throw new Error('SUPABASE_SECRET ou SUPABASE_SERVICE_ROLE_KEY não está configurada')
   }
 
-  return createClient<Database>(supabaseUrl, serviceKey, {
+  return createClient(supabaseUrl, serviceKey, {
     auth: {
       persistSession: false,
     },

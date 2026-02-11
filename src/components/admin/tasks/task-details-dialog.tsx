@@ -324,6 +324,7 @@ export function TaskDetailsDialog({
     }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, task?.id])
 
     const handleAddChecklist = async () => {
+        if (!task) return
         if (!newChecklistTitle.trim()) return
         setIsSavingChecklist(true)
         const result = await addTaskChecklistItem(task.id, newChecklistTitle)
@@ -338,6 +339,7 @@ export function TaskDetailsDialog({
     }
 
     const handleToggleChecklist = async (item: TaskChecklistItem, nextChecked: boolean) => {
+        if (!task) return
         const result = await toggleTaskChecklistItem(item.id, nextChecked)
         if (result?.error) {
             showToast({ title: "Erro ao atualizar checklist", description: result.error, variant: "error" })
@@ -357,6 +359,7 @@ export function TaskDetailsDialog({
     }
 
     const handleAddObserver = async () => {
+        if (!task) return
         if (!newObserverId) return
         const result = await addTaskObserver(task.id, newObserverId)
         if (result?.error) {
@@ -369,6 +372,7 @@ export function TaskDetailsDialog({
     }
 
     const handleRemoveObserver = async (userId: string) => {
+        if (!task) return
         const result = await removeTaskObserver(task.id, userId)
         if (result?.error) {
             showToast({ title: "Erro ao remover observador", description: result.error, variant: "error" })
@@ -378,6 +382,7 @@ export function TaskDetailsDialog({
     }
 
     const handleDeleteTask = async () => {
+        if (!task) return
         if (!confirm("Deseja realmente excluir esta tarefa?")) return
         setIsDeleting(true)
         const result = await deleteTask(task.id)
@@ -514,6 +519,7 @@ export function TaskDetailsDialog({
     }
 
     const handleSaveDetails = async () => {
+        if (!task) return
         setIsSavingDetails(true)
         const trimmedTitle = editTitle.trim()
         if (!trimmedTitle) {

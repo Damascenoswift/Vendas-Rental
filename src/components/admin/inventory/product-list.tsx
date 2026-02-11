@@ -116,7 +116,6 @@ export function ProductList({ initialProducts }: ProductListProps) {
                                             {product.active ? 'Ativo' : 'Inativo'}
                                         </Badge>
                                         {/* Low Stock Warning */}
-                                        {/* @ts-ignore */}
                                         {((product.stock_total || 0) - (product.stock_reserved || 0)) < (product.min_stock ?? 5) && product.active && (
                                             <div className="flex items-center text-red-600 text-xs mt-1 font-semibold">
                                                 <AlertTriangle className="h-3 w-3 mr-1" />

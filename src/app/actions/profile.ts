@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { z } from "zod"
 
 const profileSchema = z.object({
@@ -11,10 +12,23 @@ const profileSchema = z.object({
 })
 
 const passwordSchema = z.object({
-    password: z.string().min(6, "A senha deve ter no mínimo 6 caracteres"),
+    currentPassword: z.string().min(1, "Informe a senha atual"),
+    newPassword: z.string().min(6, "A nova senha deve ter no mínimo 6 caracteres"),
+    confirmPassword: z.string().min(6, "A confirmação da senha deve ter no mínimo 6 caracteres"),
+}).refine((value) => value.newPassword === value.confirmPassword, {
+    message: "As senhas não conferem",
+    path: ["confirmPassword"],
 })
 
-export async function updateProfile(prevState: any, formData: FormData) {
+type ProfileActionState = {
+    error?: string
+    success?: string
+}
+
+export async function updateProfile(
+    prevState: ProfileActionState,
+    formData: FormData
+): Promise<ProfileActionState> {
     const supabase = await createClient()
     const {
         data: { user },
@@ -62,7 +76,10 @@ export async function updateProfile(prevState: any, formData: FormData) {
     return { success: "Perfil atualizado com sucesso!", error: undefined }
 }
 
-export async function updatePassword(prevState: any, formData: FormData) {
+export async function updatePassword(
+    prevState: ProfileActionState,
+    formData: FormData
+): Promise<ProfileActionState> {
     const supabase = await createClient()
     const {
         data: { user },
@@ -72,33 +89,61 @@ export async function updatePassword(prevState: any, formData: FormData) {
         return { error: "Não autenticado" }
     }
 
-    const password = (formData.get("password") as string) ?? ""
+    if (!user.email) {
+        return { error: "Email do usuário não disponível para validação de senha." }
+    }
+
+    const currentPassword = (formData.get("currentPassword") as string) ?? ""
+    const newPassword = (formData.get("newPassword") as string) ?? ""
+    const confirmPassword = (formData.get("confirmPassword") as string) ?? ""
+
     const validatedFields = passwordSchema.safeParse({
-        password,
+        currentPassword,
+        newPassword,
+        confirmPassword,
     })
 
     if (!validatedFields.success) {
+        const flattenedErrors = validatedFields.error.flatten().fieldErrors
         return {
-            error: validatedFields.error.flatten().fieldErrors.password?.[0] || "Senha inválida",
+            error: flattenedErrors.currentPassword?.[0] ||
+                flattenedErrors.newPassword?.[0] ||
+                flattenedErrors.confirmPassword?.[0] ||
+                "Senha inválida",
         }
     }
 
     try {
-        const supabaseAdmin = createSupabaseServiceClient()
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+        const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-        const updatePromise = supabaseAdmin.auth.admin.updateUserById(user.id, {
-            password: validatedFields.data.password,
+        if (!supabaseUrl || !supabaseAnonKey) {
+            return { error: "Configuração de autenticação ausente." }
+        }
+
+        const supabaseVerifier = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
+            auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+            },
         })
 
-        const timeoutPromise = new Promise<{ error: { message: string } }>((resolve) =>
-            setTimeout(() => resolve({ error: { message: "Tempo esgotado ao atualizar senha." } }), 8000)
-        )
+        const { error: verifyError } = await supabaseVerifier.auth.signInWithPassword({
+            email: user.email,
+            password: validatedFields.data.currentPassword,
+        })
 
-        const { error } = await Promise.race([updatePromise, timeoutPromise])
+        if (verifyError) {
+            return { error: "Senha atual inválida." }
+        }
 
-        if (error) {
-            console.error("Erro ao atualizar senha:", error)
-            return { error: error.message || "Não foi possível alterar a senha." }
+        const { error: updateError } = await supabase.auth.updateUser({
+            password: validatedFields.data.newPassword,
+        })
+
+        if (updateError) {
+            console.error("Erro ao atualizar senha:", updateError)
+            return { error: updateError.message || "Não foi possível alterar a senha." }
         }
     } catch (error: any) {
         console.error("Erro ao atualizar senha:", error)

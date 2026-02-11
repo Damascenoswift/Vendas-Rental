@@ -249,7 +249,6 @@ export async function generateContractFromIndication(indicacaoId: string) {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 120) // +120 days
 
-    // @ts-ignore
     const { error: dbError } = await supabaseAdmin.from('contracts').insert({
         indicacao_id: indicacaoId,
         type: `${brand.toUpperCase()}_${type}`,

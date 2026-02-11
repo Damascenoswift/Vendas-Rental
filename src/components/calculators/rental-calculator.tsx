@@ -35,7 +35,7 @@ const percentFormatter = new Intl.NumberFormat("pt-BR", {
 const monthSeries = ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
 const barMultipliers = [0.78, 0.92, 0.86, 0.8, 0.9, 1.04, 0.96, 1.02, 1.08, 0.92, 1.06, 0.88]
 
-const invoiceStyles: CSSProperties = {
+const invoiceStyles: CSSProperties & Record<string, string> = {
     "--invoice-ink": "#0b0c0f",
     "--invoice-accent": "#f7d046",
     "--invoice-lime": "#7ee081",

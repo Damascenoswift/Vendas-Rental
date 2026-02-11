@@ -288,7 +288,12 @@ export async function importTemplateItemsFromCsv(payload: z.infer<typeof csvSche
     })
   }
 
-  const insertRows = []
+  const insertRows: Array<{
+    template_id: string
+    codigo_cliente: string | null
+    codigo_instalacao: string
+    unidade_consumidora: string | null
+  }> = []
   items.forEach((item) => {
     const line = item.line
     if (existingCodes.has(item.codigo_instalacao)) {

@@ -142,7 +142,7 @@ function buildContactName(contact: ContactRow) {
 export default async function ContactDetailsPage({
     params,
 }: {
-    params: { contactId: string }
+    params: Promise<{ contactId: string }>
 }) {
     const supabase = await createClient()
     const {
@@ -168,7 +168,7 @@ export default async function ContactDetailsPage({
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { contactId } = params
+    const { contactId } = await params
 
     const { data: contactData, error: contactError } = await supabaseAdmin
         .from("contacts")

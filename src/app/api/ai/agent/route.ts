@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai"
 import { NextResponse } from "next/server"
 import { tools, runTool } from "@/lib/ai/agent-tools"
 import { createClient } from "@/lib/supabase/server"
-import { getProfile, hasFullAccess } from "@/lib/auth"
+import { getProfile, hasFullAccess, type UserRole } from "@/lib/auth"
 
 // System prompt defining the AI's persona
 const SYSTEM_PROMPT = `
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         }
 
         const profile = await getProfile(supabase, user.id)
-        const role = profile?.role ?? (user.user_metadata?.role as string | undefined)
+        const role = (profile?.role ?? user.user_metadata?.role) as UserRole | undefined
         const ownerId = process.env.USER_MANAGEMENT_OWNER_ID
         const ownerEmail = process.env.USER_MANAGEMENT_OWNER_EMAIL?.toLowerCase()
         const userEmail = (user.email ?? profile?.email ?? "").toLowerCase()

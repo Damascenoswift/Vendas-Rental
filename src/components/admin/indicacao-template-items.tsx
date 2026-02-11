@@ -66,14 +66,14 @@ export function IndicationTemplateItems({ template, items, vendor }: Props) {
       })
       if (!result.success) {
         showToast({ variant: "error", title: "Erro ao importar", description: result.message })
-        if (result.errors) {
+        if (Array.isArray(result.errors)) {
           setLastErrors(result.errors.slice(0, 5))
         }
         return
       }
 
       setRawCsv("")
-      setLastErrors(result.errors?.slice(0, 5) ?? [])
+      setLastErrors(Array.isArray(result.errors) ? result.errors.slice(0, 5) : [])
       showToast({
         variant: "success",
         title: "Importação concluída",

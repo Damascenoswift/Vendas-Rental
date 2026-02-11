@@ -155,7 +155,7 @@ export async function createStockMovement(movement: StockMovementInsert) {
     const { data: product } = await supabase.from('products').select('stock_total, stock_reserved').eq('id', movement.product_id!).single()
 
     if (product) {
-        let updates: Partial<Product> = {}
+        const updates: Partial<Product> = {}
         const qty = movement.quantity
 
         if (movement.type === 'IN') {

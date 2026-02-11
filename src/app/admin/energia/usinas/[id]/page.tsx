@@ -4,7 +4,8 @@ import { UsinaForm } from "@/components/forms/usina-form"
 
 export const dynamic = "force-dynamic"
 
-export default async function EditarUsinaPage({ params }: { params: { id: string } }) {
+export default async function EditarUsinaPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params
     const supabase = await createClient()
 
     // Check Auth
@@ -15,7 +16,7 @@ export default async function EditarUsinaPage({ params }: { params: { id: string
     const { data: usina, error } = await supabase
         .from("usinas")
         .select("*")
-        .eq("id", params.id)
+        .eq("id", id)
         .single()
 
     if (error || !usina) {
