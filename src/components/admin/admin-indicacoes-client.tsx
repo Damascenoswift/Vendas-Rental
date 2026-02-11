@@ -45,16 +45,16 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
     // Extract unique vendors
     const vendors = useMemo(() => {
         const uniqueVendors = new Set<string>()
-        initialIndicacoes.forEach(ind => {
+        indicacoes.forEach(ind => {
             const vendorName = (ind.users as any)?.name || (ind.users as any)?.email
             if (vendorName) uniqueVendors.add(vendorName)
         })
         return Array.from(uniqueVendors).sort()
-    }, [initialIndicacoes])
+    }, [indicacoes])
 
     // Filter and Sort
     const filteredIndicacoes = useMemo(() => {
-        let result = [...initialIndicacoes]
+        let result = [...indicacoes]
 
         // Filter by Vendor
         if (selectedVendor !== "all") {
@@ -72,7 +72,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
         })
 
         return result
-    }, [initialIndicacoes, selectedVendor, sortOrder])
+    }, [indicacoes, selectedVendor, sortOrder])
 
     const handleClearFilters = () => {
         setSelectedVendor("all")
@@ -83,6 +83,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
         role === 'adm_mestre' ||
         role === 'adm_dorata' ||
         role === 'funcionario_n1' ||
+        role === 'funcionario_n2' ||
         department === 'financeiro'
 
     const formatCurrency = (value: number | null | undefined) => {
@@ -231,7 +232,13 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
                                                             <GenerateContractButton indicationId={ind.id} />
                                                         )}
                                                         {canDelete && (
-                                                            <DeleteIndicationButton id={ind.id} />
+                                                            <DeleteIndicationButton
+                                                                id={ind.id}
+                                                                clientName={ind.nome}
+                                                                onDeleted={() => {
+                                                                    setIndicacoes((prev) => prev.filter((item) => item.id !== ind.id))
+                                                                }}
+                                                            />
                                                         )}
                                                     </>
                                                 )}
@@ -269,11 +276,20 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-function DeleteIndicationButton({ id }: { id: string }) {
+function DeleteIndicationButton({
+    id,
+    clientName,
+    onDeleted,
+}: {
+    id: string
+    clientName?: string | null
+    onDeleted?: () => void
+}) {
     const { showToast } = useToast()
     const [isDeleting, setIsDeleting] = useState(false)
 
     const handleDelete = async () => {
+        if (isDeleting) return
         setIsDeleting(true)
         try {
             const result = await deleteIndication(id)
@@ -289,8 +305,9 @@ function DeleteIndicationButton({ id }: { id: string }) {
                     title: "Indicação excluída",
                     description: "A indicação foi removida com sucesso.",
                 })
+                onDeleted?.()
             }
-        } catch (error) {
+        } catch {
             showToast({
                 variant: "error",
                 title: "Erro inesperado",
@@ -304,7 +321,13 @@ function DeleteIndicationButton({ id }: { id: string }) {
     return (
         <AlertDialog>
             <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50">
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                    disabled={isDeleting}
+                    title="Excluir indicação"
+                >
                     <Trash2 className="h-4 w-4" />
                 </Button>
             </AlertDialogTrigger>
@@ -312,7 +335,8 @@ function DeleteIndicationButton({ id }: { id: string }) {
                 <AlertDialogHeader>
                     <AlertDialogTitle>Tem certeza?</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Esta ação não pode ser desfeita. Isso excluirá permanentemente a indicação.
+                        Esta ação não pode ser desfeita. Isso excluirá permanentemente a indicação
+                        {clientName ? ` de ${clientName}` : ""}.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

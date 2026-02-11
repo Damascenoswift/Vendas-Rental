@@ -199,6 +199,7 @@ export async function deleteIndication(id: string) {
     const canDelete =
         hasFullAccess(role ?? null, department) ||
         role === 'funcionario_n1' ||
+        role === 'funcionario_n2' ||
         department === 'financeiro'
 
     if (!canDelete) {
@@ -219,8 +220,8 @@ export async function deleteIndication(id: string) {
     }
 
     // 2) Desvincula transações financeiras (preserva histórico financeiro).
-    // Usa client do usuário para respeitar RLS/policies de finanças.
-    const { error: unlinkFinanceError } = await supabase
+    // Usa service client para não depender de policy financeira do usuário logado.
+    const { error: unlinkFinanceError } = await supabaseAdmin
         .from("financeiro_transacoes")
         .update({ origin_lead_id: null })
         .eq("origin_lead_id", id)

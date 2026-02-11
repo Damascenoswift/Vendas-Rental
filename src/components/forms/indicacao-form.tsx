@@ -160,6 +160,46 @@ export type IndicacaoFormProps = {
   isInternalRegistration?: boolean
 }
 
+const createEmptyFilesPF = () => ({
+  faturaEnergia: null as File | null,
+  documentoComFoto: null as File | null,
+})
+
+const createEmptyFilesPJ = () => ({
+  faturaEnergia: null as File | null,
+  documentoComFoto: null as File | null,
+  contratoSocial: null as File | null,
+  cartaoCNPJ: null as File | null,
+  documentoRepresentante: null as File | null,
+})
+
+const buildDefaultFormValues = (initialBrand: Brand, userId: string): IndicacaoFormValues => ({
+  tipoPessoa: "PF",
+  marca: initialBrand,
+  codigoClienteEnergia: "",
+  codigoInstalacao: "",
+  localizacaoUC: "",
+  vendedorId: userId,
+  status: "EM_ANALISE",
+  nomeCliente: "",
+  emailCliente: "",
+  telefoneCliente: "",
+  endereco: "",
+  numero: "",
+  bairro: "",
+  cidade: "",
+  estado: "",
+  cep: "",
+  producaoDesejada: "",
+  tipoTelhado: "",
+  tipoEstrutura: undefined,
+  precoKwh: 0.95,
+  desconto: 20,
+  prazoContrato: "",
+  avisoPrevio: "",
+  outrasUcs: [],
+})
+
 export function IndicacaoForm({
   userId,
   allowedBrands,
@@ -170,57 +210,20 @@ export function IndicacaoForm({
 }: IndicacaoFormProps) {
   const { showToast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitCompleted, setSubmitCompleted] = useState(false)
+  const [fileInputResetKey, setFileInputResetKey] = useState(0)
+  const submitLockRef = useRef(false)
+  const submitCompletedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [filesPF, setFilesPF] = useState<{ faturaEnergia: File | null; documentoComFoto: File | null }>({
-    faturaEnergia: null,
-    documentoComFoto: null,
-  })
-  const [filesPJ, setFilesPJ] = useState<{
-    faturaEnergia: File | null
-    documentoComFoto: File | null
-    contratoSocial: File | null
-    cartaoCNPJ: File | null
-    documentoRepresentante: File | null
-  }>({
-    faturaEnergia: null,
-    documentoComFoto: null,
-    contratoSocial: null,
-    cartaoCNPJ: null,
-    documentoRepresentante: null,
-  })
+  const [filesPF, setFilesPF] = useState(createEmptyFilesPF)
+  const [filesPJ, setFilesPJ] = useState(createEmptyFilesPJ)
 
   const initialBrand = allowedBrands[0] ?? "rental"
+  const initialFormValues = buildDefaultFormValues(initialBrand, userId)
 
   const form = useForm<IndicacaoFormValues>({
     resolver: zodResolver(unifiedSchema) as any,
-    defaultValues: {
-      tipoPessoa: "PF",
-      marca: initialBrand,
-      codigoClienteEnergia: "",
-      codigoInstalacao: "",
-      localizacaoUC: "",
-      vendedorId: userId,
-      status: "EM_ANALISE",
-      // PF defaults
-      nomeCliente: "",
-      emailCliente: "",
-      telefoneCliente: "",
-      endereco: "",
-      numero: "",
-      bairro: "",
-      cidade: "",
-      estado: "",
-      cep: "",
-      // Dorata defaults
-      producaoDesejada: "",
-      tipoTelhado: "",
-      tipoEstrutura: undefined,
-      precoKwh: 0.95, // Default Value
-      desconto: 20,   // Default Value 20%
-      prazoContrato: "",
-      avisoPrevio: "",
-      outrasUcs: [],
-    },
+    defaultValues: initialFormValues,
   })
 
   const {
@@ -247,6 +250,36 @@ export function IndicacaoForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedBrands])
+
+  useEffect(() => {
+    return () => {
+      if (submitCompletedTimerRef.current) {
+        clearTimeout(submitCompletedTimerRef.current)
+      }
+    }
+  }, [])
+
+  const markSubmitCompleted = () => {
+    setSubmitCompleted(true)
+    if (submitCompletedTimerRef.current) {
+      clearTimeout(submitCompletedTimerRef.current)
+    }
+    submitCompletedTimerRef.current = setTimeout(() => {
+      setSubmitCompleted(false)
+    }, 5000)
+  }
+
+  const clearFormAfterSuccess = (submittedValues: IndicacaoFormValues) => {
+    form.reset({
+      ...buildDefaultFormValues(initialBrand, userId),
+      marca: submittedValues.marca,
+      tipoPessoa: submittedValues.tipoPessoa,
+      vendedorId: submittedValues.vendedorId,
+    })
+    setFilesPF(createEmptyFilesPF())
+    setFilesPJ(createEmptyFilesPJ())
+    setFileInputResetKey((prev) => prev + 1)
+  }
 
   // =============================
   // AI Autofill
@@ -326,6 +359,10 @@ export function IndicacaoForm({
   // Submit
   // =============================
   const onSubmit = async (values: IndicacaoFormValues) => {
+    if (submitLockRef.current) {
+      return
+    }
+
     // Checagem de documentos obrigatórios (APENAS RENTAL)
     // Se isInternalRegistration for true, ignoramos essa validação
     if (values.marca === 'rental' && !isInternalRegistration) {
@@ -342,83 +379,96 @@ export function IndicacaoForm({
       }
     }
 
+    submitLockRef.current = true
     setIsSubmitting(true)
+    setSubmitCompleted(false)
 
-    // Inserção na tabela indicacoes via Server Action
-    const displayName = values.tipoPessoa === "PF" ? values.nomeCliente : values.nomeEmpresa
-    const displayEmail = values.tipoPessoa === "PF" ? values.emailCliente : values.emailSignatario
-    const displayPhone = values.tipoPessoa === "PF" ? values.telefoneCliente : values.telefoneCobranca
+    try {
+      // Inserção na tabela indicacoes via Server Action
+      const displayName = values.tipoPessoa === "PF" ? values.nomeCliente : values.nomeEmpresa
+      const displayEmail = values.tipoPessoa === "PF" ? values.emailCliente : values.emailSignatario
+      const displayPhone = values.tipoPessoa === "PF" ? values.telefoneCliente : values.telefoneCobranca
 
-    const codigoInstalacao = values.codigoInstalacao?.trim()
-    const payload = {
-      tipo: values.tipoPessoa,
-      nome: (displayName ?? "").trim(),
-      email: (displayEmail ?? "").toLowerCase().trim(),
-      telefone: onlyDigits(displayPhone ?? ""),
-      status: "EM_ANALISE",
-      user_id: values.vendedorId, // Use the selected salesperson ID
-      marca: values.marca,
-      documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
-      unidade_consumidora: values.localizacaoUC || null,
-      codigo_cliente: values.codigoClienteEnergia,
-      ...(codigoInstalacao ? { codigo_instalacao: codigoInstalacao } : {}),
-    }
+      const codigoInstalacao = values.codigoInstalacao?.trim()
+      const payload = {
+        tipo: values.tipoPessoa,
+        nome: (displayName ?? "").trim(),
+        email: (displayEmail ?? "").toLowerCase().trim(),
+        telefone: onlyDigits(displayPhone ?? ""),
+        status: "EM_ANALISE",
+        user_id: values.vendedorId, // Use the selected salesperson ID
+        marca: values.marca,
+        documento: values.tipoPessoa === "PF" ? onlyDigits(values.cpfCnpj ?? "") : onlyDigits(values.cnpj ?? ""),
+        unidade_consumidora: values.localizacaoUC || null,
+        codigo_cliente: values.codigoClienteEnergia,
+        ...(codigoInstalacao ? { codigo_instalacao: codigoInstalacao } : {}),
+      }
 
-    const { success, id: indicationId, message } = await createIndicationAction(payload)
+      const { success, id: indicationId, message } = await createIndicationAction(payload)
 
-    if (!success || !indicationId) {
-      showToast({ variant: "error", title: "Erro ao cadastrar", description: message || "Não foi possível registrar a indicação." })
-      setIsSubmitting(false)
-      return
-    }
+      if (!success || !indicationId) {
+        showToast({ variant: "error", title: "Erro ao cadastrar", description: message || "Não foi possível registrar a indicação." })
+        return
+      }
 
-    const storageOwnerId = values.vendedorId || userId
+      const storageOwnerId = values.vendedorId || userId
 
-    // Salvar metadata completo no Storage
-    const storageClient = supabase.storage.from(STORAGE_BUCKET)
-    const metadata = { ...values }
-    const metadataUpload = await storageClient.upload(
-      `${storageOwnerId}/${indicationId}/metadata.json`,
-      new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-      { upsert: true, cacheControl: "3600", contentType: "application/json" }
-    )
+      // Salvar metadata completo no Storage
+      const storageClient = supabase.storage.from(STORAGE_BUCKET)
+      const metadata = { ...values }
+      const metadataUpload = await storageClient.upload(
+        `${storageOwnerId}/${indicationId}/metadata.json`,
+        new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+        { upsert: true, cacheControl: "3600", contentType: "application/json" }
+      )
 
-    if (metadataUpload.error) {
-      console.error("Storage Upload Error (Metadata):", metadataUpload.error)
-      showToast({ variant: "error", title: "Dados complementares", description: "Não foi possível salvar os detalhes." })
-    }
+      if (metadataUpload.error) {
+        console.error("Storage Upload Error (Metadata):", metadataUpload.error)
+        showToast({ variant: "error", title: "Dados complementares", description: "Não foi possível salvar os detalhes." })
+      }
 
-    // Upload de documentos
-    const uploads: Array<Promise<unknown>> = []
-    const pushUpload = (name: string, f: File | null) => {
-      if (!f) return
-      const path = `${storageOwnerId}/${indicationId}/${name}`
-      const uploadPromise = storageClient.upload(path, f, { upsert: true, cacheControl: "3600" })
+      // Upload de documentos
+      const uploads: Array<Promise<unknown>> = []
+      const pushUpload = (name: string, f: File | null) => {
+        if (!f) return
+        const path = `${storageOwnerId}/${indicationId}/${name}`
+        const uploadPromise = storageClient.upload(path, f, { upsert: true, cacheControl: "3600" })
 
-      uploadPromise.then(({ error }) => {
-        if (error) console.error(`File Upload Error (${name}):`, error)
+        uploadPromise.then(({ error }) => {
+          if (error) console.error(`File Upload Error (${name}):`, error)
+        })
+
+        uploads.push(uploadPromise)
+      }
+
+      if (values.tipoPessoa === "PF") {
+        pushUpload("fatura_energia_pf", filesPF.faturaEnergia)
+        pushUpload("documento_com_foto_pf", filesPF.documentoComFoto)
+      } else {
+        pushUpload("fatura_energia_pj", filesPJ.faturaEnergia)
+        pushUpload("documento_com_foto_pj", filesPJ.documentoComFoto)
+        pushUpload("contrato_social", filesPJ.contratoSocial)
+        pushUpload("cartao_cnpj", filesPJ.cartaoCNPJ)
+        pushUpload("doc_representante", filesPJ.documentoRepresentante)
+      }
+
+      await Promise.all(uploads)
+
+      showToast({ variant: "success", title: "Indicação criada", description: "Cadastro concluído com sucesso." })
+      if (onCreated) await onCreated()
+      clearFormAfterSuccess(values)
+      markSubmitCompleted()
+    } catch (error) {
+      console.error("Submit Error:", error)
+      showToast({
+        variant: "error",
+        title: "Erro inesperado",
+        description: "Não foi possível concluir o cadastro. Tente novamente.",
       })
-
-      uploads.push(uploadPromise)
+    } finally {
+      setIsSubmitting(false)
+      submitLockRef.current = false
     }
-
-    if (values.tipoPessoa === "PF") {
-      pushUpload("fatura_energia_pf", filesPF.faturaEnergia)
-      pushUpload("documento_com_foto_pf", filesPF.documentoComFoto)
-    } else {
-      pushUpload("fatura_energia_pj", filesPJ.faturaEnergia)
-      pushUpload("documento_com_foto_pj", filesPJ.documentoComFoto)
-      pushUpload("contrato_social", filesPJ.contratoSocial)
-      pushUpload("cartao_cnpj", filesPJ.cartaoCNPJ)
-      pushUpload("doc_representante", filesPJ.documentoRepresentante)
-    }
-
-    await Promise.all(uploads)
-
-    showToast({ variant: "success", title: "Indicação criada", description: "Documentos recebidos com sucesso." })
-    if (onCreated) await onCreated()
-    form.reset({ ...form.getValues(), codigoClienteEnergia: "", codigoInstalacao: "" })
-    setIsSubmitting(false)
   }
 
   // =============================
@@ -912,7 +962,7 @@ export function IndicacaoForm({
                     )}
                   </div>
 
-                  <div className="space-y-2">
+                  <div key={`pf-docs-${fileInputResetKey}`} className="space-y-2">
                     <label className="text-sm font-medium text-foreground">
                       Documentos (PDF/JPG/PNG) {isInternalRegistration ? "— opcional (Admin)" : "— obrigatórios"}
                     </label>
@@ -1084,7 +1134,7 @@ export function IndicacaoForm({
                     )} />
                   </div>
 
-                  <div className="space-y-2">
+                  <div key={`pj-docs-${fileInputResetKey}`} className="space-y-2">
                     <label className="text-sm font-medium text-foreground">
                       Documentos (PDF/JPG/PNG) {isInternalRegistration ? "— opcional (Admin)" : "— obrigatórios"}
                     </label>
@@ -1116,8 +1166,22 @@ export function IndicacaoForm({
             </>
           )}
 
-          <div>
-            <Button className="w-full md:w-auto" type="submit">Enviar indicação</Button>
+          <div className="space-y-2">
+            <Button className="w-full md:w-auto" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Enviando indicação...
+                </>
+              ) : (
+                "Enviar indicação"
+              )}
+            </Button>
+            {submitCompleted ? (
+              <p className="text-sm text-green-700" aria-live="polite">
+                Indicação concluída. Formulário limpo para um novo cadastro.
+              </p>
+            ) : null}
           </div>
         </form>
       </Form>
