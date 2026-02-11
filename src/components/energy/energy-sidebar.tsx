@@ -46,7 +46,7 @@ export function EnergySidebar() {
         <nav className="w-64 border-r bg-muted/10 min-h-screen p-4 space-y-2">
             <div className="mb-6 px-4">
                 <h2 className="text-lg font-bold tracking-tight">Gestão de Energia</h2>
-                <p className="text-xs text-muted-foreground">Rental Solar</p>
+                <p className="text-xs text-muted-foreground">Rental Energia</p>
             </div>
 
             {sidebarItems.map((item) => (

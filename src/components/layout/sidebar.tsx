@@ -22,6 +22,7 @@ import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
 
 type SidebarProps = React.HTMLAttributes<HTMLDivElement>
 
@@ -30,6 +31,7 @@ export function Sidebar({ className }: SidebarProps) {
     const router = useRouter()
     const { showToast } = useToast()
     const [isSigningOut, setIsSigningOut] = useState(false)
+    const [logoLoadError, setLogoLoadError] = useState(false)
 
     const handleSignOut = async () => {
         setIsSigningOut(true)
@@ -55,11 +57,23 @@ export function Sidebar({ className }: SidebarProps) {
             <div className="space-y-4 py-4">
                 <div className="px-3 py-2">
                     <div className="flex items-center gap-2 px-2 mb-6">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-                            R
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold overflow-hidden">
+                            {!logoLoadError ? (
+                                <Image
+                                    src="/rental-logo.png"
+                                    alt="Logo Rental Energia"
+                                    width={32}
+                                    height={32}
+                                    className="h-full w-full object-contain"
+                                    onError={() => setLogoLoadError(true)}
+                                    priority
+                                />
+                            ) : (
+                                "R"
+                            )}
                         </div>
                         <h2 className="text-lg font-bold tracking-tight text-sidebar-foreground">
-                            Rental Solar
+                            Rental Energia
                         </h2>
                     </div>
 

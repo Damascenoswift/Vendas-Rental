@@ -44,7 +44,7 @@ export function InvestorSidebar() {
         <nav className="w-64 border-r bg-muted/10 min-h-screen p-4 flex flex-col">
             <div className="mb-6 px-4">
                 <h2 className="text-lg font-bold tracking-tight text-blue-900">Portal do Investidor</h2>
-                <p className="text-xs text-muted-foreground">Rental Solar</p>
+                <p className="text-xs text-muted-foreground">Rental Energia</p>
             </div>
 
             <div className="space-y-2 flex-1">

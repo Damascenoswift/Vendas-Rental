@@ -260,7 +260,7 @@ export function TaskDialog() {
                                             </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                            <SelectItem value="rental">Rental Solar</SelectItem>
+                                            <SelectItem value="rental">Rental Energia</SelectItem>
                                             <SelectItem value="dorata">Dorata</SelectItem>
                                         </SelectContent>
                                     </Select>
