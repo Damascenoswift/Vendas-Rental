@@ -999,6 +999,7 @@ export interface Database {
           phone: string | null
           mobile: string | null
           whatsapp: string | null
+          whatsapp_normalized: string | null
           whatsapp_remote_lid: string | null
           address: string | null
           city: string | null
@@ -1034,6 +1035,7 @@ export interface Database {
           phone?: string | null
           mobile?: string | null
           whatsapp?: string | null
+          whatsapp_normalized?: string | null
           whatsapp_remote_lid?: string | null
           address?: string | null
           city?: string | null
@@ -1069,6 +1071,7 @@ export interface Database {
           phone?: string | null
           mobile?: string | null
           whatsapp?: string | null
+          whatsapp_normalized?: string | null
           whatsapp_remote_lid?: string | null
           address?: string | null
           city?: string | null
@@ -1094,6 +1097,216 @@ export interface Database {
           updated_at?: string
         }
         Relationships: []
+      }
+      whatsapp_accounts: {
+        Row: {
+          id: string
+          provider: string
+          waba_id: string
+          phone_number_id: string
+          display_phone_number: string | null
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          provider?: string
+          waba_id: string
+          phone_number_id: string
+          display_phone_number?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          provider?: string
+          waba_id?: string
+          phone_number_id?: string
+          display_phone_number?: string | null
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      whatsapp_conversations: {
+        Row: {
+          id: string
+          account_id: string
+          contact_id: string | null
+          customer_wa_id: string
+          customer_name: string | null
+          brand: Database['public']['Enums']['brand_enum'] | null
+          assigned_user_id: string | null
+          status: 'PENDING_BRAND' | 'OPEN' | 'CLOSED'
+          window_expires_at: string | null
+          unread_count: number
+          last_message_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          account_id: string
+          contact_id?: string | null
+          customer_wa_id: string
+          customer_name?: string | null
+          brand?: Database['public']['Enums']['brand_enum'] | null
+          assigned_user_id?: string | null
+          status?: 'PENDING_BRAND' | 'OPEN' | 'CLOSED'
+          window_expires_at?: string | null
+          unread_count?: number
+          last_message_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          account_id?: string
+          contact_id?: string | null
+          customer_wa_id?: string
+          customer_name?: string | null
+          brand?: Database['public']['Enums']['brand_enum'] | null
+          assigned_user_id?: string | null
+          status?: 'PENDING_BRAND' | 'OPEN' | 'CLOSED'
+          window_expires_at?: string | null
+          unread_count?: number
+          last_message_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversations_account_id_fkey"
+            columns: ["account_id"]
+            referencedRelation: "whatsapp_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_assigned_user_id_fkey"
+            columns: ["assigned_user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_contact_id_fkey"
+            columns: ["contact_id"]
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      whatsapp_messages: {
+        Row: {
+          id: string
+          conversation_id: string
+          direction: 'INBOUND' | 'OUTBOUND'
+          wa_message_id: string | null
+          dedupe_hash: string | null
+          message_type: 'text' | 'unsupported' | 'image' | 'document' | 'audio' | 'video' | 'sticker' | 'location' | 'contacts' | 'unknown'
+          body_text: string | null
+          status: 'received' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
+          sender_user_id: string | null
+          error_message: string | null
+          raw_payload: Json
+          created_at: string
+          sent_at: string | null
+          delivered_at: string | null
+          read_at: string | null
+          failed_at: string | null
+        }
+        Insert: {
+          id?: string
+          conversation_id: string
+          direction: 'INBOUND' | 'OUTBOUND'
+          wa_message_id?: string | null
+          dedupe_hash?: string | null
+          message_type?: 'text' | 'unsupported' | 'image' | 'document' | 'audio' | 'video' | 'sticker' | 'location' | 'contacts' | 'unknown'
+          body_text?: string | null
+          status?: 'received' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
+          sender_user_id?: string | null
+          error_message?: string | null
+          raw_payload?: Json
+          created_at?: string
+          sent_at?: string | null
+          delivered_at?: string | null
+          read_at?: string | null
+          failed_at?: string | null
+        }
+        Update: {
+          id?: string
+          conversation_id?: string
+          direction?: 'INBOUND' | 'OUTBOUND'
+          wa_message_id?: string | null
+          dedupe_hash?: string | null
+          message_type?: 'text' | 'unsupported' | 'image' | 'document' | 'audio' | 'video' | 'sticker' | 'location' | 'contacts' | 'unknown'
+          body_text?: string | null
+          status?: 'received' | 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
+          sender_user_id?: string | null
+          error_message?: string | null
+          raw_payload?: Json
+          created_at?: string
+          sent_at?: string | null
+          delivered_at?: string | null
+          read_at?: string | null
+          failed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_sender_user_id_fkey"
+            columns: ["sender_user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      whatsapp_conversation_events: {
+        Row: {
+          id: string
+          conversation_id: string
+          actor_user_id: string | null
+          event_type: 'BRAND_SET' | 'ASSIGNED' | 'UNASSIGNED' | 'CLOSED' | 'REOPENED'
+          event_payload: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          conversation_id: string
+          actor_user_id?: string | null
+          event_type: 'BRAND_SET' | 'ASSIGNED' | 'UNASSIGNED' | 'CLOSED' | 'REOPENED'
+          event_payload?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          conversation_id?: string
+          actor_user_id?: string | null
+          event_type?: 'BRAND_SET' | 'ASSIGNED' | 'UNASSIGNED' | 'CLOSED' | 'REOPENED'
+          event_payload?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversation_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversation_events_conversation_id_fkey"
+            columns: ["conversation_id"]
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id"]
+          }
+        ]
       }
     }
     Views: {

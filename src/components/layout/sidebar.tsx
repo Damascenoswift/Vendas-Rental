@@ -15,7 +15,8 @@ import {
     CheckSquare,
     CircleDollarSign,
     Calculator,
-    KanbanSquare
+    KanbanSquare,
+    MessageCircle
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
@@ -117,6 +118,10 @@ export function Sidebar({ className }: SidebarProps) {
 
                         {(role === 'adm_mestre' || role === 'adm_dorata') && (
                             <NavItem href="/admin/usuarios" label="Usuários" icon={Users} />
+                        )}
+
+                        {['adm_mestre', 'adm_dorata', 'suporte_tecnico', 'suporte_limitado'].includes(role) && (
+                            <NavItem href="/admin/whatsapp" label="WhatsApp" icon={MessageCircle} />
                         )}
                     </div>
                 </div>

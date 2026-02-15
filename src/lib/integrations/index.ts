@@ -7,6 +7,7 @@
  */
 
 export * from './clicksign'
+export * from './whatsapp'
 // Tipos comuns para todas as integrações
 export interface ApiResponse<T> {
   success: boolean
