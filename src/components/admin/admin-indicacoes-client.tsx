@@ -34,7 +34,7 @@ import { LayoutGrid, List } from "lucide-react"
 
 // ... imports remain the same
 
-export function AdminIndicacoesClient({ initialIndicacoes, role, department }: AdminIndicacoesClientProps) {
+export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicacoesClientProps) {
     const [indicacoes, setIndicacoes] = useState(initialIndicacoes)
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
@@ -81,10 +81,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role, department }: A
 
     const canDelete =
         role === 'adm_mestre' ||
-        role === 'adm_dorata' ||
-        role === 'funcionario_n1' ||
-        role === 'funcionario_n2' ||
-        department === 'financeiro'
+        role === 'adm_dorata'
 
     const formatCurrency = (value: number | null | undefined) => {
         if (typeof value !== "number") return "—"

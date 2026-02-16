@@ -223,14 +223,10 @@ export async function deleteIndication(id: string) {
     const role = profile?.role
     const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
-    const canDelete =
-        hasFullAccess(role ?? null, department) ||
-        role === 'funcionario_n1' ||
-        role === 'funcionario_n2' ||
-        department === 'financeiro'
+    const canDelete = hasFullAccess(role ?? null, department)
 
     if (!canDelete) {
-        return { error: "Acesso negado" }
+        return { error: "Acesso negado. Apenas administradores podem excluir indicações." }
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
