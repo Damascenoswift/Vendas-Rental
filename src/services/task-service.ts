@@ -51,6 +51,14 @@ function parseMissingColumnError(message?: string | null) {
     return { column: match[1], table: match[2] }
 }
 
+function sanitizeTaskSearchTerm(value?: string | null) {
+    if (!value) return ""
+    return value
+        .replace(/[(),%]/g, " ")
+        .replace(/'/g, "")
+        .trim()
+}
+
 function isPermissionDenied(error?: { code?: string | null; message?: string | null } | null) {
     if (!error) return false
     return error.code === '42501' || /permission denied/i.test(error.message ?? '')
@@ -322,7 +330,8 @@ export async function getTasks(filters?: {
     department?: Department,
     assigneeId?: string,
     showAll?: boolean,
-    brand?: Brand
+    brand?: Brand,
+    search?: string
 }) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -348,6 +357,13 @@ export async function getTasks(filters?: {
 
     if (filters?.brand) {
         query = query.eq('brand', filters.brand)
+    }
+
+    const sanitizedSearch = sanitizeTaskSearchTerm(filters?.search)
+    if (sanitizedSearch) {
+        query = query.or(
+            `client_name.ilike.%${sanitizedSearch}%,codigo_instalacao.ilike.%${sanitizedSearch}%`
+        )
     }
 
     const { data, error } = await query

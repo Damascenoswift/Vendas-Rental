@@ -1,4 +1,3 @@
-import { Suspense } from "react"
 import { getTasks, Brand, Department } from "@/services/task-service"
 import { KanbanBoard } from "@/components/admin/tasks/kanban-board"
 import { TaskDialog } from "@/components/admin/tasks/task-dialog"
@@ -19,12 +18,13 @@ function normalizeScope(value?: string | null): TaskScope {
 export default async function TasksPage({
     searchParams,
 }: {
-    searchParams?: Promise<{ brand?: string; scope?: string }>
+    searchParams?: Promise<{ brand?: string; scope?: string; q?: string }>
 }) {
     const resolvedSearchParams = searchParams ? await searchParams : undefined
     const brand = (resolvedSearchParams?.brand === 'rental' || resolvedSearchParams?.brand === 'dorata')
         ? resolvedSearchParams.brand as Brand
         : undefined
+    const search = resolvedSearchParams?.q?.trim() || undefined
 
     const scope = normalizeScope(resolvedSearchParams?.scope)
     const supabase = await createClient()
@@ -42,7 +42,7 @@ export default async function TasksPage({
         department = profile.department
     }
 
-    const tasks = await getTasks({ showAll: true, brand, assigneeId, department })
+    const tasks = await getTasks({ showAll: true, brand, assigneeId, department, search })
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
