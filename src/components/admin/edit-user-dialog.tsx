@@ -29,6 +29,7 @@ interface EditUserDialogProps {
         name: string
         email: string
         role: string
+        sales_access?: boolean | null
         phone?: string
         department?: string
         allowed_brands?: string[]
@@ -40,10 +41,19 @@ interface EditUserDialogProps {
     supervisors?: any[]
 }
 
+function defaultSalesAccessByRole(role: string) {
+    return role === 'vendedor_interno' || role === 'vendedor_externo' || role === 'supervisor'
+}
+
 export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) {
     const [open, setOpen] = useState(false)
     const [state, formAction, isPending] = useActionState(updateUser, initialState)
     const [selectedRole, setSelectedRole] = useState(user.role)
+    const [salesAccess, setSalesAccess] = useState(
+        typeof user.sales_access === "boolean"
+            ? user.sales_access
+            : defaultSalesAccessByRole(user.role)
+    )
 
     // Close dialog on success
     if (state.success && open) {
@@ -115,7 +125,11 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             name="role"
                             defaultValue={user.role}
                             className="w-full rounded-md border p-2 text-sm"
-                            onChange={(e) => setSelectedRole(e.target.value)}
+                            onChange={(e) => {
+                                const nextRole = e.target.value
+                                setSelectedRole(nextRole)
+                                setSalesAccess(defaultSalesAccessByRole(nextRole))
+                            }}
                         >
                             <option value="vendedor_externo">Vendedor Externo</option>
                             <option value="vendedor_interno">Vendedor Interno</option>
@@ -129,6 +143,25 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             <option value="funcionario_n2">Funcionário Nível 2</option>
                         </select>
                         {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
+                    </div>
+
+                    <div className="space-y-2">
+                        <input type="hidden" name="sales_access" value={salesAccess ? "true" : "false"} />
+                        <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                            <div>
+                                <Label htmlFor={`sales_access_toggle_${user.id}`}>Acesso a vendas</Label>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Indicações e comissões no financeiro.
+                                </p>
+                            </div>
+                            <input
+                                id={`sales_access_toggle_${user.id}`}
+                                type="checkbox"
+                                checked={salesAccess}
+                                onChange={(e) => setSalesAccess(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                        </div>
                     </div>
 
                     {/* Supervisor Selection */}

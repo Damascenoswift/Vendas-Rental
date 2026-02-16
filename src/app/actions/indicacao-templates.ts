@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache'
 import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
 import { createIndicationAction } from '@/app/actions/indicacoes'
 import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
+import { hasSalesAccess } from '@/lib/sales-access'
 
 type TemplateBasePayload = Record<string, any>
 
@@ -66,6 +67,34 @@ export async function createIndicationTemplate(payload: z.infer<typeof templateS
 
   const role = profile?.role as UserRole | undefined
   const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
+
+  let { data: targetVendor, error: targetVendorError } = await supabaseAdmin
+    .from('users')
+    .select('id, role, status, sales_access')
+    .eq('id', parsed.data.vendedor_id)
+    .maybeSingle()
+
+  const missingSalesAccessColumn =
+    targetVendorError &&
+    /could not find the 'sales_access' column/i.test(targetVendorError.message ?? '')
+
+  if (missingSalesAccessColumn) {
+    const fallback = await supabaseAdmin
+      .from('users')
+      .select('id, role, status')
+      .eq('id', parsed.data.vendedor_id)
+      .maybeSingle()
+    targetVendor = fallback.data as typeof targetVendor
+    targetVendorError = fallback.error as typeof targetVendorError
+  }
+
+  if (targetVendorError || !targetVendor) {
+    return { success: false, message: 'Vendedor selecionado não encontrado.' }
+  }
+
+  if (!hasSalesAccess(targetVendor as { role?: string | null; sales_access?: boolean | null })) {
+    return { success: false, message: 'Usuário sem acesso a vendas (indicações/comissão).' }
+  }
 
   // If assigning to another vendor, validate permissions (supervisor or admin)
   if (parsed.data.vendedor_id !== user.id) {

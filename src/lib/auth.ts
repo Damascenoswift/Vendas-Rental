@@ -20,6 +20,7 @@ export type UserProfile = {
   role: UserRole
   companyName: string | null
   supervisedCompanyName: string | null
+  salesAccess?: boolean | null
   department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
@@ -70,12 +71,14 @@ export function buildUserProfile(user: User | null): UserProfile | null {
   const supervisedCompanyName =
     (user.user_metadata?.supervised_company_name as string | undefined) ?? null
   const allowedBrands = getAllowedBrands(normalizedRole)
+  const salesAccess = (user.user_metadata?.sales_access as boolean | undefined) ?? null
 
   return {
     id: user.id,
     role: normalizedRole,
     companyName,
     supervisedCompanyName,
+    salesAccess,
     department,
     allowedBrands,
     name: user.user_metadata?.nome,
@@ -85,33 +88,64 @@ export function buildUserProfile(user: User | null): UserProfile | null {
 }
 
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
-  const { data, error } = await supabase
+  let selectColumns = 'role, department, allowed_brands, sales_access, name, phone, email, company_name, supervised_company_name'
+
+  let { data, error } = await supabase
     .from('users')
-    .select('role, department, allowed_brands, name, phone, email, company_name, supervised_company_name')
+    .select(selectColumns)
     .eq('id', userId)
     .single()
+
+  const missingSalesAccessColumn =
+    error &&
+    /could not find the 'sales_access' column/i.test(error.message ?? '')
+
+  if (missingSalesAccessColumn) {
+    selectColumns = 'role, department, allowed_brands, name, phone, email, company_name, supervised_company_name'
+    const fallback = await supabase
+      .from('users')
+      .select(selectColumns)
+      .eq('id', userId)
+      .single()
+
+    data = fallback.data as typeof data
+    error = fallback.error as typeof error
+  }
 
   if (error || !data) {
     console.error('Erro ao buscar perfil:', error)
     return null
   }
 
+  const row = data as unknown as {
+    role: string
+    department?: UserProfile['department'] | null
+    allowed_brands?: Brand[] | null
+    name?: string | null
+    phone?: string | null
+    email?: string | null
+    company_name?: string | null
+    supervised_company_name?: string | null
+    sales_access?: boolean | null
+  }
+
   // Converter tipos do banco para tipos da aplicação
-  const role = data.role as UserRole
-  const department = (data as { department?: UserProfile['department'] | null }).department ?? null
+  const role = row.role as UserRole
+  const department = row.department ?? null
   const normalizedRole = normalizeRole(role, department)
-  const allowedBrands = (data.allowed_brands as Brand[]) ?? ['rental']
+  const allowedBrands = row.allowed_brands ?? ['rental']
 
   return {
     id: userId,
     role: normalizedRole,
-    companyName: (data as { company_name?: string | null }).company_name ?? null,
-    supervisedCompanyName: (data as { supervised_company_name?: string | null }).supervised_company_name ?? null,
+    companyName: row.company_name ?? null,
+    supervisedCompanyName: row.supervised_company_name ?? null,
+    salesAccess: row.sales_access ?? null,
     department,
     allowedBrands,
-    name: data.name || undefined,
-    phone: data.phone || undefined,
-    email: data.email || undefined,
+    name: row.name || undefined,
+    phone: row.phone || undefined,
+    email: row.email || undefined,
   }
 }
 

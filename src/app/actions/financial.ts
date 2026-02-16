@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getProfile, hasFullAccess } from '@/lib/auth'
+import { hasSalesAccess } from '@/lib/sales-access'
 
 const transactionSchema = z.object({
     beneficiary_user_id: z.string().uuid(),
@@ -118,6 +119,37 @@ async function checkFinancialPermission(): Promise<FinancialPermissionResult> {
     return { userId: user.id }
 }
 
+async function getSalesEligibilityMap(supabaseAdmin: any, userIds: string[]) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
+    if (uniqueUserIds.length === 0) return new Map<string, boolean>()
+
+    const selectResult = await supabaseAdmin
+        .from('users')
+        .select('id, role, sales_access')
+        .in('id', uniqueUserIds)
+    let data = selectResult.data
+    const selectError = selectResult.error
+
+    const missingSalesAccessColumn =
+        selectError &&
+        /could not find the 'sales_access' column/i.test(selectError.message ?? '')
+
+    if (missingSalesAccessColumn) {
+        const fallback = await supabaseAdmin
+            .from('users')
+            .select('id, role')
+            .in('id', uniqueUserIds)
+        data = fallback.data
+    }
+
+    const map = new Map<string, boolean>()
+    for (const row of (data ?? []) as Array<{ id: string; role?: string | null; sales_access?: boolean | null }>) {
+        map.set(row.id, hasSalesAccess(row))
+    }
+
+    return map
+}
+
 const closureSelectableTypeSchema = z.enum([
     'comissao_venda',
     'comissao_dorata',
@@ -215,6 +247,15 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
 
     const totalValor = decodedItems.reduce((sum, item) => sum + Number(item.amount), 0)
     const supabaseAdmin = createSupabaseServiceClient()
+    const salesEligibility = await getSalesEligibilityMap(
+        supabaseAdmin,
+        decodedItems.map((item) => item.beneficiary_user_id)
+    )
+    const hasIneligibleBeneficiary = decodedItems.some((item) => !salesEligibility.get(item.beneficiary_user_id))
+    if (hasIneligibleBeneficiary) {
+        return
+    }
+
     const codigo = await buildClosureCode(supabaseAdmin, competencia)
     const { data: fechamento, error: fechamentoError } = await supabaseAdmin
         .from('financeiro_fechamentos')
@@ -343,6 +384,10 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
 
     const competencia = normalizeCompetenciaDate(parsed.data.competencia)
     const supabaseAdmin = createSupabaseServiceClient()
+    const salesEligibility = await getSalesEligibilityMap(supabaseAdmin, [parsed.data.beneficiary_user_id])
+    if (!salesEligibility.get(parsed.data.beneficiary_user_id)) {
+        return
+    }
 
     const { data: existingReport } = await supabaseAdmin
         .from('financeiro_relatorios_manuais')
@@ -426,6 +471,12 @@ export async function createTransaction(prevState: CreateTransactionState, formD
         }
     }
 
+    const supabaseAdmin = createSupabaseServiceClient()
+    const salesEligibility = await getSalesEligibilityMap(supabaseAdmin, [validated.data.beneficiary_user_id])
+    if (!salesEligibility.get(validated.data.beneficiary_user_id)) {
+        return { success: false, message: 'Beneficiário sem acesso a vendas/comissão.' }
+    }
+
     // 3. Insert into DB
     const { error } = await supabase.from('financeiro_transacoes').insert({
         ...validated.data,
@@ -492,9 +543,13 @@ export async function upsertSellerRentalCommissionPercent(input: { userId: strin
     const sessionClient = await createClient()
     const { data: seller } = await sessionClient
         .from('users')
-        .select('name, email')
+        .select('name, email, role, sales_access')
         .eq('id', userId)
         .maybeSingle()
+
+    if (!seller || !hasSalesAccess(seller as { role?: string | null; sales_access?: boolean | null })) {
+        return { success: false as const, message: 'Usuário sem acesso a vendas/comissão.' }
+    }
 
     const sellerName = seller?.name || seller?.email || userId
     const ruleKey = `rental_commission_percent_user_${userId}`

@@ -24,7 +24,7 @@ import {
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Trash2, User, Shield } from "lucide-react"
+import { Trash2, User } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EditUserDialog } from "./edit-user-dialog"
 
@@ -56,7 +56,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                     description: result.message,
                 })
             }
-        } catch (error) {
+        } catch {
             showToast({
                 variant: "error",
                 title: "Erro inesperado",
@@ -83,6 +83,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                         <TableHead>Nome</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>Função</TableHead>
+                        <TableHead>Vendas</TableHead>
                         <TableHead>Marcas</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -100,6 +101,11 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                             <TableCell>
                                 <Badge variant="outline" className="capitalize">
                                     {user.role?.replace('_', ' ')}
+                                </Badge>
+                            </TableCell>
+                            <TableCell>
+                                <Badge variant={user.sales_access ? "success" : "secondary"}>
+                                    {user.sales_access ? "Ativo" : "Inativo"}
                                 </Badge>
                             </TableCell>
                             <TableCell>
@@ -121,7 +127,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                     ))}
                     {users.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={5} className="h-24 text-center">
+                            <TableCell colSpan={6} className="h-24 text-center">
                                 Nenhum usuário encontrado.
                             </TableCell>
                         </TableRow>
@@ -155,7 +161,7 @@ function DeleteUserButton({ userId, userName }: { userId: string, userName: stri
                     description: result.message,
                 })
             }
-        } catch (error) {
+        } catch {
             showToast({
                 variant: "error",
                 title: "Erro inesperado",

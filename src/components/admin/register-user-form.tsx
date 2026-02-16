@@ -18,9 +18,14 @@ interface RegisterUserFormProps {
     supervisors?: any[]
 }
 
+function defaultSalesAccessByRole(role: string) {
+    return role === 'vendedor_interno' || role === 'vendedor_externo' || role === 'supervisor'
+}
+
 export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
     const [state, formAction, isPending] = useActionState(createUser, initialState)
     const [selectedRole, setSelectedRole] = useState("")
+    const [salesAccess, setSalesAccess] = useState(false)
 
     return (
         <form action={formAction} className="space-y-6 max-w-md mx-auto p-6 border rounded-lg shadow-sm bg-white">
@@ -67,7 +72,11 @@ export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
                     required
                     className="w-full rounded-md border p-2"
                     defaultValue=""
-                    onChange={(e) => setSelectedRole(e.target.value)}
+                    onChange={(e) => {
+                        const nextRole = e.target.value
+                        setSelectedRole(nextRole)
+                        setSalesAccess(defaultSalesAccessByRole(nextRole))
+                    }}
                 >
                     <option value="" disabled>Selecione um cargo</option>
                     <option value="vendedor_externo">Vendedor Externo</option>
@@ -82,6 +91,25 @@ export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
                     <option value="funcionario_n2">Funcionário Nível 2</option>
                 </select>
                 {state.errors?.role && <p className="text-red-500 text-xs">{state.errors.role[0]}</p>}
+            </div>
+
+            <div className="space-y-2">
+                <input type="hidden" name="sales_access" value={salesAccess ? "true" : "false"} />
+                <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                    <div>
+                        <Label htmlFor="sales_access_toggle">Acesso a vendas</Label>
+                        <p className="text-[10px] text-muted-foreground">
+                            Indicações e comissões no financeiro.
+                        </p>
+                    </div>
+                    <input
+                        id="sales_access_toggle"
+                        type="checkbox"
+                        checked={salesAccess}
+                        onChange={(e) => setSalesAccess(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                </div>
             </div>
 
             {/* Supervisor Selection - Conditional or Always visible but relevant for Sales */}

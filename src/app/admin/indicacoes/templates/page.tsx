@@ -3,6 +3,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
 import { IndicationTemplateManager } from "@/components/admin/indicacao-template-manager"
+import { hasSalesAccess } from "@/lib/sales-access"
 
 export const dynamic = "force-dynamic"
 
@@ -42,24 +43,48 @@ export default async function IndicationTemplatesPage() {
   if (role === "supervisor") {
     const { getSubordinates } = await import("@/app/actions/auth-admin")
     const subordinates = await getSubordinates(user.id)
-    vendors = [
-      { id: user.id, name: profile?.name ?? user.email, email: user.email },
-      ...subordinates,
-    ]
+    vendors = []
+    if (hasSalesAccess({ role: profile?.role, sales_access: profile?.salesAccess ?? null })) {
+      vendors.push({ id: user.id, name: profile?.name ?? user.email, email: user.email })
+    }
+    vendors.push(...subordinates)
   } else {
     const supabaseAdmin = createSupabaseServiceClient()
-    const { data: users } = await supabaseAdmin
+    let { data: users, error: usersError } = await supabaseAdmin
       .from("users")
-      .select("id, name, email, status")
+      .select("id, name, email, role, status, sales_access")
       .in("status", ["active", "ATIVO"])
       .order("name", { ascending: true })
 
-    vendors = (users ?? []).map((row) => ({
+    if (usersError && /could not find the 'sales_access' column/i.test(usersError.message ?? "")) {
+      const fallback = await supabaseAdmin
+        .from("users")
+        .select("id, name, email, role, status")
+        .in("status", ["active", "ATIVO"])
+        .order("name", { ascending: true })
+      users = fallback.data as typeof users
+      usersError = fallback.error as typeof usersError
+    }
+
+    if (usersError) {
+      console.error("Erro ao buscar vendedores para templates:", usersError)
+      vendors = []
+    } else {
+      vendors = (users ?? [])
+        .filter((row) => hasSalesAccess(row as { role?: string | null; sales_access?: boolean | null }))
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+        }))
+    }
+  }
+
+  vendors = vendors.map((row) => ({
       id: row.id,
       name: row.name,
       email: row.email,
-    }))
-  }
+  }))
 
   return (
     <div className="container mx-auto py-10 space-y-6">

@@ -7,6 +7,7 @@ import { ensureCrmCardForIndication } from '@/services/crm-card-service'
 import { createRentalTasksForIndication } from '@/services/task-service'
 import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
 import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
+import { hasSalesAccess } from '@/lib/sales-access'
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -40,6 +41,35 @@ export async function createIndicationAction(payload: any) {
     const targetUserId = typeof payload?.user_id === 'string' ? payload.user_id : ''
     if (!targetUserId) {
         return { success: false, message: 'Vendedor da indicação é obrigatório.' }
+    }
+
+    let { data: targetUserProfile, error: targetUserError } = await supabaseAdmin
+        .from('users')
+        .select('id, role, status, sales_access')
+        .eq('id', targetUserId)
+        .maybeSingle()
+
+    const targetMissingColumn = parseMissingColumnError(targetUserError?.message)
+    if (targetUserError && targetMissingColumn?.table === 'users' && targetMissingColumn.column === 'sales_access') {
+        const fallback = await supabaseAdmin
+            .from('users')
+            .select('id, role, status')
+            .eq('id', targetUserId)
+            .maybeSingle()
+        targetUserProfile = fallback.data as any
+        targetUserError = fallback.error
+    }
+
+    if (targetUserError) {
+        return { success: false, message: 'Não foi possível validar o vendedor da indicação.' }
+    }
+
+    if (!targetUserProfile?.id) {
+        return { success: false, message: 'Vendedor selecionado não encontrado.' }
+    }
+
+    if (!hasSalesAccess(targetUserProfile as { role?: string | null; sales_access?: boolean | null })) {
+        return { success: false, message: 'Usuário sem acesso a vendas (indicações/comissão).' }
     }
 
     const canManageOthers =

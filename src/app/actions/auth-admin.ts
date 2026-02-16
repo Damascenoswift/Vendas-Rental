@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import type { UserRole, Brand, UserProfile } from '@/lib/auth'
 import { hasFullAccess } from '@/lib/auth'
+import { hasSalesAccess, roleHasSalesAccessByDefault } from '@/lib/sales-access'
 
 // Schema de validação
 const userRoleValues = [
@@ -25,6 +26,34 @@ const optionalString = (value: FormDataEntryValue | null) => {
     if (typeof value !== 'string') return undefined
     const trimmed = value.trim()
     return trimmed.length ? trimmed : undefined
+}
+
+const parseBooleanField = (value: FormDataEntryValue | null): boolean | undefined => {
+    if (value === null) return undefined
+    if (typeof value !== 'string') return undefined
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'on', 'yes'].includes(normalized)) return true
+    if (['false', '0', 'off', 'no'].includes(normalized)) return false
+    return undefined
+}
+
+const parseBooleanUnknown = (value: unknown): boolean | undefined => {
+    if (typeof value === 'boolean') return value
+    if (typeof value !== 'string') return undefined
+    const normalized = value.trim().toLowerCase()
+    if (['true', '1', 'on', 'yes'].includes(normalized)) return true
+    if (['false', '0', 'off', 'no'].includes(normalized)) return false
+    return undefined
+}
+
+const resolveSalesAccess = (role: UserRole, rawValue: unknown) => {
+    const parsed = parseBooleanUnknown(rawValue)
+    if (typeof parsed === 'boolean') return parsed
+    return roleHasSalesAccessByDefault(role)
+}
+
+const isMissingSalesAccessColumnError = (error?: { message?: string | null } | null) => {
+    return /could not find the 'sales_access' column/i.test(error?.message ?? '')
 }
 
 const isValidRole = (value: unknown): value is UserRole => {
@@ -58,6 +87,7 @@ const createUserSchema = z.object({
     supervisor_id: z.string().optional(),
     company_name: z.string().optional(),
     supervised_company_name: z.string().optional(),
+    sales_access: z.boolean().optional(),
 })
 
 export type CreateUserState = {
@@ -131,6 +161,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         supervisor_id: optionalString(formData.get('supervisor_id')),
         company_name: optionalString(formData.get('company_name')),
         supervised_company_name: optionalString(formData.get('supervised_company_name')),
+        sales_access: parseBooleanField(formData.get('sales_access')),
     }
 
     const validated = createUserSchema.safeParse(rawData)
@@ -154,9 +185,11 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         supervisor_id,
         company_name,
         supervised_company_name,
+        sales_access,
     } = validated.data
     const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
     const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
+    const normalizedSalesAccess = sales_access ?? roleHasSalesAccessByDefault(role)
 
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -172,6 +205,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
             brands,
             company_name: normalizedCompanyName,
             supervised_company_name: normalizedSupervisedCompanyName,
+            sales_access: normalizedSalesAccess,
         }
     })
 
@@ -198,6 +232,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         phone: phone,
         company_name: normalizedCompanyName,
         supervised_company_name: normalizedSupervisedCompanyName,
+        sales_access: normalizedSalesAccess,
     }
 
     if (department) {
@@ -213,7 +248,17 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         .upsert(upsertPayload, { onConflict: 'id' })
 
     if (upsertError && String(upsertError.message || '').toLowerCase().includes('department')) {
-        const { department: _omit, ...retryPayload } = upsertPayload
+        const retryPayload = { ...upsertPayload }
+        delete retryPayload.department
+        const retry = await supabaseAdmin
+            .from('users')
+            .upsert(retryPayload, { onConflict: 'id' })
+        upsertError = retry.error
+    }
+
+    if (upsertError && isMissingSalesAccessColumnError(upsertError)) {
+        const retryPayload = { ...upsertPayload }
+        delete retryPayload.sales_access
         const retry = await supabaseAdmin
             .from('users')
             .upsert(retryPayload, { onConflict: 'id' })
@@ -271,7 +316,7 @@ export async function getSubordinates(
 
     let query = supabaseAdmin
         .from('users')
-        .select('id, name, email, role, status')
+        .select('id, name, email, role, status, sales_access')
         .eq('supervisor_id', supervisorId)
         .in('role', roles)
 
@@ -279,14 +324,32 @@ export async function getSubordinates(
         query = query.in('status', ['active', 'ATIVO'])
     }
 
-    const { data: subordinates, error } = await query.order('name', { ascending: true })
+    let { data: subordinates, error } = await query.order('name', { ascending: true })
+
+    if (error && isMissingSalesAccessColumnError(error)) {
+        let fallbackQuery = supabaseAdmin
+            .from('users')
+            .select('id, name, email, role, status')
+            .eq('supervisor_id', supervisorId)
+            .in('role', roles)
+
+        if (!options?.includeInactive) {
+            fallbackQuery = fallbackQuery.in('status', ['active', 'ATIVO'])
+        }
+
+        const fallback = await fallbackQuery.order('name', { ascending: true })
+        subordinates = fallback.data as typeof subordinates
+        error = fallback.error as typeof error
+    }
 
     if (error) {
         console.error('Erro ao buscar subordinados:', error)
         return []
     }
 
-    return subordinates
+    return (subordinates ?? []).filter((subordinate) =>
+        hasSalesAccess(subordinate as { role?: string | null; sales_access?: boolean | null })
+    )
 }
 
 export async function getSupervisors() {
@@ -341,6 +404,7 @@ export async function syncUsersFromAuth() {
             const metadata: any = authUser.user_metadata ?? {}
             const role = isValidRole(metadata.role) ? metadata.role : 'vendedor_externo'
             const allowedBrands = normalizeBrands(metadata.brands ?? metadata.allowed_brands)
+            const salesAccess = resolveSalesAccess(role, metadata.sales_access)
             const name = metadata.nome || metadata.name || authUser.email || 'Usuário'
             const phone = metadata.telefone || metadata.phone
             const department = metadata.department || 'outro'
@@ -360,6 +424,7 @@ export async function syncUsersFromAuth() {
                 status: metadata.status || 'active',
                 company_name: companyName,
                 supervised_company_name: supervisedCompanyName,
+                sales_access: salesAccess,
             }
         })
 
@@ -369,7 +434,23 @@ export async function syncUsersFromAuth() {
                 .upsert(chunk, { onConflict: 'id' })
 
             if (upsertError && String(upsertError.message || '').toLowerCase().includes('department')) {
-                const retryChunk = chunk.map(({ department: _omit, ...rest }) => rest)
+                const retryChunk = chunk.map((row) => {
+                    const payload = { ...row } as Record<string, unknown>
+                    delete payload.department
+                    return payload
+                })
+                const retry = await supabaseAdmin
+                    .from('users')
+                    .upsert(retryChunk, { onConflict: 'id' })
+                upsertError = retry.error
+            }
+
+            if (upsertError && isMissingSalesAccessColumnError(upsertError)) {
+                const retryChunk = chunk.map((row) => {
+                    const payload = { ...row } as Record<string, unknown>
+                    delete payload.sales_access
+                    return payload
+                })
                 const retry = await supabaseAdmin
                     .from('users')
                     .upsert(retryChunk, { onConflict: 'id' })
@@ -460,6 +541,7 @@ const updateUserSchema = z.object({
     supervisor_id: z.string().optional(),
     company_name: z.string().optional(),
     supervised_company_name: z.string().optional(),
+    sales_access: z.boolean().optional(),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -481,6 +563,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervisor_id: optionalString(formData.get('supervisor_id')),
         company_name: optionalString(formData.get('company_name')),
         supervised_company_name: optionalString(formData.get('supervised_company_name')),
+        sales_access: parseBooleanField(formData.get('sales_access')),
     }
 
     const validated = updateUserSchema.safeParse(rawData)
@@ -506,10 +589,12 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervisor_id,
         company_name,
         supervised_company_name,
+        sales_access,
     } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
     const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
     const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
+    const normalizedSalesAccess = sales_access ?? roleHasSalesAccessByDefault(role)
 
     // 1. Update public.users table (Profile)
     const updatePayload: any = {
@@ -523,12 +608,23 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervisor_id: supervisor_id || null, // Set to null if empty string
         company_name: normalizedCompanyName,
         supervised_company_name: normalizedSupervisedCompanyName,
+        sales_access: normalizedSalesAccess,
     }
 
-    const { error: profileError } = await supabaseAdmin
+    let { error: profileError } = await supabaseAdmin
         .from('users')
         .update(updatePayload)
         .eq('id', userId)
+
+    if (profileError && isMissingSalesAccessColumnError(profileError)) {
+        const retryPayload = { ...updatePayload }
+        delete retryPayload.sales_access
+        const retry = await supabaseAdmin
+            .from('users')
+            .update(retryPayload)
+            .eq('id', userId)
+        profileError = retry.error
+    }
 
     if (profileError) {
         console.error('Erro ao atualizar perfil (public.users):', profileError)
@@ -546,6 +642,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
             department: department || 'outro',
             company_name: normalizedCompanyName,
             supervised_company_name: normalizedSupervisedCompanyName,
+            sales_access: normalizedSalesAccess,
         }
     }
 

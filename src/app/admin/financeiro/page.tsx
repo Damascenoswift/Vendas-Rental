@@ -10,6 +10,7 @@ import { getPricingRules } from "@/services/proposal-service"
 import { Wallet } from "lucide-react"
 import { getProfile, hasFullAccess } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
+import { hasSalesAccess } from "@/lib/sales-access"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
     Table,
@@ -227,10 +228,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         sellerPercentDisplayByUserId.set(userId, toPercentDisplay(rule.value, rentalDefaultPercentDisplay))
     }
 
-    const managerUser = (users as any[]).find((item) => normalizeText(item.name) === "guilherme damasceno")
-    const managerUserId = managerUser?.id ?? null
-    const managerName = managerUser?.name || "Guilherme Damasceno"
-    const usersById = new Map((users as any[]).map((item) => [item.id, item]))
+    const usersRows = users as any[]
+    const salesEligibleUsers = usersRows.filter((item) => hasSalesAccess(item))
+    const salesEligibleUserIds = new Set(salesEligibleUsers.map((item) => item.id as string))
+
+    const managerUserCandidate = usersRows.find((item) => normalizeText(item.name) === "guilherme damasceno")
+    const managerUserId = managerUserCandidate && hasSalesAccess(managerUserCandidate)
+        ? managerUserCandidate.id
+        : null
+    const managerName = managerUserCandidate?.name || "Guilherme Damasceno"
+    const usersById = new Map(usersRows.map((item) => [item.id, item]))
 
     const paidInvoiceDateByLead = new Map<string, string>()
     for (const invoice of paidInvoices) {
@@ -248,6 +255,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     for (const tx of transactions as any[]) {
         if (tx.status !== 'pago') continue
         if (!tx.origin_lead_id || !tx.beneficiary_user_id) continue
+        if (!salesEligibleUserIds.has(tx.beneficiary_user_id)) continue
         const amount = toNumber(tx.amount)
         if (amount <= 0) continue
         const key = `${tx.origin_lead_id}:${tx.beneficiary_user_id}`
@@ -371,6 +379,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         })
 
     const dorataForecasts = [...dorataForecastsFromProposals, ...dorataForecastsFromIndicacoes]
+        .filter((item) => item.sellerId && salesEligibleUserIds.has(item.sellerId))
     const filteredDorataForecasts = sellerFilterId
         ? dorataForecasts.filter((item) => item.sellerId === sellerFilterId)
         : dorataForecasts
@@ -440,7 +449,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             hasCommissionBase,
             allowsThirtyAdvance,
         }
-    })
+    }).filter((row) => salesEligibleUserIds.has(row.sellerId))
 
     const filteredRentalForecastRows = sellerFilterId
         ? rentalForecastRows.filter((row) => row.sellerId === sellerFilterId)
@@ -496,9 +505,18 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             email: row.sellerEmail,
         })
     }
-    for (const userRow of users as any[]) {
-        const hasRentalBrand = Array.isArray(userRow.allowed_brands) && userRow.allowed_brands.includes("rental")
-        if (!hasRentalBrand && !sellerRowsMap.has(userRow.id)) continue
+    for (const row of dorataForecasts) {
+        if (!row.sellerId) continue
+        const sellerData = Array.isArray(row.seller) ? row.seller[0] : row.seller
+        sellerRowsMap.set(row.sellerId, {
+            id: row.sellerId,
+            name: sellerData?.name || sellerData?.email || "Sem nome",
+            email: sellerData?.email || "",
+        })
+    }
+    for (const userRow of salesEligibleUsers) {
+        const hasAllowedBrands = Array.isArray(userRow.allowed_brands) && userRow.allowed_brands.length > 0
+        if (!hasAllowedBrands && !sellerRowsMap.has(userRow.id)) continue
         sellerRowsMap.set(userRow.id, {
             id: userRow.id,
             name: userRow.name || userRow.email || "Sem nome",
@@ -507,8 +525,13 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     }
 
     const sellerOptions = Array.from(sellerRowsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+    const rentalSellerOptions = sellerOptions.filter((seller) => {
+        const userRow = usersById.get(seller.id)
+        const brands = Array.isArray(userRow?.allowed_brands) ? userRow.allowed_brands : []
+        return brands.includes("rental")
+    })
 
-    const commissionSettingsRows = sellerOptions.map((seller) => ({
+    const commissionSettingsRows = rentalSellerOptions.map((seller) => ({
         userId: seller.id,
         name: seller.name,
         email: seller.email,
@@ -525,9 +548,12 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const totalRentalSeventyAdjusted = filteredRentalForecastRows.reduce((sum, item) => sum + item.seventyAdjusted, 0)
     const totalManagerOverride = filteredManagerOverrideRows.reduce((sum, item) => sum + item.commissionTotal, 0)
 
+    const salesTransactions = (transactions as any[])
+        .filter((tx) => tx.beneficiary_user_id && salesEligibleUserIds.has(tx.beneficiary_user_id))
+
     const filteredTransactions = sellerFilterId
-        ? (transactions as any[]).filter((tx) => tx.beneficiary_user_id === sellerFilterId)
-        : (transactions as any[])
+        ? salesTransactions.filter((tx) => tx.beneficiary_user_id === sellerFilterId)
+        : salesTransactions
 
     const dorataPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_dorata')
     const rentalPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_venda')
@@ -557,7 +583,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             createdAt: (item.created_at as string) ?? null,
             paidAt: (item.paid_at as string | null) ?? null,
         }
-    })
+    }).filter((item) => salesEligibleUserIds.has(item.beneficiaryUserId))
 
     const filteredManualItemsRows = sellerFilterId
         ? manualItemsRows.filter((item) => item.beneficiaryUserId === sellerFilterId)
@@ -696,7 +722,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                             Filtrar
                         </button>
                     </form>
-                    <NewTransactionDialog users={users as any[]} />
+                    <NewTransactionDialog users={sellerOptions as any[]} />
                 </div>
             </div>
 
