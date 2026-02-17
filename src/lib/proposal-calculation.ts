@@ -7,7 +7,7 @@ export type ProposalCalcParams = {
     micro_unit_power_kw: number
     micro_rounding_mode: RoundMode
     grace_interest_mode: GraceInterestMode
-    duplication_rule: "DUPLICATE_KIT_AND_SOLO_STRUCTURE"
+    duplication_rule: "DUPLICATE_KIT_AND_SOLO_STRUCTURE" | "NO_DUPLICATION"
 }
 
 export type ProposalCalcInput = {
@@ -167,7 +167,10 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const valorEstruturaTelhado = qtdPlacasTelhado * valorUnitTelhado
     const valorEstruturaTotal = valorEstruturaSolo + valorEstruturaTelhado
 
-    const somaComEstrutura = (custoKit + valorEstruturaSolo) * 2 + valorEstruturaTelhado
+    const baseComEstrutura = custoKit + valorEstruturaSolo + valorEstruturaTelhado
+    const somaComEstrutura = params.duplication_rule === "DUPLICATE_KIT_AND_SOLO_STRUCTURE"
+        ? (custoKit + valorEstruturaSolo) * 2 + valorEstruturaTelhado
+        : baseComEstrutura
     const margemPercentual = Number(input.margin.margem_percentual || 0)
     const margemValor = somaComEstrutura * margemPercentual
 
