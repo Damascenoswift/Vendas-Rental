@@ -1,0 +1,651 @@
+"use client"
+
+import { useMemo, useState } from "react"
+import type { Product } from "@/services/product-service"
+import { createProposal } from "@/services/proposal-service"
+import type { PricingRule, ProposalInsert } from "@/services/proposal-service"
+import { calculateProposal, type ProposalCalcInput, type ProposalCalcParams } from "@/lib/proposal-calculation"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { Loader2, Calculator } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
+import { LeadSelect } from "@/components/admin/tasks/lead-select"
+
+interface ProposalCalculatorProps {
+    products: Product[]
+    pricingRules?: PricingRule[]
+}
+
+type RuleMap = Record<string, number>
+
+type SelectedContact = {
+    id: string
+    full_name: string | null
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    whatsapp: string | null
+    phone: string | null
+    mobile: string | null
+}
+
+type ManualContactState = {
+    first_name: string
+    last_name: string
+    whatsapp: string
+}
+
+function toNumber(value: string) {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatCurrency(value: number) {
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
+}
+
+function buildRuleMap(rules?: PricingRule[]) {
+    const map: RuleMap = {}
+    ;(rules ?? []).forEach((rule) => {
+        if (rule.active) {
+            map[rule.key] = Number(rule.value)
+        }
+    })
+    return map
+}
+
+function normalizePercent(value: number, fallback: number) {
+    if (!Number.isFinite(value)) return fallback
+    return value > 1 ? value / 100 : value
+}
+
+export function ProposalCalculatorSimple({ products, pricingRules = [] }: ProposalCalculatorProps) {
+    const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
+    const defaultModulePower = rules.potencia_modulo_w ?? 700
+    const defaultSoloUnitValue = rules.valor_unit_solo ?? 0
+    const defaultInterest = normalizePercent(rules.juros_mensal ?? 0.019, 0.019)
+    const defaultProductionIndex = rules.indice_producao ?? 112
+
+    const params: ProposalCalcParams = useMemo(
+        () => ({
+            default_oversizing_factor: 1,
+            micro_per_modules_divisor: 4,
+            micro_unit_power_kw: 2,
+            micro_rounding_mode: "CEIL",
+            grace_interest_mode: "COMPOUND",
+            duplication_rule: "NO_DUPLICATION",
+        }),
+        []
+    )
+
+    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(null)
+    const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(null)
+    const [contactSelectKey, setContactSelectKey] = useState(0)
+    const [manualContact, setManualContact] = useState<ManualContactState>({
+        first_name: "",
+        last_name: "",
+        whatsapp: "",
+    })
+
+    const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">("sent")
+
+    const [qtdModulos, setQtdModulos] = useState(0)
+    const [potenciaModuloW, setPotenciaModuloW] = useState(defaultModulePower)
+    const [indiceProducao, setIndiceProducao] = useState(defaultProductionIndex)
+    const [kitGeradorValor, setKitGeradorValor] = useState(0)
+
+    const [hasSoloStructure, setHasSoloStructure] = useState(false)
+    const [soloUnitValue, setSoloUnitValue] = useState(defaultSoloUnitValue)
+
+    const [financeEnabled, setFinanceEnabled] = useState(false)
+    const [entradaValor, setEntradaValor] = useState(0)
+    const [carenciaMeses, setCarenciaMeses] = useState(0)
+    const [jurosMensal, setJurosMensal] = useState(defaultInterest)
+    const [numParcelas, setNumParcelas] = useState(0)
+
+    const { showToast } = useToast()
+    const router = useRouter()
+    const [loading, setLoading] = useState(false)
+
+    const calculationInput = useMemo<ProposalCalcInput>(() => {
+        const denominator = qtdModulos * potenciaModuloW
+        const moduleCostPerWatt = denominator > 0 ? kitGeradorValor / denominator : 0
+
+        return {
+            dimensioning: {
+                qtd_modulos: qtdModulos,
+                potencia_modulo_w: potenciaModuloW,
+                indice_producao: indiceProducao,
+                tipo_inversor: "STRING",
+                fator_oversizing: 1,
+            },
+            kit: {
+                module_cost_per_watt: moduleCostPerWatt,
+                cabling_unit_cost: 0,
+                micro_unit_cost: 0,
+                string_inverter_total_cost: 0,
+            },
+            structure: {
+                qtd_placas_solo: hasSoloStructure ? qtdModulos : 0,
+                qtd_placas_telhado: 0,
+                valor_unit_solo: hasSoloStructure ? soloUnitValue : 0,
+                valor_unit_telhado: 0,
+            },
+            margin: {
+                margem_percentual: 0,
+            },
+            extras: {
+                valor_baterias: 0,
+                valor_adequacao_padrao: 0,
+                outros_extras: [],
+            },
+            finance: {
+                enabled: financeEnabled,
+                entrada_valor: entradaValor,
+                carencia_meses: carenciaMeses,
+                juros_mensal: jurosMensal,
+                num_parcelas: numParcelas,
+                baloes: [],
+            },
+            params,
+        }
+    }, [
+        qtdModulos,
+        potenciaModuloW,
+        kitGeradorValor,
+        indiceProducao,
+        hasSoloStructure,
+        soloUnitValue,
+        financeEnabled,
+        entradaValor,
+        carenciaMeses,
+        jurosMensal,
+        numParcelas,
+        params,
+    ])
+
+    const calculated = useMemo(() => calculateProposal(calculationInput), [calculationInput])
+    const selectedContactPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
+    const isContactPhoneLocked = Boolean(selectedContact && selectedContactPhone)
+    const usesInventory = products.length > 0
+
+    const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
+        const safeName = (fullName ?? "").trim()
+        if (!safeName) {
+            return { first_name: "", last_name: "", whatsapp: "" }
+        }
+        const [firstName, ...rest] = safeName.split(" ")
+        return { first_name: firstName ?? "", last_name: rest.join(" "), whatsapp: "" }
+    }
+
+    const applyContactToManual = (contact: SelectedContact): ManualContactState => {
+        const fullName =
+            contact.full_name?.trim() ||
+            [contact.first_name, contact.last_name].filter(Boolean).join(" ").trim()
+        const base = buildManualFromName(fullName)
+        return {
+            ...base,
+            whatsapp: (contact.whatsapp || contact.phone || contact.mobile || "").trim(),
+        }
+    }
+
+    const clearClientSelection = () => {
+        setSelectedIndicacaoId(null)
+        setSelectedContact(null)
+        setManualContact({ first_name: "", last_name: "", whatsapp: "" })
+        setContactSelectKey((prev) => prev + 1)
+    }
+
+    const updateManualContact = (patch: Partial<typeof manualContact>) => {
+        setManualContact((prev) => ({ ...prev, ...patch }))
+        if (selectedContact || selectedIndicacaoId) {
+            setSelectedContact(null)
+            setSelectedIndicacaoId(null)
+            setContactSelectKey((prev) => prev + 1)
+        }
+    }
+
+    const handleSave = async () => {
+        if (loading) return
+
+        if (qtdModulos <= 0 || potenciaModuloW <= 0) {
+            showToast({
+                variant: "error",
+                title: "Dados incompletos",
+                description: "Informe potência do módulo e quantidade de placas.",
+            })
+            return
+        }
+
+        if (kitGeradorValor <= 0) {
+            showToast({
+                variant: "error",
+                title: "Kit gerador obrigatório",
+                description: "Informe o valor total do kit gerador.",
+            })
+            return
+        }
+
+        const manualFirstName = manualContact.first_name.trim()
+        const manualLastName = manualContact.last_name.trim()
+        const manualWhatsapp = manualContact.whatsapp.trim()
+        const selectedPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
+        const hasIndicacao = Boolean(selectedIndicacaoId)
+
+        if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
+            showToast({
+                variant: "error",
+                title: "Cliente obrigatório",
+                description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
+            })
+            return
+        }
+
+        if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
+            showToast({
+                variant: "error",
+                title: "Dados do cliente incompletos",
+                description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
+            })
+            return
+        }
+
+        if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
+            showToast({
+                variant: "error",
+                title: "Contato sem WhatsApp",
+                description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
+            })
+            return
+        }
+
+        setLoading(true)
+        try {
+            const proposalData: ProposalInsert = {
+                status: proposalStatus,
+                total_value: calculated.output.totals.total_a_vista,
+                equipment_cost: calculated.output.kit.custo_kit,
+                additional_cost: calculated.output.extras.extras_total,
+                profit_margin: calculated.output.margin.margem_valor,
+                total_power: calculated.output.dimensioning.kWp,
+                calculation: calculated,
+            }
+
+            const contactPayload = selectedIndicacaoId
+                ? null
+                : selectedContact
+                    ? {
+                        ...selectedContact,
+                        whatsapp: selectedContact.whatsapp || manualWhatsapp || null,
+                        phone: selectedContact.phone || manualWhatsapp || null,
+                    }
+                    : {
+                        first_name: manualFirstName,
+                        last_name: manualLastName || null,
+                        full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
+                        whatsapp: manualWhatsapp,
+                        email: null,
+                        phone: null,
+                        mobile: null,
+                    }
+
+            const result = await createProposal(proposalData, [], {
+                client: {
+                    indicacao_id: selectedIndicacaoId,
+                    contact: contactPayload,
+                },
+                crm_brand: "dorata",
+            })
+
+            if (!result.success) {
+                showToast({
+                    variant: "error",
+                    title: "Erro",
+                    description: result.error,
+                })
+                return
+            }
+
+            showToast({
+                title: "Orçamento criado",
+                description: "Orçamento salvo e vinculado ao cliente para histórico.",
+                variant: "success",
+            })
+            router.push("/admin/orcamentos")
+        } catch (error) {
+            console.error(error)
+            const message = error instanceof Error ? error.message : "Falha ao salvar o orçamento."
+            showToast({
+                variant: "error",
+                title: "Erro",
+                description: message,
+            })
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="space-y-6 lg:col-span-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Cliente</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Buscar cliente (contatos ou indicações)</Label>
+                            <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                    <LeadSelect
+                                        key={contactSelectKey}
+                                        mode="both"
+                                        leadBrand="dorata"
+                                        value={selectedIndicacaoId ?? undefined}
+                                        onChange={(value) => setSelectedIndicacaoId(value ?? null)}
+                                        onSelectLead={(lead, source) => {
+                                            if (source === "indicacao") {
+                                                setSelectedIndicacaoId(lead.id)
+                                                setSelectedContact(null)
+                                                setManualContact(buildManualFromName(lead.nome))
+                                            }
+                                        }}
+                                        onSelectContact={(contact) => {
+                                            setSelectedContact(contact)
+                                            setSelectedIndicacaoId(null)
+                                            setManualContact(applyContactToManual(contact))
+                                        }}
+                                    />
+                                </div>
+                                <Button type="button" variant="ghost" size="sm" onClick={clearClientSelection}>
+                                    Limpar
+                                </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                O orçamento fica salvo neste contato e cada novo orçamento gera histórico.
+                            </p>
+                        </div>
+
+                        <Separator />
+
+                        <div className="grid gap-4 md:grid-cols-3">
+                            <div className="space-y-2">
+                                <Label>Nome</Label>
+                                <Input
+                                    type="text"
+                                    value={manualContact.first_name}
+                                    onChange={(e) => updateManualContact({ first_name: e.target.value })}
+                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Sobrenome</Label>
+                                <Input
+                                    type="text"
+                                    value={manualContact.last_name}
+                                    onChange={(e) => updateManualContact({ last_name: e.target.value })}
+                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>WhatsApp</Label>
+                                <Input
+                                    type="text"
+                                    value={manualContact.whatsapp}
+                                    onChange={(e) => updateManualContact({ whatsapp: e.target.value })}
+                                    disabled={Boolean(selectedIndicacaoId) || isContactPhoneLocked}
+                                />
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Orçamento Simples</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label>Quantidade de placas</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    value={qtdModulos}
+                                    onChange={(e) => setQtdModulos(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Potência do módulo (W)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    value={potenciaModuloW}
+                                    onChange={(e) => setPotenciaModuloW(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Índice de produção</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    value={indiceProducao}
+                                    onChange={(e) => setIndiceProducao(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Valor do kit gerador (R$)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={kitGeradorValor}
+                                    onChange={(e) => setKitGeradorValor(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Status do orçamento</Label>
+                                <Select value={proposalStatus} onValueChange={(value) => setProposalStatus(value as "draft" | "sent")}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="draft">Rascunho</SelectItem>
+                                        <SelectItem value="sent">Enviado</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label>Potência total calculada</Label>
+                                <Input value={`${calculated.output.dimensioning.kWp.toFixed(2)} kWp`} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Geração estimada</Label>
+                                <Input value={`${calculated.output.dimensioning.kWh_estimado.toFixed(2)} kWh`} disabled />
+                            </div>
+                        </div>
+
+                        {!usesInventory && (
+                            <p className="text-xs text-muted-foreground">
+                                Estoque vazio: o orçamento será salvo normalmente sem itens de estoque.
+                            </p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Estrutura Solo</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                checked={hasSoloStructure}
+                                onChange={(e) => setHasSoloStructure(e.target.checked)}
+                            />
+                            <Label>Tem estrutura solo</Label>
+                        </div>
+
+                        {hasSoloStructure ? (
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>Valor por placa (R$)</Label>
+                                    <Input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={soloUnitValue}
+                                        onChange={(e) => setSoloUnitValue(toNumber(e.target.value))}
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label>Total estrutura solo</Label>
+                                    <Input value={formatCurrency(calculated.output.structure.valor_estrutura_solo)} disabled />
+                                </div>
+                            </div>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Estrutura solo desativada para este orçamento.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Financiamento</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                checked={financeEnabled}
+                                onChange={(e) => setFinanceEnabled(e.target.checked)}
+                            />
+                            <Label>Ativar financiamento</Label>
+                        </div>
+
+                        {financeEnabled && (
+                            <div className="space-y-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Entrada (R$)</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={entradaValor}
+                                            onChange={(e) => setEntradaValor(toNumber(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Entrada (%)</Label>
+                                        <Input value={(calculated.output.finance.entrada_percentual * 100).toFixed(2)} disabled />
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <div className="space-y-2">
+                                        <Label>Carência (meses)</Label>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            value={carenciaMeses}
+                                            onChange={(e) => setCarenciaMeses(toNumber(e.target.value))}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Juros mensal (%)</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={(jurosMensal * 100).toFixed(2)}
+                                            onChange={(e) => setJurosMensal(toNumber(e.target.value) / 100)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Número de parcelas</Label>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            value={numParcelas}
+                                            onChange={(e) => setNumParcelas(toNumber(e.target.value))}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+
+            <div className="lg:col-span-1">
+                <Card className="sticky top-6">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Calculator className="h-5 w-5" /> Resumo
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Potência total</span>
+                            <span className="font-medium">{calculated.output.dimensioning.kWp.toFixed(2)} kWp</span>
+                        </div>
+                        <Separator />
+                        <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Kit gerador</span>
+                                <span>{formatCurrency(calculated.output.kit.custo_kit)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Estrutura solo</span>
+                                <span>{formatCurrency(calculated.output.structure.valor_estrutura_solo)}</span>
+                            </div>
+                        </div>
+                        <Separator />
+                        <div className="flex items-center justify-between">
+                            <span className="text-lg font-bold">Total à vista</span>
+                            <span className="text-xl font-bold text-primary">
+                                {formatCurrency(calculated.output.totals.total_a_vista)}
+                            </span>
+                        </div>
+                        {financeEnabled && (
+                            <div className="space-y-2 text-sm">
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Valor financiado</span>
+                                    <span>{formatCurrency(calculated.output.finance.valor_financiado)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Parcela mensal</span>
+                                    <span>{formatCurrency(calculated.output.finance.parcela_mensal)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Total com juros</span>
+                                    <span>{formatCurrency(calculated.output.finance.total_pago)}</span>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                    <CardFooter>
+                        <Button className="w-full" onClick={handleSave} disabled={loading}>
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar Orçamento"}
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        </div>
+    )
+}
