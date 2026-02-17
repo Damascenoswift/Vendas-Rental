@@ -77,6 +77,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
     const defaultSoloUnitValue = rules.valor_unit_solo ?? 0
     const defaultInterest = normalizePercent(rules.juros_mensal ?? 0.019, 0.019)
     const defaultProductionIndex = rules.indice_producao ?? 112
+    const defaultMargin = normalizePercent(rules.margem_percentual ?? rules.default_margin ?? 0.1, 0.1)
 
     const params: ProposalCalcParams = useMemo(
         () => ({
@@ -85,7 +86,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
             micro_unit_power_kw: 2,
             micro_rounding_mode: "CEIL",
             grace_interest_mode: "COMPOUND",
-            duplication_rule: "NO_DUPLICATION",
+            duplication_rule: "DUPLICATE_KIT_AND_SOLO_STRUCTURE",
         }),
         []
     )
@@ -105,6 +106,8 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
     const [potenciaModuloW, setPotenciaModuloW] = useState(defaultModulePower)
     const [indiceProducao, setIndiceProducao] = useState(defaultProductionIndex)
     const [kitGeradorValor, setKitGeradorValor] = useState(0)
+    const [margemPercentual, setMargemPercentual] = useState(defaultMargin)
+    const [valorAdicional, setValorAdicional] = useState(0)
 
     const [hasSoloStructure, setHasSoloStructure] = useState(false)
     const [soloUnitValue, setSoloUnitValue] = useState(defaultSoloUnitValue)
@@ -144,11 +147,11 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                 valor_unit_telhado: 0,
             },
             margin: {
-                margem_percentual: 0,
+                margem_percentual: margemPercentual,
             },
             extras: {
                 valor_baterias: 0,
-                valor_adequacao_padrao: 0,
+                valor_adequacao_padrao: valorAdicional,
                 outros_extras: [],
             },
             finance: {
@@ -165,6 +168,8 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
         qtdModulos,
         potenciaModuloW,
         kitGeradorValor,
+        margemPercentual,
+        valorAdicional,
         indiceProducao,
         hasSoloStructure,
         soloUnitValue,
@@ -180,6 +185,8 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
     const selectedContactPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
     const isContactPhoneLocked = Boolean(selectedContact && selectedContactPhone)
     const usesInventory = products.length > 0
+    const kitDuplicado = calculated.output.kit.custo_kit * 2
+    const estruturaDuplicada = calculated.output.structure.valor_estrutura_solo * 2
 
     const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
         const safeName = (fullName ?? "").trim()
@@ -454,6 +461,9 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                                     value={kitGeradorValor}
                                     onChange={(e) => setKitGeradorValor(toNumber(e.target.value))}
                                 />
+                                <p className="text-xs text-muted-foreground">
+                                    No cálculo, o sistema aplica automaticamente kit x2.
+                                </p>
                             </div>
                             <div className="space-y-2">
                                 <Label>Status do orçamento</Label>
@@ -477,6 +487,14 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                             <div className="space-y-2">
                                 <Label>Geração estimada</Label>
                                 <Input value={`${calculated.output.dimensioning.kWh_estimado.toFixed(2)} kWh`} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Kit aplicado no cálculo (x2)</Label>
+                                <Input value={formatCurrency(kitDuplicado)} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Soma base (kit e estrutura x2)</Label>
+                                <Input value={formatCurrency(calculated.output.totals.soma_com_estrutura)} disabled />
                             </div>
                         </div>
 
@@ -521,6 +539,44 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                         ) : (
                             <p className="text-sm text-muted-foreground">Estrutura solo desativada para este orçamento.</p>
                         )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Margem e adicional</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label>Margem (%)</Label>
+                                <Input
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    value={(margemPercentual * 100).toFixed(2)}
+                                    onChange={(e) => setMargemPercentual(toNumber(e.target.value) / 100)}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Margem calculada</Label>
+                                <Input value={formatCurrency(calculated.output.margin.margem_valor)} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Valor adicional (R$)</Label>
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={valorAdicional}
+                                    onChange={(e) => setValorAdicional(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Adicional aplicado</Label>
+                                <Input value={formatCurrency(calculated.output.extras.extras_total)} disabled />
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -607,12 +663,28 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                         <Separator />
                         <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
-                                <span className="text-muted-foreground">Kit gerador</span>
+                                <span className="text-muted-foreground">Kit gerador informado</span>
                                 <span>{formatCurrency(calculated.output.kit.custo_kit)}</span>
                             </div>
                             <div className="flex justify-between">
-                                <span className="text-muted-foreground">Estrutura solo</span>
-                                <span>{formatCurrency(calculated.output.structure.valor_estrutura_solo)}</span>
+                                <span className="text-muted-foreground">Kit aplicado (x2)</span>
+                                <span>{formatCurrency(kitDuplicado)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Estrutura solo aplicada (x2)</span>
+                                <span>{formatCurrency(estruturaDuplicada)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Soma base</span>
+                                <span>{formatCurrency(calculated.output.totals.soma_com_estrutura)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Margem</span>
+                                <span>{formatCurrency(calculated.output.margin.margem_valor)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-muted-foreground">Valor adicional</span>
+                                <span>{formatCurrency(calculated.output.extras.extras_total)}</span>
                             </div>
                         </div>
                         <Separator />
