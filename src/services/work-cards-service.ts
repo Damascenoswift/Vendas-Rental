@@ -225,6 +225,16 @@ function normalizeWorkCardsError(message?: string | null) {
         return "Banco desatualizado: execute a migração 087_work_cards_core.sql."
     }
 
+    if (
+        normalized.includes("permission denied for table obra_cards") ||
+        normalized.includes("permission denied for table obra_card_proposals") ||
+        normalized.includes("permission denied for table obra_process_items") ||
+        normalized.includes("permission denied for table obra_comments") ||
+        normalized.includes("permission denied for table obra_images")
+    ) {
+        return "Permissões do banco desatualizadas: execute a migração 088_work_cards_service_role_grants.sql."
+    }
+
     return raw
 }
 
