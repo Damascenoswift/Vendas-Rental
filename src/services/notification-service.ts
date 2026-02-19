@@ -106,6 +106,21 @@ type RawNotificationRow = {
     task: NotificationTask | NotificationTask[] | null
 }
 
+type RawNotificationBaseRow = {
+    id: string
+    recipient_user_id: string
+    actor_user_id: string | null
+    task_id: string | null
+    task_comment_id: string | null
+    type: NotificationType
+    title: string
+    message: string
+    metadata: Record<string, unknown> | null
+    is_read: boolean
+    read_at: string | null
+    created_at: string
+}
+
 export async function getMyNotifications(options?: {
     includeRead?: boolean
     limit?: number
@@ -145,12 +160,101 @@ export async function getMyNotifications(options?: {
 
     const { data, error } = await query
 
-    if (error) {
-        console.error("Error fetching notifications:", error)
+    if (!error) {
+        return ((data ?? []) as RawNotificationRow[]).map((row) => ({
+            id: row.id,
+            recipient_user_id: row.recipient_user_id,
+            actor_user_id: row.actor_user_id,
+            task_id: row.task_id,
+            task_comment_id: row.task_comment_id,
+            type: row.type,
+            title: row.title,
+            message: row.message,
+            metadata: row.metadata ?? {},
+            is_read: row.is_read,
+            read_at: row.read_at,
+            created_at: row.created_at,
+            actor: toSingleRow(row.actor),
+            task: toSingleRow(row.task),
+        })) as NotificationItem[]
+    }
+
+    console.error("Error fetching notifications with joins, using fallback:", error)
+
+    let fallbackQuery = supabase
+        .from("notifications")
+        .select(`
+            id,
+            recipient_user_id,
+            actor_user_id,
+            task_id,
+            task_comment_id,
+            type,
+            title,
+            message,
+            metadata,
+            is_read,
+            read_at,
+            created_at
+        `)
+        .eq("recipient_user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(limit)
+
+    if (!options?.includeRead) {
+        fallbackQuery = fallbackQuery.eq("is_read", false)
+    }
+
+    const { data: fallbackRows, error: fallbackError } = await fallbackQuery
+    if (fallbackError) {
+        console.error("Error fetching notifications fallback:", fallbackError)
         return []
     }
 
-    return ((data ?? []) as RawNotificationRow[]).map((row) => ({
+    const rows = (fallbackRows ?? []) as RawNotificationBaseRow[]
+    if (rows.length === 0) return []
+
+    const actorIds = Array.from(
+        new Set(rows.map((row) => row.actor_user_id).filter((value): value is string => Boolean(value)))
+    )
+    const taskIds = Array.from(
+        new Set(rows.map((row) => row.task_id).filter((value): value is string => Boolean(value)))
+    )
+
+    const [actorsResult, tasksResult] = await Promise.all([
+        actorIds.length > 0
+            ? supabase
+                .from("users")
+                .select("id, name, email")
+                .in("id", actorIds)
+            : Promise.resolve({ data: [], error: null }),
+        taskIds.length > 0
+            ? supabase
+                .from("tasks")
+                .select("id, title, status")
+                .in("id", taskIds)
+            : Promise.resolve({ data: [], error: null }),
+    ])
+
+    if (actorsResult.error) {
+        console.error("Error loading notification actors fallback:", actorsResult.error)
+    }
+
+    if (tasksResult.error) {
+        console.error("Error loading notification tasks fallback:", tasksResult.error)
+    }
+
+    const actorsById = new Map<string, NotificationActor>()
+    ;((actorsResult.data ?? []) as NotificationActor[]).forEach((actor) => {
+        actorsById.set(actor.id, actor)
+    })
+
+    const tasksById = new Map<string, NotificationTask>()
+    ;((tasksResult.data ?? []) as NotificationTask[]).forEach((task) => {
+        tasksById.set(task.id, task)
+    })
+
+    return rows.map((row) => ({
         id: row.id,
         recipient_user_id: row.recipient_user_id,
         actor_user_id: row.actor_user_id,
@@ -163,8 +267,8 @@ export async function getMyNotifications(options?: {
         is_read: row.is_read,
         read_at: row.read_at,
         created_at: row.created_at,
-        actor: toSingleRow(row.actor),
-        task: toSingleRow(row.task),
+        actor: row.actor_user_id ? (actorsById.get(row.actor_user_id) ?? null) : null,
+        task: row.task_id ? (tasksById.get(row.task_id) ?? null) : null,
     })) as NotificationItem[]
 }
 
@@ -356,6 +460,8 @@ export async function createTaskCommentNotifications(params: {
             reasons: Array.from(reasons),
             task_title: taskTitle,
             parent_comment_id: params.parentCommentId ?? null,
+            task_id: params.taskId,
+            target_path: `/admin/tarefas?openTask=${params.taskId}`,
         },
     }))
 

@@ -82,6 +82,11 @@ function getNotificationTargetPath(notification: NotificationItem) {
         return metadataTarget
     }
 
+    const metadataTaskId = getMetadataString(notification.metadata, "task_id")
+    if (metadataTaskId) {
+        return `/admin/tarefas?openTask=${metadataTaskId}`
+    }
+
     const conversationId = getMetadataString(notification.metadata, "conversation_id")
     if (notification.type === "INTERNAL_CHAT_MESSAGE" && conversationId) {
         return `/admin/chat?conversation=${conversationId}`
