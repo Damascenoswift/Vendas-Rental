@@ -13,6 +13,7 @@ export type NotificationType =
     | "INTERNAL_CHAT_MESSAGE"
 
 type NotificationReason = "ASSIGNEE" | "OBSERVER" | "REPLY" | "MENTION"
+type ChecklistNotificationReason = "ASSIGNEE" | "OBSERVER"
 
 type NotificationActor = {
     id: string
@@ -23,6 +24,14 @@ type NotificationActor = {
 type NotificationTask = {
     id: string
     title: string | null
+    status: string | null
+}
+
+type MentionLookupRow = {
+    id: string
+    name: string | null
+    email: string | null
+    role: string | null
     status: string | null
 }
 
@@ -53,6 +62,45 @@ function sanitizePreview(content: string, maxLength = 180) {
     if (!cleaned) return ""
     if (cleaned.length <= maxLength) return cleaned
     return `${cleaned.slice(0, maxLength - 3)}...`
+}
+
+function normalizeMentionLookupToken(value: string) {
+    const normalized = value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]+/g, ".")
+        .replace(/^\.+|\.+$/g, "")
+
+    return normalized
+}
+
+function extractMentionLookupTokens(content: string) {
+    const tokens = new Set<string>()
+    const mentionRegex = /(^|[\s([{])@([^\s@.,;:!?()[\]{}<>]+)/g
+
+    let match: RegExpExecArray | null = mentionRegex.exec(content)
+    while (match) {
+        const token = normalizeMentionLookupToken(match[2] ?? "")
+        if (token.length >= 3) {
+            tokens.add(token)
+        }
+        match = mentionRegex.exec(content)
+    }
+
+    return Array.from(tokens)
+}
+
+function collectChecklistReason(
+    recipientMap: Map<string, Set<ChecklistNotificationReason>>,
+    userId: string | null | undefined,
+    reason: ChecklistNotificationReason
+) {
+    if (!userId) return
+
+    const current = recipientMap.get(userId) ?? new Set<ChecklistNotificationReason>()
+    current.add(reason)
+    recipientMap.set(userId, current)
 }
 
 function normalizeMentionUserIds(ids?: string[]) {
@@ -87,6 +135,70 @@ function buildNotificationTitle(actorDisplay: string, reasons: Set<NotificationR
     }
 
     return `${actorDisplay} comentou em uma tarefa que você acompanha`
+}
+
+async function resolveMentionUserIdsFromContent(params: {
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    content: string
+    explicitMentionUserIds?: string[]
+}) {
+    const explicitMentionUserIds = normalizeMentionUserIds(params.explicitMentionUserIds)
+    const lookupTokens = extractMentionLookupTokens(params.content)
+
+    if (lookupTokens.length === 0) {
+        return explicitMentionUserIds
+    }
+
+    const { data: usersData, error: usersError } = await params.supabaseAdmin
+        .from("users")
+        .select("id, name, email, role, status")
+
+    if (usersError) {
+        console.error("Error loading users for mention lookup:", usersError)
+        return explicitMentionUserIds
+    }
+
+    const lookup = new Map<string, Set<string>>()
+    const addLookup = (token: string, userId: string) => {
+        if (!token) return
+        const current = lookup.get(token) ?? new Set<string>()
+        current.add(userId)
+        lookup.set(token, current)
+    }
+
+    ;((usersData ?? []) as MentionLookupRow[]).forEach((row) => {
+        if (!row?.id) return
+        if (row.status === "INATIVO") return
+        if (row.role === "investidor") return
+
+        const userId = row.id
+        const name = row.name?.trim() ?? ""
+        const email = row.email?.trim() ?? ""
+
+        const normalizedFullName = normalizeMentionLookupToken(name)
+        addLookup(normalizedFullName, userId)
+
+        const firstName = name.split(/\s+/)[0] ?? ""
+        const normalizedFirstName = normalizeMentionLookupToken(firstName)
+        addLookup(normalizedFirstName, userId)
+
+        const emailLocal = email.includes("@") ? email.split("@")[0] : email
+        const normalizedEmailLocal = normalizeMentionLookupToken(emailLocal)
+        addLookup(normalizedEmailLocal, userId)
+    })
+
+    const resolvedByToken: string[] = []
+    lookupTokens.forEach((token) => {
+        const matches = lookup.get(token)
+        if (!matches || matches.size !== 1) return
+        const [matchedId] = Array.from(matches)
+        if (matchedId) resolvedByToken.push(matchedId)
+    })
+
+    return normalizeMentionUserIds([
+        ...explicitMentionUserIds,
+        ...resolvedByToken,
+    ])
 }
 
 type RawNotificationRow = {
@@ -358,7 +470,11 @@ export async function createTaskCommentNotifications(params: {
         return
     }
 
-    const mentionUserIds = normalizeMentionUserIds(params.mentionUserIds)
+    const mentionUserIds = await resolveMentionUserIdsFromContent({
+        supabaseAdmin,
+        content: params.content,
+        explicitMentionUserIds: params.mentionUserIds,
+    })
 
     const [taskResult, observersResult, actorResult, parentResult] = await Promise.all([
         supabaseAdmin
@@ -471,6 +587,105 @@ export async function createTaskCommentNotifications(params: {
 
     if (insertError) {
         console.error("Error creating notifications from task comment:", insertError)
+        return
+    }
+
+    revalidatePath("/admin/notificacoes")
+}
+
+export async function createTaskChecklistNotifications(params: {
+    taskId: string
+    checklistItemId: string
+    checklistTitle: string
+    isDone: boolean
+    actorUserId: string
+}) {
+    if (!params.taskId || !params.checklistItemId || !params.actorUserId) {
+        return
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error("Error creating service client for checklist notifications:", error)
+        return
+    }
+
+    const [taskResult, observersResult, actorResult] = await Promise.all([
+        supabaseAdmin
+            .from("tasks")
+            .select("id, title, assignee_id")
+            .eq("id", params.taskId)
+            .maybeSingle(),
+        supabaseAdmin
+            .from("task_observers")
+            .select("user_id")
+            .eq("task_id", params.taskId),
+        supabaseAdmin
+            .from("users")
+            .select("id, name, email")
+            .eq("id", params.actorUserId)
+            .maybeSingle(),
+    ])
+
+    if (taskResult.error || !taskResult.data) {
+        console.error("Error loading task for checklist notifications:", taskResult.error)
+        return
+    }
+
+    if (observersResult.error) {
+        console.error("Error loading observers for checklist notifications:", observersResult.error)
+        return
+    }
+
+    if (actorResult.error) {
+        console.error("Error loading actor for checklist notifications:", actorResult.error)
+    }
+
+    const recipientReasons = new Map<string, Set<ChecklistNotificationReason>>()
+    collectChecklistReason(recipientReasons, taskResult.data.assignee_id, "ASSIGNEE")
+    ;(observersResult.data ?? []).forEach((observer) => {
+        collectChecklistReason(recipientReasons, observer.user_id, "OBSERVER")
+    })
+
+    recipientReasons.delete(params.actorUserId)
+
+    if (recipientReasons.size === 0) {
+        return
+    }
+
+    const actor = actorResult.data as { id: string; name: string | null; email: string | null } | null
+    const actorDisplay = actor?.name?.trim() || actor?.email || "Alguém"
+    const taskTitle = (taskResult.data.title ?? "Tarefa sem título").trim() || "Tarefa sem título"
+    const checklistTitle = (params.checklistTitle ?? "").trim() || "Checklist sem título"
+    const actionLabel = params.isDone ? "concluiu" : "reabriu"
+
+    const payload = Array.from(recipientReasons.keys()).map((recipientUserId) => ({
+        recipient_user_id: recipientUserId,
+        actor_user_id: params.actorUserId,
+        task_id: params.taskId,
+        task_comment_id: null,
+        type: "TASK_SYSTEM" as const,
+        title: `${actorDisplay} ${actionLabel} um checklist da tarefa`,
+        message: `${actorDisplay} ${actionLabel} "${checklistTitle}" em "${taskTitle}".`,
+        metadata: {
+            event: "TASK_CHECKLIST_UPDATED",
+            checklist_item_id: params.checklistItemId,
+            checklist_title: checklistTitle,
+            checklist_is_done: params.isDone,
+            task_title: taskTitle,
+            target_path: `/admin/tarefas?openTask=${params.taskId}`,
+            task_id: params.taskId,
+        },
+    }))
+
+    const { error: insertError } = await supabaseAdmin
+        .from("notifications")
+        .insert(payload)
+
+    if (insertError) {
+        console.error("Error creating notifications from checklist update:", insertError)
         return
     }
 

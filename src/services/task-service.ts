@@ -3,7 +3,10 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasFullAccess, type UserProfile } from "@/lib/auth"
-import { createTaskCommentNotifications } from "@/services/notification-service"
+import {
+    createTaskChecklistNotifications,
+    createTaskCommentNotifications,
+} from "@/services/notification-service"
 import { revalidatePath } from "next/cache"
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
@@ -1565,6 +1568,18 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
         if (clearDocError) {
             console.error("Error clearing other doc checklist events:", clearDocError)
         }
+    }
+
+    try {
+        await createTaskChecklistNotifications({
+            taskId: itemWithTask?.task_id ?? "",
+            checklistItemId: itemId,
+            checklistTitle: itemWithTask?.title ?? "",
+            isDone,
+            actorUserId: user.id,
+        })
+    } catch (notificationError) {
+        console.error("Error creating task checklist notifications:", notificationError)
     }
 
     // Reflect key milestones/doc commands to the lead of the seller
