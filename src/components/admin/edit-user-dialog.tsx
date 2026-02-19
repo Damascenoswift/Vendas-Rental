@@ -16,6 +16,8 @@ import {
     DialogFooter
 } from "@/components/ui/dialog"
 import { Pencil } from "lucide-react"
+import { roleHasSalesAccessByDefault } from "@/lib/sales-access"
+import { roleHasInternalChatAccessByDefault } from "@/lib/internal-chat-access"
 
 const initialState: CreateUserState = {
     success: false,
@@ -30,6 +32,7 @@ interface EditUserDialogProps {
         email: string
         role: string
         sales_access?: boolean | null
+        internal_chat_access?: boolean | null
         phone?: string
         department?: string
         allowed_brands?: string[]
@@ -41,10 +44,6 @@ interface EditUserDialogProps {
     supervisors?: any[]
 }
 
-function defaultSalesAccessByRole(role: string) {
-    return role === 'vendedor_interno' || role === 'vendedor_externo' || role === 'supervisor'
-}
-
 export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) {
     const [open, setOpen] = useState(false)
     const [state, formAction, isPending] = useActionState(updateUser, initialState)
@@ -52,7 +51,12 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
     const [salesAccess, setSalesAccess] = useState(
         typeof user.sales_access === "boolean"
             ? user.sales_access
-            : defaultSalesAccessByRole(user.role)
+            : roleHasSalesAccessByDefault(user.role)
+    )
+    const [internalChatAccess, setInternalChatAccess] = useState(
+        typeof user.internal_chat_access === "boolean"
+            ? user.internal_chat_access
+            : roleHasInternalChatAccessByDefault(user.role)
     )
 
     // Close dialog on success
@@ -128,7 +132,8 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             onChange={(e) => {
                                 const nextRole = e.target.value
                                 setSelectedRole(nextRole)
-                                setSalesAccess(defaultSalesAccessByRole(nextRole))
+                                setSalesAccess(roleHasSalesAccessByDefault(nextRole))
+                                setInternalChatAccess(roleHasInternalChatAccessByDefault(nextRole))
                             }}
                         >
                             <option value="vendedor_externo">Vendedor Externo</option>
@@ -159,6 +164,29 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                                 type="checkbox"
                                 checked={salesAccess}
                                 onChange={(e) => setSalesAccess(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <input
+                            type="hidden"
+                            name="internal_chat_access"
+                            value={internalChatAccess ? "true" : "false"}
+                        />
+                        <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                            <div>
+                                <Label htmlFor={`internal_chat_access_toggle_${user.id}`}>Acesso ao chat interno</Label>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Permite usar o módulo de chat interno da equipe.
+                                </p>
+                            </div>
+                            <input
+                                id={`internal_chat_access_toggle_${user.id}`}
+                                type="checkbox"
+                                checked={internalChatAccess}
+                                onChange={(e) => setInternalChatAccess(e.target.checked)}
                                 className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                             />
                         </div>

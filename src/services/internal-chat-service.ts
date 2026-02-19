@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import { hasInternalChatAccess } from "@/lib/internal-chat-access"
 
 const INTERNAL_CHAT_MAX_CONVERSATIONS = 120
 const INTERNAL_CHAT_MAX_MESSAGE_LENGTH = 2000
@@ -59,6 +60,7 @@ type CurrentInternalChatUser = {
     email: string | null
     role: string | null
     status: string | null
+    internal_chat_access?: boolean | null
 }
 
 type ConversationRow = {
@@ -102,7 +104,9 @@ type UnreadCountRow = {
 }
 
 type ChatUsersLookupRow = BasicUserRow & {
+    role: string | null
     status: string | null
+    internal_chat_access?: boolean | null
 }
 
 type ChatSessionSuccess = {
@@ -158,6 +162,15 @@ function userDisplayName(user: Pick<InternalChatUser, "name" | "email"> | null |
     return user.name?.trim() || user.email?.trim() || "Usuário"
 }
 
+function isMissingInternalChatAccessColumnError(error?: { message?: string | null } | null) {
+    return /could not find the 'internal_chat_access' column/i.test(error?.message ?? "")
+}
+
+function isInactiveStatus(status: string | null | undefined) {
+    const normalized = (status ?? "").trim().toLowerCase()
+    return normalized === "inativo" || normalized === "inactive" || normalized === "suspended"
+}
+
 async function requireChatSession(): Promise<ChatSessionSuccess | ChatSessionFailure> {
     const supabase = await createClient()
     const {
@@ -176,11 +189,22 @@ async function requireChatSession(): Promise<ChatSessionSuccess | ChatSessionFai
         return { error: "Falha ao inicializar chat interno." } as const
     }
 
-    const { data: currentUserRow, error: currentUserError } = await supabaseAdmin
+    let { data: currentUserRow, error: currentUserError } = await supabaseAdmin
         .from("users")
-        .select("id, name, email, role, status")
+        .select("id, name, email, role, status, internal_chat_access")
         .eq("id", user.id)
         .maybeSingle()
+
+    if (currentUserError && isMissingInternalChatAccessColumnError(currentUserError)) {
+        const fallback = await supabaseAdmin
+            .from("users")
+            .select("id, name, email, role, status")
+            .eq("id", user.id)
+            .maybeSingle()
+
+        currentUserRow = fallback.data as typeof currentUserRow
+        currentUserError = fallback.error as typeof currentUserError
+    }
 
     if (currentUserError || !currentUserRow) {
         console.error("Error loading internal chat current user:", currentUserError)
@@ -188,11 +212,11 @@ async function requireChatSession(): Promise<ChatSessionSuccess | ChatSessionFai
     }
 
     const currentUser = currentUserRow as CurrentInternalChatUser
-    if (currentUser.role === "investidor") {
+    if (!hasInternalChatAccess(currentUser)) {
         return { error: "Seu perfil não possui acesso ao chat interno." } as const
     }
 
-    if (currentUser.status === "INATIVO") {
+    if (isInactiveStatus(currentUser.status)) {
         return { error: "Seu usuário está inativo no chat interno." } as const
     }
 
@@ -280,18 +304,35 @@ export async function getOrCreateDirectConversation(otherUserId: string) {
         return failure<string>("Não é possível abrir conversa com você mesmo.")
     }
 
-    const { data: otherUserRow, error: otherUserError } = await supabaseAdmin
+    let { data: otherUserRow, error: otherUserError } = await supabaseAdmin
         .from("users")
-        .select("id, role, status")
+        .select("id, role, status, internal_chat_access")
         .eq("id", sanitizedOtherUserId)
         .maybeSingle()
+
+    if (otherUserError && isMissingInternalChatAccessColumnError(otherUserError)) {
+        const fallback = await supabaseAdmin
+            .from("users")
+            .select("id, role, status")
+            .eq("id", sanitizedOtherUserId)
+            .maybeSingle()
+
+        otherUserRow = fallback.data as typeof otherUserRow
+        otherUserError = fallback.error as typeof otherUserError
+    }
 
     if (otherUserError || !otherUserRow) {
         return failure<string>("Usuário de destino não encontrado.")
     }
 
-    const otherUser = otherUserRow as { id: string; role?: string | null; status?: string | null }
-    if (otherUser.role === "investidor" || otherUser.status === "INATIVO") {
+    const otherUser = otherUserRow as {
+        id: string
+        role?: string | null
+        status?: string | null
+        internal_chat_access?: boolean | null
+    }
+
+    if (!hasInternalChatAccess(otherUser) || isInactiveStatus(otherUser.status)) {
         return failure<string>("Usuário sem acesso ao chat interno.")
     }
 
@@ -843,9 +884,9 @@ export async function listChatUsers(search?: string) {
 
     let query = supabaseAdmin
         .from("users")
-        .select("id, name, email, role, status")
+        .select("id, name, email, role, status, internal_chat_access")
         .neq("id", user.id)
-        .neq("role", "investidor")
+        .eq("internal_chat_access", true)
         .order("name", { ascending: true })
         .limit(30)
 
@@ -853,7 +894,24 @@ export async function listChatUsers(search?: string) {
         query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`)
     }
 
-    const { data, error } = await query
+    let { data, error } = await query
+
+    if (error && isMissingInternalChatAccessColumnError(error)) {
+        let fallbackQuery = supabaseAdmin
+            .from("users")
+            .select("id, name, email, role, status")
+            .neq("id", user.id)
+            .order("name", { ascending: true })
+            .limit(30)
+
+        if (searchTerm) {
+            fallbackQuery = fallbackQuery.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`)
+        }
+
+        const fallback = await fallbackQuery
+        data = fallback.data as typeof data
+        error = fallback.error as typeof error
+    }
 
     if (error) {
         console.error("Error listing internal chat users:", {
@@ -864,7 +922,8 @@ export async function listChatUsers(search?: string) {
     }
 
     const users = ((data ?? []) as ChatUsersLookupRow[])
-        .filter((row) => row.status !== "INATIVO")
+        .filter((row) => !isInactiveStatus(row.status))
+        .filter((row) => hasInternalChatAccess(row))
         .map((row) => ({
             id: row.id,
             name: row.name ?? null,

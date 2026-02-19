@@ -7,6 +7,7 @@ import { z } from 'zod'
 import type { UserRole, Brand, UserProfile } from '@/lib/auth'
 import { hasFullAccess } from '@/lib/auth'
 import { hasSalesAccess, roleHasSalesAccessByDefault } from '@/lib/sales-access'
+import { roleHasInternalChatAccessByDefault } from '@/lib/internal-chat-access'
 
 // Schema de validação
 const userRoleValues = [
@@ -56,6 +57,10 @@ const isMissingSalesAccessColumnError = (error?: { message?: string | null } | n
     return /could not find the 'sales_access' column/i.test(error?.message ?? '')
 }
 
+const isMissingInternalChatAccessColumnError = (error?: { message?: string | null } | null) => {
+    return /could not find the 'internal_chat_access' column/i.test(error?.message ?? '')
+}
+
 const isValidRole = (value: unknown): value is UserRole => {
     return userRoleValues.includes(value as UserRole)
 }
@@ -88,6 +93,7 @@ const createUserSchema = z.object({
     company_name: z.string().optional(),
     supervised_company_name: z.string().optional(),
     sales_access: z.boolean().optional(),
+    internal_chat_access: z.boolean().optional(),
 })
 
 export type CreateUserState = {
@@ -162,6 +168,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         company_name: optionalString(formData.get('company_name')),
         supervised_company_name: optionalString(formData.get('supervised_company_name')),
         sales_access: parseBooleanField(formData.get('sales_access')),
+        internal_chat_access: parseBooleanField(formData.get('internal_chat_access')),
     }
 
     const validated = createUserSchema.safeParse(rawData)
@@ -186,10 +193,12 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         company_name,
         supervised_company_name,
         sales_access,
+        internal_chat_access,
     } = validated.data
     const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
     const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
     const normalizedSalesAccess = sales_access ?? roleHasSalesAccessByDefault(role)
+    const normalizedInternalChatAccess = internal_chat_access ?? roleHasInternalChatAccessByDefault(role)
 
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -206,6 +215,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
             company_name: normalizedCompanyName,
             supervised_company_name: normalizedSupervisedCompanyName,
             sales_access: normalizedSalesAccess,
+            internal_chat_access: normalizedInternalChatAccess,
         }
     })
 
@@ -233,6 +243,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         company_name: normalizedCompanyName,
         supervised_company_name: normalizedSupervisedCompanyName,
         sales_access: normalizedSalesAccess,
+        internal_chat_access: normalizedInternalChatAccess,
     }
 
     if (department) {
@@ -259,6 +270,15 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
     if (upsertError && isMissingSalesAccessColumnError(upsertError)) {
         const retryPayload = { ...upsertPayload }
         delete retryPayload.sales_access
+        const retry = await supabaseAdmin
+            .from('users')
+            .upsert(retryPayload, { onConflict: 'id' })
+        upsertError = retry.error
+    }
+
+    if (upsertError && isMissingInternalChatAccessColumnError(upsertError)) {
+        const retryPayload = { ...upsertPayload }
+        delete retryPayload.internal_chat_access
         const retry = await supabaseAdmin
             .from('users')
             .upsert(retryPayload, { onConflict: 'id' })
@@ -405,6 +425,8 @@ export async function syncUsersFromAuth() {
             const role = isValidRole(metadata.role) ? metadata.role : 'vendedor_externo'
             const allowedBrands = normalizeBrands(metadata.brands ?? metadata.allowed_brands)
             const salesAccess = resolveSalesAccess(role, metadata.sales_access)
+            const internalChatAccess =
+                parseBooleanUnknown(metadata.internal_chat_access) ?? roleHasInternalChatAccessByDefault(role)
             const name = metadata.nome || metadata.name || authUser.email || 'Usuário'
             const phone = metadata.telefone || metadata.phone
             const department = metadata.department || 'outro'
@@ -425,6 +447,7 @@ export async function syncUsersFromAuth() {
                 company_name: companyName,
                 supervised_company_name: supervisedCompanyName,
                 sales_access: salesAccess,
+                internal_chat_access: internalChatAccess,
             }
         })
 
@@ -449,6 +472,18 @@ export async function syncUsersFromAuth() {
                 const retryChunk = chunk.map((row) => {
                     const payload = { ...row } as Record<string, unknown>
                     delete payload.sales_access
+                    return payload
+                })
+                const retry = await supabaseAdmin
+                    .from('users')
+                    .upsert(retryChunk, { onConflict: 'id' })
+                upsertError = retry.error
+            }
+
+            if (upsertError && isMissingInternalChatAccessColumnError(upsertError)) {
+                const retryChunk = chunk.map((row) => {
+                    const payload = { ...row } as Record<string, unknown>
+                    delete payload.internal_chat_access
                     return payload
                 })
                 const retry = await supabaseAdmin
@@ -542,6 +577,7 @@ const updateUserSchema = z.object({
     company_name: z.string().optional(),
     supervised_company_name: z.string().optional(),
     sales_access: z.boolean().optional(),
+    internal_chat_access: z.boolean().optional(),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -564,6 +600,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         company_name: optionalString(formData.get('company_name')),
         supervised_company_name: optionalString(formData.get('supervised_company_name')),
         sales_access: parseBooleanField(formData.get('sales_access')),
+        internal_chat_access: parseBooleanField(formData.get('internal_chat_access')),
     }
 
     const validated = updateUserSchema.safeParse(rawData)
@@ -590,11 +627,13 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         company_name,
         supervised_company_name,
         sales_access,
+        internal_chat_access,
     } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
     const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
     const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
     const normalizedSalesAccess = sales_access ?? roleHasSalesAccessByDefault(role)
+    const normalizedInternalChatAccess = internal_chat_access ?? roleHasInternalChatAccessByDefault(role)
 
     // 1. Update public.users table (Profile)
     const updatePayload: any = {
@@ -609,6 +648,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         company_name: normalizedCompanyName,
         supervised_company_name: normalizedSupervisedCompanyName,
         sales_access: normalizedSalesAccess,
+        internal_chat_access: normalizedInternalChatAccess,
     }
 
     let { error: profileError } = await supabaseAdmin
@@ -619,6 +659,16 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
     if (profileError && isMissingSalesAccessColumnError(profileError)) {
         const retryPayload = { ...updatePayload }
         delete retryPayload.sales_access
+        const retry = await supabaseAdmin
+            .from('users')
+            .update(retryPayload)
+            .eq('id', userId)
+        profileError = retry.error
+    }
+
+    if (profileError && isMissingInternalChatAccessColumnError(profileError)) {
+        const retryPayload = { ...updatePayload }
+        delete retryPayload.internal_chat_access
         const retry = await supabaseAdmin
             .from('users')
             .update(retryPayload)
@@ -643,6 +693,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
             company_name: normalizedCompanyName,
             supervised_company_name: normalizedSupervisedCompanyName,
             sales_access: normalizedSalesAccess,
+            internal_chat_access: normalizedInternalChatAccess,
         }
     }
 

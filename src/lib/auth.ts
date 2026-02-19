@@ -1,5 +1,6 @@
 import type { User, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
+import { roleHasInternalChatAccessByDefault } from '@/lib/internal-chat-access'
 
 export type UserRole =
   | 'vendedor_externo'
@@ -21,6 +22,7 @@ export type UserProfile = {
   companyName: string | null
   supervisedCompanyName: string | null
   salesAccess?: boolean | null
+  internalChatAccess?: boolean | null
   department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
@@ -72,6 +74,11 @@ export function buildUserProfile(user: User | null): UserProfile | null {
     (user.user_metadata?.supervised_company_name as string | undefined) ?? null
   const allowedBrands = getAllowedBrands(normalizedRole)
   const salesAccess = (user.user_metadata?.sales_access as boolean | undefined) ?? null
+  const internalChatAccessMeta = user.user_metadata?.internal_chat_access as boolean | undefined
+  const internalChatAccess =
+    typeof internalChatAccessMeta === 'boolean'
+      ? internalChatAccessMeta
+      : roleHasInternalChatAccessByDefault(normalizedRole)
 
   return {
     id: user.id,
@@ -79,6 +86,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
     companyName,
     supervisedCompanyName,
     salesAccess,
+    internalChatAccess,
     department,
     allowedBrands,
     name: user.user_metadata?.nome,
@@ -88,7 +96,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
 }
 
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
-  let selectColumns = 'role, department, allowed_brands, sales_access, name, phone, email, company_name, supervised_company_name'
+  let selectColumns = 'role, department, allowed_brands, sales_access, internal_chat_access, name, phone, email, company_name, supervised_company_name'
 
   let { data, error } = await supabase
     .from('users')
@@ -96,12 +104,31 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     .eq('id', userId)
     .single()
 
-  const missingSalesAccessColumn =
-    error &&
-    /could not find the 'sales_access' column/i.test(error.message ?? '')
+  const missingSalesAccessColumn = error && /could not find the 'sales_access' column/i.test(error.message ?? '')
+  const missingInternalChatAccessColumn =
+    error && /could not find the 'internal_chat_access' column/i.test(error.message ?? '')
 
-  if (missingSalesAccessColumn) {
-    selectColumns = 'role, department, allowed_brands, name, phone, email, company_name, supervised_company_name'
+  if (missingSalesAccessColumn || missingInternalChatAccessColumn) {
+    const fallbackColumns = [
+      'role',
+      'department',
+      'allowed_brands',
+      'name',
+      'phone',
+      'email',
+      'company_name',
+      'supervised_company_name',
+    ]
+
+    if (!missingSalesAccessColumn) {
+      fallbackColumns.splice(3, 0, 'sales_access')
+    }
+
+    if (!missingInternalChatAccessColumn) {
+      fallbackColumns.splice(missingSalesAccessColumn ? 3 : 4, 0, 'internal_chat_access')
+    }
+
+    selectColumns = fallbackColumns.join(', ')
     const fallback = await supabase
       .from('users')
       .select(selectColumns)
@@ -127,6 +154,7 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     company_name?: string | null
     supervised_company_name?: string | null
     sales_access?: boolean | null
+    internal_chat_access?: boolean | null
   }
 
   // Converter tipos do banco para tipos da aplicação
@@ -141,6 +169,10 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     companyName: row.company_name ?? null,
     supervisedCompanyName: row.supervised_company_name ?? null,
     salesAccess: row.sales_access ?? null,
+    internalChatAccess:
+      typeof row.internal_chat_access === 'boolean'
+        ? row.internal_chat_access
+        : roleHasInternalChatAccessByDefault(normalizedRole),
     department,
     allowedBrands,
     name: row.name || undefined,

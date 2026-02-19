@@ -20,6 +20,7 @@ export interface Database {
           company_name: string | null
           supervised_company_name: string | null
           sales_access: boolean | null
+          internal_chat_access: boolean | null
           supervisor_id: string | null
           status: string | null
           created_at: string
@@ -36,6 +37,7 @@ export interface Database {
           company_name?: string | null
           supervised_company_name?: string | null
           sales_access?: boolean | null
+          internal_chat_access?: boolean | null
           supervisor_id?: string | null
           status?: string | null
           created_at?: string
@@ -52,6 +54,7 @@ export interface Database {
           company_name?: string | null
           supervised_company_name?: string | null
           sales_access?: boolean | null
+          internal_chat_access?: boolean | null
           supervisor_id?: string | null
           status?: string | null
           created_at?: string

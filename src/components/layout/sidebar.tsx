@@ -50,7 +50,7 @@ export function Sidebar({ className }: SidebarProps) {
 
     const role = profile?.role ?? ""
     const department = profile?.department ?? null
-    const canAccessInternalChat = role !== "" && role !== "investidor"
+    const canAccessInternalChat = Boolean(profile?.internalChatAccess)
     const canAccessIndicacoes =
         Boolean(role) && (
             ['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) ||

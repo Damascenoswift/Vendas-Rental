@@ -84,6 +84,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                         <TableHead>Email</TableHead>
                         <TableHead>Função</TableHead>
                         <TableHead>Vendas</TableHead>
+                        <TableHead>Chat interno</TableHead>
                         <TableHead>Marcas</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -109,6 +110,11 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                                 </Badge>
                             </TableCell>
                             <TableCell>
+                                <Badge variant={user.internal_chat_access ? "success" : "secondary"}>
+                                    {user.internal_chat_access ? "Ativo" : "Inativo"}
+                                </Badge>
+                            </TableCell>
+                            <TableCell>
                                 <div className="flex gap-1">
                                     {user.allowed_brands?.map((brand: string) => (
                                         <Badge key={brand} variant="secondary" className="text-xs">
@@ -127,7 +133,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                     ))}
                     {users.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={6} className="h-24 text-center">
+                            <TableCell colSpan={7} className="h-24 text-center">
                                 Nenhum usuário encontrado.
                             </TableCell>
                         </TableRow>
