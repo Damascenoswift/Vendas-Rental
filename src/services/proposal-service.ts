@@ -6,7 +6,6 @@ import { Database } from "@/types/database"
 import { revalidatePath } from "next/cache"
 import { calculateProposal, type ProposalCalcInput, type ProposalCalculation } from "@/lib/proposal-calculation"
 import { ensureCrmCardForIndication, type CrmBrand } from "@/services/crm-card-service"
-import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
 export type PricingRule = Database['public']['Tables']['pricing_rules']['Row']
 export type PricingRuleUpdate = Database['public']['Tables']['pricing_rules']['Update']
@@ -437,16 +436,6 @@ export async function createProposal(
         }
     }
 
-    if (proposal.status === 'accepted') {
-        const workResult = await upsertWorkCardFromProposal({
-            proposalId: proposal.id,
-            actorId: user.id,
-        })
-        if (workResult?.error) {
-            console.error("Erro ao criar/atualizar card de obra a partir do orçamento:", workResult.error)
-        }
-    }
-
     revalidatePath('/admin/orcamentos')
     return { success: true }
 }
@@ -484,7 +473,6 @@ import { createStockMovement } from "./product-service"
 
 export async function updateProposalStatus(id: string, newStatus: ProposalStatus) {
     const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
 
     // 1. Get current proposal (to check previous status)
     const { data: currentProposal, error: fetchError } = await supabase
@@ -526,13 +514,6 @@ export async function updateProposalStatus(id: string, newStatus: ProposalStatus
             }
         }
 
-        const workResult = await upsertWorkCardFromProposal({
-            proposalId: id,
-            actorId: user?.id ?? null,
-        })
-        if (workResult?.error) {
-            console.error("Erro ao criar/atualizar card de obra ao aceitar orçamento:", workResult.error)
-        }
     }
 
     // If leaving ACCEPTED (e.g. to Rejected or Draft) -> Release Stock

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
 import { getRentalDefaultStageName } from "@/services/crm-card-service"
 import { createRentalTasksForIndication, createTask } from "@/services/task-service"
+import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
 export async function updateCrmCardStage(cardId: string, newStageId: string) {
     const supabase = await createClient()
@@ -116,7 +117,7 @@ export async function deleteCrmCard(cardId: string, brand: "dorata" | "rental") 
 
 export async function markDorataContractSigned(
     indicacaoId: string,
-    options?: { allowToggle?: boolean }
+    options?: { allowToggle?: boolean; proposalId?: string | null }
 ) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -227,6 +228,7 @@ export async function markDorataContractSigned(
 
         revalidatePath("/admin/crm")
         revalidatePath("/admin/indicacoes")
+        revalidatePath("/admin/obras")
         revalidatePath("/admin/financeiro")
         revalidatePath("/admin/tarefas")
         revalidatePath("/dashboard")
@@ -361,8 +363,79 @@ export async function markDorataContractSigned(
         console.error("Erro ao registrar interação de comissão Dorata:", commissionInteractionError)
     }
 
+    const appendWarning = (message: string) => {
+        notificationWarning = notificationWarning
+            ? `${notificationWarning} ${message}`
+            : message
+    }
+
+    let preferredProposalId: string | null = options?.proposalId?.trim() || null
+
+    if (preferredProposalId) {
+        const { data: preferredProposal, error: preferredProposalError } = await supabaseAdmin
+            .from("proposals")
+            .select("id, client_id")
+            .eq("id", preferredProposalId)
+            .maybeSingle()
+
+        if (preferredProposalError) {
+            console.error("Erro ao validar proposta preferencial para obra:", preferredProposalError)
+            preferredProposalId = null
+        } else if (!preferredProposal || preferredProposal.client_id !== indicacaoId) {
+            preferredProposalId = null
+        }
+    }
+
+    let proposalLookupFailed = false
+
+    if (!preferredProposalId) {
+        const { data: proposals, error: proposalsError } = await supabaseAdmin
+            .from("proposals")
+            .select("id, status, created_at")
+            .eq("client_id", indicacaoId)
+            .order("created_at", { ascending: false })
+            .limit(50)
+
+        if (proposalsError) {
+            proposalLookupFailed = true
+            console.error("Erro ao buscar propostas para criar obra no contrato assinado:", proposalsError)
+            appendWarning("Contrato assinado, mas não foi possível localizar o orçamento para criar a obra.")
+        } else {
+            const statusPriority: Record<string, number> = {
+                accepted: 0,
+                sent: 1,
+                draft: 2,
+            }
+
+            const sorted = (proposals ?? []).slice().sort((a, b) => {
+                const rankA = statusPriority[a.status ?? ""] ?? 99
+                const rankB = statusPriority[b.status ?? ""] ?? 99
+                if (rankA !== rankB) return rankA - rankB
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            })
+
+            preferredProposalId = sorted[0]?.id ?? null
+        }
+    }
+
+    if (!preferredProposalId && !proposalLookupFailed) {
+        appendWarning("Contrato assinado, mas nenhuma proposta foi encontrada para vincular em Obras.")
+    } else {
+        const workResult = await upsertWorkCardFromProposal({
+            proposalId: preferredProposalId,
+            actorId: user.id,
+            allowNonAccepted: true,
+        })
+
+        if (workResult?.error) {
+            console.error("Erro ao criar/atualizar obra ao assinar contrato no CRM Dorata:", workResult.error)
+            appendWarning("Contrato assinado, mas falhou ao criar/atualizar a obra.")
+        }
+    }
+
     revalidatePath("/admin/crm")
     revalidatePath("/admin/indicacoes")
+    revalidatePath("/admin/obras")
     revalidatePath("/admin/financeiro")
     revalidatePath("/admin/tarefas")
     revalidatePath("/dashboard")

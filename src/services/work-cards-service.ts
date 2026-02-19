@@ -620,6 +620,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
 export async function upsertWorkCardFromProposal(params: {
     proposalId: string
     actorId?: string | null
+    allowNonAccepted?: boolean
 }) {
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -674,7 +675,8 @@ export async function upsertWorkCardFromProposal(params: {
         | null
     }
 
-    if (proposal.status !== "accepted") {
+    const allowNonAccepted = Boolean(params.allowNonAccepted)
+    if (!allowNonAccepted && proposal.status !== "accepted") {
         return { skipped: true }
     }
 

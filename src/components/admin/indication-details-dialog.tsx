@@ -307,7 +307,24 @@ export function IndicationDetailsDialog({
 
         setIsMarkingContractSigned(true)
         try {
-            const result = await markDorataContractSigned(indicationId, { allowToggle: true })
+            const statusPriority: Record<string, number> = {
+                accepted: 0,
+                sent: 1,
+                draft: 2,
+            }
+            const preferredProposal = proposals
+                .slice()
+                .sort((a, b) => {
+                    const rankA = statusPriority[a.status ?? ""] ?? 99
+                    const rankB = statusPriority[b.status ?? ""] ?? 99
+                    if (rankA !== rankB) return rankA - rankB
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                })[0]
+
+            const result = await markDorataContractSigned(indicationId, {
+                allowToggle: true,
+                proposalId: preferredProposal?.id ?? null,
+            })
             if (result?.error) {
                 showToast({
                     title: "Erro ao marcar contrato",
