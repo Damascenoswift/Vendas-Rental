@@ -272,12 +272,19 @@ export function NotificationsCenter({
     return (
         <div className="grid min-h-[70vh] grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
             <section className="rounded-xl border bg-white">
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-sm font-semibold">Caixa de entrada</h2>
-                        <Badge variant="secondary">{unreadCount} não lidas</Badge>
+                <div className="space-y-3 border-b px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <h2 className="text-sm font-semibold tracking-tight whitespace-nowrap">
+                            Caixa de entrada
+                        </h2>
+                        <Badge
+                            variant="secondary"
+                            className="whitespace-nowrap px-2.5 py-0.5 text-xs font-medium"
+                        >
+                            {unreadCount} não lidas
+                        </Badge>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-end gap-2">
                         <Button
                             type="button"
                             variant="ghost"

@@ -1150,7 +1150,7 @@ export function TaskDetailsDialog({
 
                             <div className="grid gap-2">
                                 <label className="text-xs text-muted-foreground">Histórico</label>
-                                <ScrollArea className="max-h-[240px] rounded-md border bg-background p-3">
+                                <ScrollArea className="h-[360px] max-h-[52vh] rounded-md border bg-background p-3">
                                     <div className="space-y-3">
                                         {commentsToShow.map((comment) => {
                                             const authorName =
