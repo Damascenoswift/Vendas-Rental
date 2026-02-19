@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar" // Import Sidebar
 import { ToastContainer } from "@/components/ui/toaster"
+import { Bell } from "lucide-react"
 
 export default async function AdminLayout({
     children,
@@ -15,6 +16,19 @@ export default async function AdminLayout({
 
     if (!user) {
         redirect("/login")
+    }
+
+    let unreadNotifications = 0
+    const { count: unreadCount, error: unreadError } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_user_id", user.id)
+        .eq("is_read", false)
+
+    if (unreadError) {
+        console.error("Erro ao buscar notificações não lidas:", unreadError)
+    } else {
+        unreadNotifications = unreadCount ?? 0
     }
 
     return (
@@ -29,11 +43,24 @@ export default async function AdminLayout({
                                 {user.email}
                             </span>
                         </div>
-                        <Link href="/dashboard">
-                            <Button variant="outline" size="sm">
-                                Voltar ao Dashboard
-                            </Button>
-                        </Link>
+                        <div className="flex items-center gap-2">
+                            <Link href="/admin/notificacoes">
+                                <Button variant="outline" size="sm">
+                                    <Bell className="mr-2 h-4 w-4" />
+                                    Notificações
+                                    {unreadNotifications > 0 && (
+                                        <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                                            {unreadNotifications}
+                                        </span>
+                                    )}
+                                </Button>
+                            </Link>
+                            <Link href="/dashboard">
+                                <Button variant="outline" size="sm">
+                                    Voltar ao Dashboard
+                                </Button>
+                            </Link>
+                        </div>
                     </div>
                 </header>
                 <main className="flex-1 bg-slate-50/50 p-6">

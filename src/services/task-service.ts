@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasFullAccess, type UserProfile } from "@/lib/auth"
+import { createTaskCommentNotifications } from "@/services/notification-service"
 import { revalidatePath } from "next/cache"
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
@@ -109,6 +110,19 @@ function isDocAlertEventKey(eventKey: TaskChecklistEventKey) {
 function isChecklistAlertOnlyItem(item: { event_key?: string | null; title?: string | null }) {
     const inferred = ((item.event_key as TaskChecklistEventKey | undefined) ?? inferEventKey(item.title)) ?? null
     return isDocAlertEventKey(inferred)
+}
+
+function normalizeChecklistPhaseValue(value?: string | null): TaskChecklistPhase | null {
+    if (!value) return null
+
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) return null
+
+    if (normalized.includes('cadastro')) return 'cadastro'
+    if (normalized.includes('energisa')) return 'energisa'
+    if (normalized.includes('geral') || normalized.includes('general')) return 'geral'
+
+    return null
 }
 
 type TaskLeadLink = {
@@ -1314,19 +1328,34 @@ export async function deleteTask(taskId: string) {
 export async function getTaskChecklists(taskId: string) {
     const supabase = await createClient()
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
         .from('task_checklists')
         .select('id, task_id, title, event_key, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase, completed_by_user:users!task_checklists_completed_by_fkey(name, email)')
         .eq('task_id', taskId)
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true })
 
+    if (error && /relationship between 'task_checklists' and 'users'/i.test(error.message ?? '')) {
+        const fallback = await supabase
+            .from('task_checklists')
+            .select('id, task_id, title, event_key, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase')
+            .eq('task_id', taskId)
+            .order('sort_order', { ascending: true })
+            .order('created_at', { ascending: true })
+
+        data = fallback.data as any
+        error = fallback.error
+    }
+
     if (error) {
         console.error("Error fetching task checklists:", error)
         return []
     }
 
-    return data as unknown as TaskChecklistItem[]
+    return ((data ?? []) as any[]).map((item) => ({
+        ...item,
+        phase: normalizeChecklistPhaseValue(item.phase),
+    })) as TaskChecklistItem[]
 }
 
 export async function addTaskChecklistItem(
@@ -1790,7 +1819,12 @@ export async function getTaskComments(taskId: string) {
     return mapped as TaskComment[]
 }
 
-export async function addTaskComment(taskId: string, content: string, parentId?: string | null) {
+export async function addTaskComment(
+    taskId: string,
+    content: string,
+    parentId?: string | null,
+    mentionUserIds?: string[]
+) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -1830,7 +1864,7 @@ export async function addTaskComment(taskId: string, content: string, parentId?:
         }
     }
 
-    const { error } = await supabase
+    const { data: insertedComment, error } = await supabase
         .from('task_comments')
         .insert({
             task_id: taskId,
@@ -1838,8 +1872,27 @@ export async function addTaskComment(taskId: string, content: string, parentId?:
             parent_id: parentId ?? null,
             content: cleaned,
         })
+        .select('id')
+        .maybeSingle()
 
     if (error) return { error: error.message }
+
+    if (!insertedComment?.id) {
+        return { error: "Comentário criado, mas não foi possível confirmar o registro." }
+    }
+
+    try {
+        await createTaskCommentNotifications({
+            taskId,
+            commentId: insertedComment.id,
+            actorUserId: user.id,
+            content: cleaned,
+            parentCommentId: parentId ?? null,
+            mentionUserIds,
+        })
+    } catch (notificationError) {
+        console.error("Error creating task comment notifications:", notificationError)
+    }
 
     revalidatePath('/admin/tarefas')
     return { success: true }

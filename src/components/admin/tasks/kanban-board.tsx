@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast"
 
 interface KanbanBoardProps {
     initialTasks: Task[]
+    initialOpenTaskId?: string
 }
 
 const COLUMNS: { id: TaskStatus; title: string }[] = [
@@ -32,16 +33,28 @@ const COLUMNS: { id: TaskStatus; title: string }[] = [
     { id: 'DONE', title: 'Concluído' },
 ]
 
-export function KanbanBoard({ initialTasks }: KanbanBoardProps) {
+export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProps) {
     const [tasks, setTasks] = useState<Task[]>(initialTasks)
     const [activeId, setActiveId] = useState<string | null>(null)
     const [activeOriginalStatus, setActiveOriginalStatus] = useState<TaskStatus | null>(null)
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+    const [autoOpenConsumed, setAutoOpenConsumed] = useState(false)
     const { showToast } = useToast()
 
     useEffect(() => {
         setTasks(initialTasks)
     }, [initialTasks])
+
+    useEffect(() => {
+        setAutoOpenConsumed(false)
+    }, [initialOpenTaskId])
+
+    useEffect(() => {
+        if (!initialOpenTaskId || autoOpenConsumed) return
+        if (!tasks.some((task) => task.id === initialOpenTaskId)) return
+        setSelectedTaskId(initialOpenTaskId)
+        setAutoOpenConsumed(true)
+    }, [autoOpenConsumed, initialOpenTaskId, tasks])
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 3 } }), // Easier drag start on cards

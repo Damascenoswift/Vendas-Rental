@@ -79,6 +79,19 @@ type TaskCommentDisplay = TaskComment & {
     isLegacy?: boolean
 }
 
+type MentionContext = {
+    start: number
+    end: number
+    query: string
+}
+
+type MentionCandidate = {
+    id: string
+    name: string
+    email: string | null
+    alias: string
+}
+
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
     { value: "LOW", label: "Baixa" },
     { value: "MEDIUM", label: "Média" },
@@ -118,6 +131,60 @@ const stringToHsl = (str: string) => {
     return `hsl(${h}, 70%, 50%)`
 }
 
+const normalizeMentionAlias = (value: string) => {
+    const normalized = value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ".")
+        .replace(/^\.+|\.+$/g, "")
+
+    return normalized || "usuario"
+}
+
+const findMentionContext = (content: string, caretPosition: number): MentionContext | null => {
+    if (!content) return null
+
+    const caret = Math.max(0, Math.min(caretPosition, content.length))
+    const prefix = content.slice(0, caret)
+    const atIndex = prefix.lastIndexOf("@")
+    if (atIndex < 0) return null
+
+    if (atIndex > 0) {
+        const previousChar = prefix[atIndex - 1]
+        if (!/[\s([{]/.test(previousChar)) return null
+    }
+
+    const query = prefix.slice(atIndex + 1)
+    if (query.includes("\n") || /\s/.test(query)) return null
+
+    let end = caret
+    while (end < content.length) {
+        const char = content[end]
+        if (!/[A-Za-z0-9._-]/.test(char)) break
+        end += 1
+    }
+
+    return {
+        start: atIndex,
+        end,
+        query: query.toLowerCase(),
+    }
+}
+
+const extractMentionAliases = (content: string) => {
+    const aliases = new Set<string>()
+    const mentionRegex = /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9._-]*)/g
+
+    let match: RegExpExecArray | null = mentionRegex.exec(content)
+    while (match) {
+        aliases.add(match[2].toLowerCase())
+        match = mentionRegex.exec(content)
+    }
+
+    return Array.from(aliases)
+}
+
 const inferChecklistEvent = (item: TaskChecklistItem): string | null => {
     if (item.event_key) return item.event_key
     const normalized = (item.title ?? "").toLowerCase()
@@ -129,6 +196,19 @@ const inferChecklistEvent = (item: TaskChecklistItem): string | null => {
 const isDocAlertChecklist = (item: TaskChecklistItem) => {
     const key = inferChecklistEvent(item)
     return key === "DOCS_INCOMPLETE" || key === "DOCS_REJECTED"
+}
+
+const normalizeChecklistPhase = (value?: string | null) => {
+    if (!value) return null
+
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) return null
+
+    if (normalized.includes("cadastro")) return "cadastro"
+    if (normalized.includes("energisa")) return "energisa"
+    if (normalized.includes("geral") || normalized.includes("general")) return "geral"
+
+    return null
 }
 
 export function TaskDetailsDialog({
@@ -147,6 +227,9 @@ export function TaskDetailsDialog({
     const [newChecklistTitle, setNewChecklistTitle] = useState("")
     const [newObserverId, setNewObserverId] = useState<string>("")
     const [newComment, setNewComment] = useState("")
+    const [mentionAliasToUserId, setMentionAliasToUserId] = useState<Record<string, string>>({})
+    const [activeMentionContext, setActiveMentionContext] = useState<MentionContext | null>(null)
+    const [highlightedMentionIndex, setHighlightedMentionIndex] = useState(0)
     const [replyTo, setReplyTo] = useState<TaskComment | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     const [isSavingChecklist, setIsSavingChecklist] = useState(false)
@@ -168,6 +251,7 @@ export function TaskDetailsDialog({
     const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const attachmentInputRef = useRef<HTMLInputElement>(null)
+    const commentTextareaRef = useRef<HTMLTextAreaElement>(null)
     const { showToast } = useToast()
     const { session } = useAuthSession()
 
@@ -183,15 +267,18 @@ export function TaskDetailsDialog({
     }, [proposalOptions, task?.brand])
 
     const cadastroChecklists = useMemo(
-        () => checklists.filter((item) => item.phase === 'cadastro' && !isDocAlertChecklist(item)),
+        () => checklists.filter((item) => normalizeChecklistPhase(item.phase) === 'cadastro' && !isDocAlertChecklist(item)),
         [checklists]
     )
     const energisaChecklists = useMemo(
-        () => checklists.filter((item) => item.phase === 'energisa'),
+        () => checklists.filter((item) => normalizeChecklistPhase(item.phase) === 'energisa'),
         [checklists]
     )
     const generalChecklists = useMemo(
-        () => checklists.filter((item) => !item.phase),
+        () => checklists.filter((item) => {
+            const phase = normalizeChecklistPhase(item.phase)
+            return phase === null || phase === 'geral'
+        }),
         [checklists]
     )
 
@@ -213,6 +300,36 @@ export function TaskDetailsDialog({
         })
         return map
     }, [users])
+
+    const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+        const query = activeMentionContext?.query ?? ""
+
+        const candidates = users.map((user) => {
+            const displayName = user.name || user.email || "Usuário"
+            return {
+                id: user.id,
+                name: displayName,
+                email: user.email,
+                alias: normalizeMentionAlias(displayName),
+            } satisfies MentionCandidate
+        })
+
+        if (!query) {
+            return candidates.slice(0, 8)
+        }
+
+        return candidates
+            .filter((candidate) => {
+                return (
+                    candidate.name.toLowerCase().includes(query) ||
+                    candidate.alias.includes(query) ||
+                    (candidate.email ?? "").toLowerCase().includes(query)
+                )
+            })
+            .slice(0, 8)
+    }, [activeMentionContext?.query, users])
+
+    const isMentionMenuOpen = Boolean(activeMentionContext && mentionCandidates.length > 0)
 
     const commentsToShow = useMemo<TaskCommentDisplay[]>(() => {
         if (!task) return []
@@ -254,6 +371,9 @@ export function TaskDetailsDialog({
         setComments([])
         setAttachments([])
         setNewComment("")
+        setMentionAliasToUserId({})
+        setActiveMentionContext(null)
+        setHighlightedMentionIndex(0)
         setReplyTo(null)
         setAttachmentFile(null)
         if (attachmentInputRef.current) {
@@ -276,25 +396,52 @@ export function TaskDetailsDialog({
 
         const load = async () => {
             setIsLoading(true)
-            const [checklistData, observerData, commentData, attachmentResult] = await Promise.all([
+            const [checklistResult, observerResult, commentResult, attachmentResult] = await Promise.allSettled([
                 getTaskChecklists(task.id),
                 getTaskObservers(task.id),
                 getTaskComments(task.id),
                 listTaskPdfAttachments(task.id),
             ])
-            setChecklists(checklistData)
-            setObservers(observerData)
-            setComments(commentData)
-            if (attachmentResult.error) {
-                console.error("Error fetching task attachments:", attachmentResult.error)
+
+            if (checklistResult.status === "fulfilled") {
+                setChecklists(checklistResult.value)
             } else {
-                setAttachments(attachmentResult.data)
+                console.error("Error loading task checklists:", checklistResult.reason)
+                setChecklists([])
+            }
+
+            if (observerResult.status === "fulfilled") {
+                setObservers(observerResult.value)
+            } else {
+                console.error("Error loading task observers:", observerResult.reason)
+                setObservers([])
+            }
+
+            if (commentResult.status === "fulfilled") {
+                setComments(commentResult.value)
+            } else {
+                console.error("Error loading task comments:", commentResult.reason)
+                setComments([])
+            }
+
+            if (attachmentResult.status === "fulfilled") {
+                if (attachmentResult.value.error) {
+                    console.error("Error fetching task attachments:", attachmentResult.value.error)
+                } else {
+                    setAttachments(attachmentResult.value.data)
+                }
+            } else {
+                console.error("Error loading task attachments:", attachmentResult.reason)
             }
             setIsLoading(false)
         }
 
         load()
     }, [open, task?.id])
+
+    useEffect(() => {
+        setHighlightedMentionIndex(0)
+    }, [activeMentionContext?.query, isMentionMenuOpen])
 
     useEffect(() => {
         if (!open || !task) return
@@ -381,6 +528,59 @@ export function TaskDetailsDialog({
         setObservers(prev => prev.filter(obs => obs.user_id !== userId))
     }
 
+    const refreshMentionContext = (value: string, caretPosition: number) => {
+        const context = findMentionContext(value, caretPosition)
+        setActiveMentionContext(context)
+        if (!context) {
+            setHighlightedMentionIndex(0)
+        }
+    }
+
+    const handleCommentInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+        const value = event.target.value
+        const caretPosition = event.target.selectionStart ?? value.length
+        setNewComment(value)
+        refreshMentionContext(value, caretPosition)
+    }
+
+    const applyMentionCandidate = (candidate: MentionCandidate) => {
+        const textarea = commentTextareaRef.current
+        if (!textarea) return
+
+        const caretPosition = textarea.selectionStart ?? newComment.length
+        const context = findMentionContext(newComment, caretPosition)
+        if (!context) return
+
+        const baseAlias = candidate.alias || normalizeMentionAlias(candidate.name)
+        let uniqueAlias = baseAlias
+        let suffix = 2
+
+        while (
+            mentionAliasToUserId[uniqueAlias] &&
+            mentionAliasToUserId[uniqueAlias] !== candidate.id
+        ) {
+            uniqueAlias = `${baseAlias}.${suffix}`
+            suffix += 1
+        }
+
+        const mentionToken = `@${uniqueAlias} `
+        const nextValue = `${newComment.slice(0, context.start)}${mentionToken}${newComment.slice(context.end)}`
+
+        setMentionAliasToUserId((prev) => ({
+            ...prev,
+            [uniqueAlias]: candidate.id,
+        }))
+        setNewComment(nextValue)
+        setActiveMentionContext(null)
+        setHighlightedMentionIndex(0)
+
+        const nextCaret = context.start + mentionToken.length
+        requestAnimationFrame(() => {
+            textarea.focus()
+            textarea.setSelectionRange(nextCaret, nextCaret)
+        })
+    }
+
     const handleDeleteTask = async () => {
         if (!task) return
         if (!confirm("Deseja realmente excluir esta tarefa?")) return
@@ -399,12 +599,39 @@ export function TaskDetailsDialog({
     const handleSendComment = async () => {
         if (!task) return
         if (!newComment.trim()) return
+
+        const mentionAliases = extractMentionAliases(newComment)
+        const mentionIds = Array.from(
+            new Set(
+                mentionAliases
+                    .map((alias) => mentionAliasToUserId[alias])
+                    .filter((id): id is string => Boolean(id))
+            )
+        )
+        const commentForSave = newComment.replace(
+            /(^|[\s([{])@([A-Za-z0-9][A-Za-z0-9._-]*)/g,
+            (_fullMatch, prefix: string, aliasRaw: string) => {
+                const alias = aliasRaw.toLowerCase()
+                const userId = mentionAliasToUserId[alias]
+                if (!userId) return `${prefix}@${aliasRaw}`
+
+                const mentionedUser = users.find((candidate) => candidate.id === userId)
+                const displayName = mentionedUser?.name?.trim() || mentionedUser?.email?.trim()
+                if (!displayName) return `${prefix}@${aliasRaw}`
+
+                return `${prefix}@${displayName}`
+            }
+        )
+
         setIsSendingComment(true)
-        const result = await addTaskComment(task.id, newComment, replyTo?.id)
+        const result = await addTaskComment(task.id, commentForSave, replyTo?.id, mentionIds)
         if (result?.error) {
             showToast({ title: "Erro ao enviar comentário", description: result.error, variant: "error" })
         } else {
             setNewComment("")
+            setMentionAliasToUserId({})
+            setActiveMentionContext(null)
+            setHighlightedMentionIndex(0)
             setReplyTo(null)
             const updated = await getTaskComments(task.id)
             setComments(updated)
@@ -828,18 +1055,92 @@ export function TaskDetailsDialog({
                                         </Button>
                                     </div>
                                 )}
-                                <Textarea
-                                    value={newComment}
-                                    onChange={(event) => setNewComment(event.target.value)}
-                                    placeholder="Escreva um comentário..."
-                                    className="min-h-[80px] resize-none"
-                                    onKeyDown={(event) => {
-                                        if (event.key === "Enter" && !event.shiftKey) {
-                                            event.preventDefault()
-                                            handleSendComment()
-                                        }
-                                    }}
-                                />
+                                <div className="space-y-2">
+                                    <Textarea
+                                        ref={commentTextareaRef}
+                                        value={newComment}
+                                        onChange={handleCommentInputChange}
+                                        onClick={(event) => {
+                                            const caretPosition = event.currentTarget.selectionStart ?? event.currentTarget.value.length
+                                            refreshMentionContext(event.currentTarget.value, caretPosition)
+                                        }}
+                                        onKeyUp={(event) => {
+                                            const caretPosition = event.currentTarget.selectionStart ?? event.currentTarget.value.length
+                                            refreshMentionContext(event.currentTarget.value, caretPosition)
+                                        }}
+                                        placeholder="Escreva um comentário... Use @ para mencionar alguém."
+                                        className="min-h-[80px] resize-none"
+                                        onBlur={() => {
+                                            window.setTimeout(() => {
+                                                setActiveMentionContext(null)
+                                            }, 120)
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (isMentionMenuOpen) {
+                                                if (event.key === "ArrowDown") {
+                                                    event.preventDefault()
+                                                    setHighlightedMentionIndex((prev) => (prev + 1) % mentionCandidates.length)
+                                                    return
+                                                }
+
+                                                if (event.key === "ArrowUp") {
+                                                    event.preventDefault()
+                                                    setHighlightedMentionIndex((prev) =>
+                                                        prev === 0 ? mentionCandidates.length - 1 : prev - 1
+                                                    )
+                                                    return
+                                                }
+
+                                                if (event.key === "Enter") {
+                                                    event.preventDefault()
+                                                    const candidate = mentionCandidates[highlightedMentionIndex] ?? mentionCandidates[0]
+                                                    if (candidate) {
+                                                        applyMentionCandidate(candidate)
+                                                        return
+                                                    }
+                                                }
+
+                                                if (event.key === "Escape") {
+                                                    event.preventDefault()
+                                                    setActiveMentionContext(null)
+                                                    return
+                                                }
+                                            }
+
+                                            if (event.key === "Enter" && !event.shiftKey) {
+                                                event.preventDefault()
+                                                handleSendComment()
+                                            }
+                                        }}
+                                    />
+
+                                    {isMentionMenuOpen && (
+                                        <div className="rounded-md border bg-background p-1 shadow-sm">
+                                            <div className="space-y-1">
+                                                {mentionCandidates.map((candidate, index) => (
+                                                    <button
+                                                        key={candidate.id}
+                                                        type="button"
+                                                        className={`flex w-full items-start justify-between rounded-md px-2 py-1.5 text-left transition-colors ${
+                                                            index === highlightedMentionIndex
+                                                                ? "bg-primary/10 text-primary"
+                                                                : "hover:bg-muted"
+                                                        }`}
+                                                        onMouseDown={(event) => event.preventDefault()}
+                                                        onClick={() => applyMentionCandidate(candidate)}
+                                                    >
+                                                        <span className="text-xs font-medium">
+                                                            {candidate.name}
+                                                        </span>
+                                                        <span className="text-[11px] text-muted-foreground">
+                                                            @{candidate.alias}
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="flex justify-end">
                                     <Button onClick={handleSendComment} disabled={isSendingComment || !newComment.trim()}>
                                         {isSendingComment ? "Enviando..." : "Enviar comentário"}

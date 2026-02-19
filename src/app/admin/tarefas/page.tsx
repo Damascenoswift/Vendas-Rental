@@ -18,13 +18,14 @@ function normalizeScope(value?: string | null): TaskScope {
 export default async function TasksPage({
     searchParams,
 }: {
-    searchParams?: Promise<{ brand?: string; scope?: string; q?: string }>
+    searchParams?: Promise<{ brand?: string; scope?: string; q?: string; openTask?: string }>
 }) {
     const resolvedSearchParams = searchParams ? await searchParams : undefined
     const brand = (resolvedSearchParams?.brand === 'rental' || resolvedSearchParams?.brand === 'dorata')
         ? resolvedSearchParams.brand as Brand
         : undefined
     const search = resolvedSearchParams?.q?.trim() || undefined
+    const openTaskId = resolvedSearchParams?.openTask?.trim() || undefined
 
     const scope = normalizeScope(resolvedSearchParams?.scope)
     const supabase = await createClient()
@@ -74,7 +75,7 @@ export default async function TasksPage({
 
                 <div className="flex-1 min-h-0 overflow-hidden bg-gray-50/30">
                     <TabsContent value="board" className="h-full min-h-0 overflow-hidden p-6 m-0 data-[state=inactive]:hidden">
-                        <KanbanBoard initialTasks={tasks} />
+                        <KanbanBoard initialTasks={tasks} initialOpenTaskId={openTaskId} />
                     </TabsContent>
 
                     <TabsContent value="dashboard" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">

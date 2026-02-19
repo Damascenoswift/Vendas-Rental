@@ -386,15 +386,124 @@ export interface EnergisaLog {
     user: { name: string }
 }
 
+type EnergisaLogRow = {
+    id: string
+    user_id: string | null
+    action_type: string
+    notes: string | null
+    created_at: string
+    user?: { name: string | null } | { name: string | null }[] | null
+}
+
+function isPermissionDenied(error?: { code?: string | null; message?: string | null } | null) {
+    if (!error) return false
+    return error.code === '42501' || /permission denied/i.test(error.message ?? '')
+}
+
+async function hasTaskAccessForIndicacao(indicacaoId: string) {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+        .from('tasks')
+        .select('id')
+        .eq('indicacao_id', indicacaoId)
+        .limit(1)
+
+    if (error) {
+        console.error('Error checking task access for Energisa logs:', error)
+        return false
+    }
+
+    return (data?.length ?? 0) > 0
+}
+
 export async function getEnergisaLogs(indicacaoId: string) {
     const supabase = await createClient()
-    const { data } = await supabase
+    let activeClient: any = supabase
+    let { data, error } = await activeClient
         .from('energisa_logs')
         .select('*, user:users(name)')
         .eq('indicacao_id', indicacaoId)
         .order('created_at', { ascending: false })
 
-    return data as any as EnergisaLog[] || []
+    if (error && isPermissionDenied(error)) {
+        const canAccessByTask = await hasTaskAccessForIndicacao(indicacaoId)
+        if (canAccessByTask) {
+            try {
+                const supabaseAdmin = createSupabaseServiceClient()
+                activeClient = supabaseAdmin
+                const adminResult = await activeClient
+                    .from('energisa_logs')
+                    .select('*, user:users(name)')
+                    .eq('indicacao_id', indicacaoId)
+                    .order('created_at', { ascending: false })
+
+                data = adminResult.data as any
+                error = adminResult.error as any
+            } catch (adminError) {
+                console.error('Error creating admin client for Energisa logs:', adminError)
+            }
+        }
+    }
+
+    if (error && /relationship between 'energisa_logs' and 'users'/i.test(error.message ?? '')) {
+        const fallback = await activeClient
+            .from('energisa_logs')
+            .select('id, user_id, action_type, notes, created_at')
+            .eq('indicacao_id', indicacaoId)
+            .order('created_at', { ascending: false })
+
+        data = fallback.data as any
+        error = fallback.error as any
+    }
+
+    if (error) {
+        console.error("Error fetching Energisa logs:", error)
+        return []
+    }
+
+    const rows = ((data ?? []) as EnergisaLogRow[])
+    const needsUserLookup = rows.some((row) => !row.user && row.user_id)
+
+    const usersById = new Map<string, { name: string | null }>()
+    if (needsUserLookup) {
+        const userIds = Array.from(
+            new Set(
+                rows
+                    .map((row) => row.user_id)
+                    .filter((userId): userId is string => Boolean(userId))
+            )
+        )
+
+        if (userIds.length > 0) {
+            const { data: usersData, error: usersError } = await activeClient
+                .from('users')
+                .select('id, name')
+                .in('id', userIds)
+
+            if (usersError) {
+                console.error("Error fetching users for Energisa logs:", usersError)
+            } else {
+                ;(usersData ?? []).forEach((user: { id: string; name: string | null }) => {
+                    usersById.set(user.id, { name: user.name ?? null })
+                })
+            }
+        }
+    }
+
+    return rows.map((row) => {
+        const joinedUser = Array.isArray(row.user) ? (row.user[0] ?? null) : (row.user ?? null)
+        const fallbackUser = row.user_id ? usersById.get(row.user_id) ?? null : null
+
+        return {
+            id: row.id,
+            action_type: row.action_type,
+            notes: row.notes ?? '',
+            created_at: row.created_at,
+            user: {
+                name: joinedUser?.name ?? fallbackUser?.name ?? 'Desconhecido',
+            },
+        } satisfies EnergisaLog
+    })
 }
 
 export async function addEnergisaLog(indicacaoId: string, actionType: string, notes: string) {
@@ -419,7 +528,7 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
         }
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
         .from('energisa_logs')
         .insert({
             indicacao_id: indicacaoId,
@@ -428,6 +537,30 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
             notes: notes
         })
 
+    if (error && isPermissionDenied(error)) {
+        const canAccessByTask = await hasTaskAccessForIndicacao(indicacaoId)
+        if (canAccessByTask) {
+            try {
+                const supabaseAdmin = createSupabaseServiceClient()
+                const adminResult = await supabaseAdmin
+                    .from('energisa_logs')
+                    .insert({
+                        indicacao_id: indicacaoId,
+                        user_id: user.id,
+                        action_type: actionType,
+                        notes: notes
+                    })
+
+                error = adminResult.error
+            } catch (adminError) {
+                console.error('Error creating admin client for Energisa insert:', adminError)
+            }
+        }
+    }
+
     if (error) return { error: error.message }
+
+    revalidatePath('/admin/tarefas')
+    revalidatePath('/admin/leads')
     return { success: true }
 }
