@@ -226,7 +226,7 @@ AS $$
         SELECT 1
         FROM public.users u
         WHERE u.id = p_user_id
-          AND u.role IN (
+          AND u.role::text IN (
             'adm_mestre',
             'adm_dorata',
             'supervisor',
