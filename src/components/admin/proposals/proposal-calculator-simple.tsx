@@ -105,6 +105,9 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
     const [qtdModulos, setQtdModulos] = useState(0)
     const [potenciaModuloW, setPotenciaModuloW] = useState(defaultModulePower)
     const [indiceProducao, setIndiceProducao] = useState(defaultProductionIndex)
+    const [tipoInversor, setTipoInversor] = useState<ProposalCalcInput["dimensioning"]["tipo_inversor"]>("STRING")
+    const [qtdInversorString, setQtdInversorString] = useState(1)
+    const [qtdInversorMicro, setQtdInversorMicro] = useState(0)
     const [kitGeradorValor, setKitGeradorValor] = useState(0)
     const [margemPercentual, setMargemPercentual] = useState(defaultMargin)
     const [valorAdicional, setValorAdicional] = useState(0)
@@ -131,8 +134,10 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                 qtd_modulos: qtdModulos,
                 potencia_modulo_w: potenciaModuloW,
                 indice_producao: indiceProducao,
-                tipo_inversor: "STRING",
+                tipo_inversor: tipoInversor,
                 fator_oversizing: 1,
+                qtd_inversor_string: qtdInversorString,
+                qtd_inversor_micro: qtdInversorMicro,
             },
             kit: {
                 module_cost_per_watt: moduleCostPerWatt,
@@ -171,6 +176,9 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
         margemPercentual,
         valorAdicional,
         indiceProducao,
+        tipoInversor,
+        qtdInversorString,
+        qtdInversorMicro,
         hasSoloStructure,
         soloUnitValue,
         financeEnabled,
@@ -241,6 +249,24 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                 variant: "error",
                 title: "Kit gerador obrigatório",
                 description: "Informe o valor total do kit gerador.",
+            })
+            return
+        }
+
+        if (tipoInversor === "STRING" && qtdInversorString <= 0) {
+            showToast({
+                variant: "error",
+                title: "Inversor string obrigatório",
+                description: "Informe a quantidade de inversores string.",
+            })
+            return
+        }
+
+        if (tipoInversor === "MICRO" && qtdInversorMicro <= 0) {
+            showToast({
+                variant: "error",
+                title: "Micro inversor obrigatório",
+                description: "Informe a quantidade de micro inversores.",
             })
             return
         }
@@ -454,6 +480,44 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                                 />
                             </div>
                             <div className="space-y-2">
+                                <Label>Tipo de inversor</Label>
+                                <Select
+                                    value={tipoInversor}
+                                    onValueChange={(value) =>
+                                        setTipoInversor(value as ProposalCalcInput["dimensioning"]["tipo_inversor"])
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="STRING">String</SelectItem>
+                                        <SelectItem value="MICRO">Micro inversor</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Qtd. inversor string</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    value={qtdInversorString}
+                                    onChange={(e) => setQtdInversorString(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Qtd. micro inversor</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    value={qtdInversorMicro}
+                                    onChange={(e) => setQtdInversorMicro(toNumber(e.target.value))}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Sugestão automática atual: {calculated.output.dimensioning.inversor.qtd_micro_sugerida}
+                                </p>
+                            </div>
+                            <div className="space-y-2">
                                 <Label>Valor do kit gerador (R$)</Label>
                                 <Input
                                     type="number"
@@ -488,6 +552,22 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                             <div className="space-y-2">
                                 <Label>Geração estimada</Label>
                                 <Input value={`${calculated.output.dimensioning.kWh_estimado.toFixed(2)} kWh`} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Tipo de inversor</Label>
+                                <Input value={calculated.output.dimensioning.inversor.tipo} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Qtd. inversor string</Label>
+                                <Input value={calculated.output.dimensioning.inversor.qtd_string} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Qtd. micro inversor</Label>
+                                <Input value={calculated.output.dimensioning.inversor.qtd_micro} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Potência inversor string (kW)</Label>
+                                <Input value={calculated.output.dimensioning.inversor.pot_string_kw.toFixed(2)} disabled />
                             </div>
                             <div className="space-y-2">
                                 <Label>Kit aplicado no cálculo (x2)</Label>

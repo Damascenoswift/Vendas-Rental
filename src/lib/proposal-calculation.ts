@@ -17,6 +17,8 @@ export type ProposalCalcInput = {
         indice_producao: number
         tipo_inversor: "STRING" | "MICRO"
         fator_oversizing: number
+        qtd_inversor_string?: number
+        qtd_inversor_micro?: number
     }
     kit: {
         module_cost_per_watt: number
@@ -54,8 +56,11 @@ export type ProposalCalcOutput = {
         kWp: number
         kWh_estimado: number
         inversor: {
+            tipo: "STRING" | "MICRO"
             pot_string_kw: number
+            qtd_string: number
             qtd_micro: number
+            qtd_micro_sugerida: number
             pot_micro_total_kw: number
         }
     }
@@ -143,7 +148,11 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const kWhEstimado = (qtdModulos * potenciaModuloW * indiceProducao) / 1000
 
     const potStringKw = fatorOversizing ? kWp / fatorOversizing : 0
-    const qtdMicro = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
+    const qtdMicroSugerida = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
+    const qtdStringInformada = Number(input.dimensioning.qtd_inversor_string || 0)
+    const qtdMicroInformada = Number(input.dimensioning.qtd_inversor_micro || 0)
+    const qtdString = qtdStringInformada > 0 ? qtdStringInformada : 0
+    const qtdMicro = qtdMicroInformada > 0 ? qtdMicroInformada : qtdMicroSugerida
     const potMicroTotalKw = qtdMicro * params.micro_unit_power_kw
 
     const moduleCostPerWatt = Number(input.kit.module_cost_per_watt || 0)
@@ -203,8 +212,11 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             kWp,
             kWh_estimado: kWhEstimado,
             inversor: {
+                tipo: input.dimensioning.tipo_inversor,
                 pot_string_kw: potStringKw,
+                qtd_string: qtdString,
                 qtd_micro: qtdMicro,
+                qtd_micro_sugerida: qtdMicroSugerida,
                 pot_micro_total_kw: potMicroTotalKw
             }
         },
