@@ -18,7 +18,7 @@ import { LeadInteractions } from "./interactions/lead-interactions"
 import { EnergisaActions } from "./interactions/energisa-actions"
 import { DocChecklist } from "./interactions/doc-checklist"
 import { getProposalsForIndication } from "@/app/actions/proposals"
-import { markDorataContractSigned } from "@/app/actions/crm"
+import { activateWorkCardFromProposal, markDorataContractSigned } from "@/app/actions/crm"
 import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
 import { useRouter } from "next/navigation"
@@ -81,6 +81,7 @@ export function IndicationDetailsDialog({
     const [proposalLoading, setProposalLoading] = useState(false)
     const [hasLoadedProposals, setHasLoadedProposals] = useState(false)
     const [isMarkingContractSigned, setIsMarkingContractSigned] = useState(false)
+    const [activatingProposalId, setActivatingProposalId] = useState<string | null>(null)
     const [signedAt, setSignedAt] = useState<string | null>((initialData as any)?.assinada_em ?? null)
     const { showToast } = useToast()
     const { session, profile } = useAuthSession()
@@ -359,6 +360,32 @@ export function IndicationDetailsDialog({
         }
     }
 
+    const handleActivateWorkCard = async (proposalId: string) => {
+        if (activatingProposalId) return
+
+        setActivatingProposalId(proposalId)
+        try {
+            const result = await activateWorkCardFromProposal(proposalId)
+            if (result?.error) {
+                showToast({
+                    title: "Falha ao enviar para Obras",
+                    description: result.error,
+                    variant: "error",
+                })
+                return
+            }
+
+            showToast({
+                title: "Obra atualizada",
+                description: "Card criado/atualizado no módulo de Obras.",
+                variant: "success",
+            })
+            router.refresh()
+        } finally {
+            setActivatingProposalId(null)
+        }
+    }
+
     return (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
             {!hideDefaultTrigger ? (
@@ -510,7 +537,25 @@ export function IndicationDetailsDialog({
                                                                     Criado em {formatDateTime(proposal.created_at)}
                                                                 </p>
                                                             </div>
-                                                            <Badge variant="secondary">{statusLabel}</Badge>
+                                                            <div className="flex items-center gap-2">
+                                                                <Badge variant="secondary">{statusLabel}</Badge>
+                                                                {!isSupervisorTeamReadOnly ? (
+                                                                    <Button
+                                                                        type="button"
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        disabled={activatingProposalId === proposal.id}
+                                                                        onClick={() => handleActivateWorkCard(proposal.id)}
+                                                                    >
+                                                                        {activatingProposalId === proposal.id ? (
+                                                                            <>
+                                                                                <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                                                                                Enviando...
+                                                                            </>
+                                                                        ) : "Enviar para Obras"}
+                                                                    </Button>
+                                                                ) : null}
+                                                            </div>
                                                         </div>
                                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                                                             <div>

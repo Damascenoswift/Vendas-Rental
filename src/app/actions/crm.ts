@@ -8,6 +8,42 @@ import { getRentalDefaultStageName } from "@/services/crm-card-service"
 import { createRentalTasksForIndication, createTask } from "@/services/task-service"
 import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
+export async function activateWorkCardFromProposal(proposalId: string) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Não autorizado" }
+    }
+
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+
+    if (!role || !crmAllowedRoles.includes(role)) {
+        return { error: "Sem permissão para enviar orçamento para Obras." }
+    }
+
+    const result = await upsertWorkCardFromProposal({
+        proposalId,
+        actorId: user.id,
+        allowNonAccepted: true,
+    })
+
+    if (result?.error) {
+        return { error: result.error }
+    }
+
+    if (result?.skipped) {
+        return { error: "Orçamento não elegível para Obras (fora da marca Dorata)." }
+    }
+
+    revalidatePath("/admin/crm")
+    revalidatePath("/admin/indicacoes")
+    revalidatePath("/admin/obras")
+
+    return { success: true, workId: result?.workId ?? null }
+}
+
 export async function updateCrmCardStage(cardId: string, newStageId: string) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
