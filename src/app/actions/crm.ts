@@ -429,7 +429,7 @@ export async function markDorataContractSigned(
 
         if (workResult?.error) {
             console.error("Erro ao criar/atualizar obra ao assinar contrato no CRM Dorata:", workResult.error)
-            appendWarning("Contrato assinado, mas falhou ao criar/atualizar a obra.")
+            appendWarning(`Contrato assinado, mas falhou ao criar/atualizar a obra. (${workResult.error})`)
         }
     }
 

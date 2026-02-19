@@ -199,6 +199,35 @@ function sanitizeSearchTerm(value?: string | null) {
         .trim()
 }
 
+function parseMissingColumnError(message?: string | null) {
+    if (!message) return null
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (!match) return null
+    return { column: match[1], table: match[2] }
+}
+
+function normalizeWorkCardsError(message?: string | null) {
+    const raw = (message ?? "").trim()
+    if (!raw) return "Falha ao processar card de obra."
+
+    const normalized = raw.toLowerCase()
+    if (
+        normalized.includes("obra_cards") &&
+        (normalized.includes("does not exist") || normalized.includes("schema cache") || normalized.includes("could not find"))
+    ) {
+        return "Banco desatualizado: execute a migração 087_work_cards_core.sql."
+    }
+
+    if (
+        normalized.includes("obra_card_proposals") &&
+        (normalized.includes("does not exist") || normalized.includes("schema cache") || normalized.includes("could not find"))
+    ) {
+        return "Banco desatualizado: execute a migração 087_work_cards_core.sql."
+    }
+
+    return raw
+}
+
 function isFinancialKey(key: string) {
     const normalized = key.toLowerCase()
     if (FINANCIAL_EXACT_KEYS.has(normalized)) return true
@@ -296,6 +325,83 @@ async function syncWorkTasksByCardStatus(params: {
 
     if (updateError) {
         console.error("Erro ao sincronizar status das tarefas da obra:", updateError)
+    }
+}
+
+type ProposalForWorkCard = {
+    id: string
+    status: string | null
+    source_mode: WorkSourceMode
+    contact_id: string | null
+    client_id: string | null
+    created_at: string
+    updated_at: string
+    total_power: number | null
+    calculation: Record<string, unknown> | null
+}
+
+async function getProposalForWorkCard(params: {
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    proposalId: string
+}) {
+    const baseColumns = [
+        "id",
+        "status",
+        "client_id",
+        "created_at",
+        "updated_at",
+        "total_power",
+        "calculation",
+    ]
+
+    let includeSourceMode = true
+    let includeContactId = true
+
+    while (true) {
+        const columns = [...baseColumns]
+        if (includeSourceMode) columns.push("source_mode")
+        if (includeContactId) columns.push("contact_id")
+
+        const { data, error } = await params.supabaseAdmin
+            .from("proposals")
+            .select(columns.join(", "))
+            .eq("id", params.proposalId)
+            .maybeSingle()
+
+        if (!error && data) {
+            const row = data as Record<string, unknown>
+            return {
+                proposal: {
+                    id: String(row.id),
+                    status: typeof row.status === "string" ? row.status : null,
+                    source_mode: (typeof row.source_mode === "string" ? row.source_mode : "legacy") as WorkSourceMode,
+                    contact_id: typeof row.contact_id === "string" ? row.contact_id : null,
+                    client_id: typeof row.client_id === "string" ? row.client_id : null,
+                    created_at: String(row.created_at),
+                    updated_at: String(row.updated_at),
+                    total_power: typeof row.total_power === "number" ? row.total_power : null,
+                    calculation: (row.calculation && typeof row.calculation === "object")
+                        ? (row.calculation as Record<string, unknown>)
+                        : null,
+                } satisfies ProposalForWorkCard,
+            } as const
+        }
+
+        if (!error) {
+            return { error: "Orçamento não encontrado." } as const
+        }
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (missingColumn?.table === "proposals" && missingColumn.column === "source_mode" && includeSourceMode) {
+            includeSourceMode = false
+            continue
+        }
+        if (missingColumn?.table === "proposals" && missingColumn.column === "contact_id" && includeContactId) {
+            includeContactId = false
+            continue
+        }
+
+        return { error: normalizeWorkCardsError(error.message) } as const
     }
 }
 
@@ -624,64 +730,45 @@ export async function upsertWorkCardFromProposal(params: {
 }) {
     const supabaseAdmin = createSupabaseServiceClient()
 
-    const { data: proposalRaw, error: proposalError } = await supabaseAdmin
-        .from("proposals")
-        .select(`
-            id,
-            status,
-            source_mode,
-            contact_id,
-            client_id,
-            created_at,
-            updated_at,
-            total_power,
-            calculation,
-            indicacao:indicacoes(id, nome, marca, codigo_instalacao, codigo_cliente, unidade_consumidora)
-        `)
-        .eq("id", params.proposalId)
-        .maybeSingle()
+    const proposalResult = await getProposalForWorkCard({
+        supabaseAdmin,
+        proposalId: params.proposalId,
+    })
 
-    if (proposalError || !proposalRaw) {
-        return { error: proposalError?.message ?? "Orçamento não encontrado." }
+    if ("error" in proposalResult) {
+        return { error: proposalResult.error }
     }
 
-    const proposal = proposalRaw as {
-        id: string
-        status: string | null
-        source_mode: WorkSourceMode
-        contact_id: string | null
-        client_id: string | null
-        created_at: string
-        updated_at: string
-        total_power: number | null
-        calculation: Record<string, unknown> | null
-        indicacao:
-        | {
-            id: string
-            nome: string | null
-            marca: "dorata" | "rental" | null
-            codigo_instalacao: string | null
-            codigo_cliente: string | null
-            unidade_consumidora: string | null
-        }
-        | {
-            id: string
-            nome: string | null
-            marca: "dorata" | "rental" | null
-            codigo_instalacao: string | null
-            codigo_cliente: string | null
-            unidade_consumidora: string | null
-        }[]
-        | null
-    }
+    const proposal = proposalResult.proposal
 
     const allowNonAccepted = Boolean(params.allowNonAccepted)
     if (!allowNonAccepted && proposal.status !== "accepted") {
         return { skipped: true }
     }
 
-    const indicacaoRaw = proposal.indicacao
-    const indicacao = Array.isArray(indicacaoRaw) ? (indicacaoRaw[0] ?? null) : (indicacaoRaw ?? null)
+    let indicacao: {
+        id: string
+        nome: string | null
+        marca: "dorata" | "rental" | null
+        codigo_instalacao: string | null
+        codigo_cliente: string | null
+        unidade_consumidora: string | null
+    } | null = null
+
+    if (proposal.client_id) {
+        const { data: indicacaoData, error: indicacaoError } = await supabaseAdmin
+            .from("indicacoes")
+            .select("id, nome, marca, codigo_instalacao, codigo_cliente, unidade_consumidora")
+            .eq("id", proposal.client_id)
+            .maybeSingle()
+
+        if (indicacaoError) {
+            console.error("Erro ao buscar indicação para card de obra:", indicacaoError)
+        } else if (indicacaoData) {
+            indicacao = indicacaoData as typeof indicacao
+        }
+    }
+
     const brand = (indicacao?.marca ?? "dorata") as "dorata" | "rental"
     if (brand !== "dorata") {
         return { skipped: true }
@@ -721,7 +808,7 @@ export async function upsertWorkCardFromProposal(params: {
         .maybeSingle()
 
     if (existingCardError) {
-        return { error: existingCardError.message }
+        return { error: normalizeWorkCardsError(existingCardError.message) }
     }
 
     const actorId = params.actorId ?? null
@@ -749,7 +836,7 @@ export async function upsertWorkCardFromProposal(params: {
             .single()
 
         if (insertError || !inserted?.id) {
-            return { error: insertError?.message ?? "Falha ao criar card de obra." }
+            return { error: normalizeWorkCardsError(insertError?.message ?? "Falha ao criar card de obra.") }
         }
 
         workId = inserted.id as string
@@ -768,7 +855,7 @@ export async function upsertWorkCardFromProposal(params: {
             .eq("id", workId)
 
         if (updateError) {
-            return { error: updateError.message }
+            return { error: normalizeWorkCardsError(updateError.message) }
         }
     }
 
@@ -800,7 +887,7 @@ export async function upsertWorkCardFromProposal(params: {
         )
 
     if (linkError) {
-        return { error: linkError.message }
+        return { error: normalizeWorkCardsError(linkError.message) }
     }
 
     revalidatePath("/admin/obras")
