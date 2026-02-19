@@ -16,8 +16,8 @@ const STATUS_OPTIONS: Array<{ value: WorkStatusFilter; label: string }> = [
 ]
 
 function normalizeStatus(value: string | null): WorkStatusFilter {
-    if (value === "FECHADA" || value === "PARA_INICIAR") return value
-    return "EM_ANDAMENTO"
+    if (value === "PARA_INICIAR" || value === "EM_ANDAMENTO") return value
+    return "FECHADA"
 }
 
 export function WorkFilters() {

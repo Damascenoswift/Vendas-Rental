@@ -19,8 +19,8 @@ const ALLOWED_ROLES = [
 ]
 
 function normalizeStatus(value?: string | null): WorkCardStatus {
-    if (value === "FECHADA" || value === "PARA_INICIAR") return value
-    return "EM_ANDAMENTO"
+    if (value === "PARA_INICIAR" || value === "EM_ANDAMENTO") return value
+    return "FECHADA"
 }
 
 export default async function AdminWorksPage({
