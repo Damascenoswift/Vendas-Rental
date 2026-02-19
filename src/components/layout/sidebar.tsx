@@ -19,6 +19,7 @@ import {
     MessageCircle,
     Bell,
     MessageSquareText,
+    Hammer,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
@@ -213,7 +214,7 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 )}
 
-                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                             Dorata Solar
@@ -235,6 +236,9 @@ export function Sidebar({ className }: SidebarProps) {
                             )}
 
                             <NavItem href="/admin/orcamentos" label="Orçamentos" icon={Calculator} />
+                            {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                                <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
+                            )}
 
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <NavItem href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />

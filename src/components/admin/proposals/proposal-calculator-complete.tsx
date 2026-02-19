@@ -417,7 +417,7 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                 })
             }
 
-            const proposalData: ProposalInsert = {
+            const proposalData: ProposalInsert & { source_mode: "complete" } = {
                 status: proposalStatus,
                 total_value: calculated.output.totals.total_a_vista,
                 equipment_cost: calculated.output.kit.custo_kit,
@@ -425,6 +425,7 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                 profit_margin: calculated.output.margin.margem_valor,
                 total_power: calculated.output.dimensioning.kWp,
                 calculation: calculated,
+                source_mode: "complete",
             }
 
             const contactPayload = selectedIndicacaoId

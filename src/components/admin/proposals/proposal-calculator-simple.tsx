@@ -280,7 +280,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
 
         setLoading(true)
         try {
-            const proposalData: ProposalInsert = {
+            const proposalData: ProposalInsert & { source_mode: "simple" } = {
                 status: proposalStatus,
                 total_value: calculated.output.totals.total_a_vista,
                 equipment_cost: calculated.output.kit.custo_kit,
@@ -288,6 +288,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                 profit_margin: calculated.output.margin.margem_valor,
                 total_power: calculated.output.dimensioning.kWp,
                 calculation: calculated,
+                source_mode: "simple",
             }
 
             const contactPayload = selectedIndicacaoId

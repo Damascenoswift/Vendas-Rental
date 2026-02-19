@@ -6,6 +6,7 @@ import { Database } from "@/types/database"
 import { revalidatePath } from "next/cache"
 import { calculateProposal, type ProposalCalcInput, type ProposalCalculation } from "@/lib/proposal-calculation"
 import { ensureCrmCardForIndication, type CrmBrand } from "@/services/crm-card-service"
+import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
 export type PricingRule = Database['public']['Tables']['pricing_rules']['Row']
 export type PricingRuleUpdate = Database['public']['Tables']['pricing_rules']['Update']
@@ -14,6 +15,7 @@ export type Proposal = Database['public']['Tables']['proposals']['Row']
 export type ProposalInsert = Database['public']['Tables']['proposals']['Insert']
 export type ProposalItem = Database['public']['Tables']['proposal_items']['Row']
 export type ProposalItemInsert = Database['public']['Tables']['proposal_items']['Insert']
+type ProposalSourceMode = 'simple' | 'complete' | 'legacy'
 
 type ProposalContactInput = {
     id?: string | null
@@ -88,7 +90,7 @@ export async function updatePricingRule(id: string, updates: PricingRuleUpdate) 
 
 // Proposals
 export async function createProposal(
-    proposalData: ProposalInsert,
+    proposalData: ProposalInsert & { source_mode?: ProposalSourceMode },
     items: ProposalItemInsert[],
     options?: ProposalCreateOptions
 ): Promise<{ success: true } | { success: false; error: string }> {
@@ -359,6 +361,7 @@ export async function createProposal(
         client_id: clientId ?? proposalData.client_id ?? null,
         seller_id: proposalData.seller_id ?? user?.id ?? null,
         contact_id: contactId ?? null,
+        source_mode: proposalData.source_mode ?? 'legacy',
     }
 
     const calculation = proposalPayload.calculation as ProposalCalculation | null
@@ -391,6 +394,10 @@ export async function createProposal(
         const missingColumn = parseMissingColumnError(propError.message)
         if (missingColumn && missingColumn.table === 'proposals' && missingColumn.column === 'contact_id') {
             delete proposalPayload.contact_id
+            continue
+        }
+        if (missingColumn && missingColumn.table === 'proposals' && missingColumn.column === 'source_mode') {
+            delete proposalPayload.source_mode
             continue
         }
 
@@ -427,6 +434,16 @@ export async function createProposal(
             console.error("Error creating items:", itemsError)
             // Ideally we would rollback here, but Supabase HTTP client doesn't support transactions easily without RPC.
             // For MVP, we proceed.
+        }
+    }
+
+    if (proposal.status === 'accepted') {
+        const workResult = await upsertWorkCardFromProposal({
+            proposalId: proposal.id,
+            actorId: user.id,
+        })
+        if (workResult?.error) {
+            console.error("Erro ao criar/atualizar card de obra a partir do orçamento:", workResult.error)
         }
     }
 
@@ -467,6 +484,7 @@ import { createStockMovement } from "./product-service"
 
 export async function updateProposalStatus(id: string, newStatus: ProposalStatus) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
 
     // 1. Get current proposal (to check previous status)
     const { data: currentProposal, error: fetchError } = await supabase
@@ -506,6 +524,14 @@ export async function updateProposalStatus(id: string, newStatus: ProposalStatus
                     date: new Date().toISOString()
                 })
             }
+        }
+
+        const workResult = await upsertWorkCardFromProposal({
+            proposalId: id,
+            actorId: user?.id ?? null,
+        })
+        if (workResult?.error) {
+            console.error("Erro ao criar/atualizar card de obra ao aceitar orçamento:", workResult.error)
         }
     }
 
