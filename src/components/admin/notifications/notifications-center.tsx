@@ -1,24 +1,27 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { format, formatDistanceToNow } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { AtSign, Bell, CheckCheck, MessageCircle, Reply } from "lucide-react"
+import { AtSign, Bell, CheckCheck, MessageCircle, MessageSquare, Reply } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/hooks/use-toast"
+import { supabase } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import {
+    getMyNotifications,
     markAllNotificationsAsRead,
     markNotificationAsRead,
     type NotificationItem,
 } from "@/services/notification-service"
 
 type NotificationsCenterProps = {
+    currentUserId: string
     initialNotifications: NotificationItem[]
     initialSelectedId?: string | null
 }
@@ -41,6 +44,7 @@ function formatAbsoluteDate(value: string) {
 }
 
 function getNotificationTypeLabel(type: NotificationItem["type"]) {
+    if (type === "INTERNAL_CHAT_MESSAGE") return "Mensagem interna"
     if (type === "TASK_MENTION") return "Menção"
     if (type === "TASK_REPLY") return "Resposta"
     if (type === "TASK_COMMENT") return "Comentário"
@@ -48,6 +52,10 @@ function getNotificationTypeLabel(type: NotificationItem["type"]) {
 }
 
 function NotificationTypeIcon({ type }: { type: NotificationItem["type"] }) {
+    if (type === "INTERNAL_CHAT_MESSAGE") {
+        return <MessageSquare className="h-4 w-4" />
+    }
+
     if (type === "TASK_MENTION") {
         return <AtSign className="h-4 w-4" />
     }
@@ -63,7 +71,38 @@ function NotificationTypeIcon({ type }: { type: NotificationItem["type"] }) {
     return <Bell className="h-4 w-4" />
 }
 
+function getMetadataString(metadata: NotificationItem["metadata"], key: string) {
+    const value = metadata?.[key]
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+}
+
+function getNotificationTargetPath(notification: NotificationItem) {
+    const metadataTarget = getMetadataString(notification.metadata, "target_path")
+    if (metadataTarget?.startsWith("/")) {
+        return metadataTarget
+    }
+
+    const conversationId = getMetadataString(notification.metadata, "conversation_id")
+    if (notification.type === "INTERNAL_CHAT_MESSAGE" && conversationId) {
+        return `/admin/chat?conversation=${conversationId}`
+    }
+
+    if (notification.task_id) {
+        return `/admin/tarefas?openTask=${notification.task_id}`
+    }
+
+    return null
+}
+
+function getNotificationActionLabel(notification: NotificationItem, targetPath: string | null) {
+    if (!targetPath) return "Sem destino"
+    if (notification.type === "INTERNAL_CHAT_MESSAGE") return "Ir para conversa"
+    if (notification.task_id) return "Ir para tarefa"
+    return "Abrir"
+}
+
 export function NotificationsCenter({
+    currentUserId,
     initialNotifications,
     initialSelectedId,
 }: NotificationsCenterProps) {
@@ -77,6 +116,8 @@ export function NotificationsCenter({
     const [showUnreadOnly, setShowUnreadOnly] = useState(false)
     const [isMarkingAll, startMarkAllTransition] = useTransition()
     const [isSelecting, startSelectTransition] = useTransition()
+    const [isRefreshing, setIsRefreshing] = useState(false)
+    const [isRealtimeAvailable, setIsRealtimeAvailable] = useState(true)
     const { showToast } = useToast()
 
     useEffect(() => {
@@ -95,6 +136,47 @@ export function NotificationsCenter({
         setSelectedId(notifications[0]?.id ?? null)
     }, [notifications, selectedId])
 
+    const refreshNotifications = useCallback(async () => {
+        setIsRefreshing(true)
+        const next = await getMyNotifications({
+            includeRead: true,
+            limit: 200,
+        })
+        setNotifications(next)
+        setIsRefreshing(false)
+    }, [])
+
+    useEffect(() => {
+        const channel = supabase
+            .channel(`notifications-center-${currentUserId}`)
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "notifications",
+                    filter: `recipient_user_id=eq.${currentUserId}`,
+                },
+                () => {
+                    void refreshNotifications()
+                }
+            )
+            .subscribe((status) => {
+                if (status === "SUBSCRIBED") {
+                    setIsRealtimeAvailable(true)
+                    return
+                }
+
+                if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+                    setIsRealtimeAvailable(false)
+                }
+            })
+
+        return () => {
+            void supabase.removeChannel(channel)
+        }
+    }, [currentUserId, refreshNotifications])
+
     const unreadCount = useMemo(
         () => notifications.filter((notification) => !notification.is_read).length,
         [notifications]
@@ -109,6 +191,11 @@ export function NotificationsCenter({
         if (!selectedId) return visibleNotifications[0] ?? null
         return notifications.find((notification) => notification.id === selectedId) ?? null
     }, [notifications, selectedId, visibleNotifications])
+
+    const selectedNotificationTargetPath = useMemo(
+        () => (selectedNotification ? getNotificationTargetPath(selectedNotification) : null),
+        [selectedNotification]
+    )
 
     const markReadLocally = (notificationId: string) => {
         const nowIso = new Date().toISOString()
@@ -172,6 +259,8 @@ export function NotificationsCenter({
                 description: "Todas foram marcadas como lidas.",
                 variant: "success",
             })
+
+            await refreshNotifications()
         })
     }
 
@@ -183,16 +272,27 @@ export function NotificationsCenter({
                         <h2 className="text-sm font-semibold">Caixa de entrada</h2>
                         <Badge variant="secondary">{unreadCount} não lidas</Badge>
                     </div>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={unreadCount === 0 || isMarkingAll}
-                        onClick={handleMarkAllAsRead}
-                    >
-                        <CheckCheck className="mr-1 h-4 w-4" />
-                        Marcar tudo
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={isRefreshing}
+                            onClick={() => void refreshNotifications()}
+                        >
+                            Atualizar
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={unreadCount === 0 || isMarkingAll}
+                            onClick={handleMarkAllAsRead}
+                        >
+                            <CheckCheck className="mr-1 h-4 w-4" />
+                            Marcar tudo
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2 border-b px-4 py-2">
@@ -213,6 +313,12 @@ export function NotificationsCenter({
                         Não lidas
                     </Button>
                 </div>
+
+                {!isRealtimeAvailable && (
+                    <p className="border-b px-4 py-2 text-xs text-amber-700">
+                        Atualização em tempo real indisponível. Use o botão Atualizar.
+                    </p>
+                )}
 
                 <ScrollArea className="h-[58vh]">
                     <div className="space-y-1 p-2">
@@ -305,15 +411,15 @@ export function NotificationsCenter({
                         <Separator />
 
                         <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-4">
-                            {selectedNotification.task_id ? (
+                            {selectedNotificationTargetPath ? (
                                 <Button asChild>
-                                    <Link href={`/admin/tarefas?openTask=${selectedNotification.task_id}`}>
-                                        Ir para tarefa
+                                    <Link href={selectedNotificationTargetPath}>
+                                        {getNotificationActionLabel(selectedNotification, selectedNotificationTargetPath)}
                                     </Link>
                                 </Button>
                             ) : (
                                 <Button type="button" variant="outline" disabled>
-                                    Sem vínculo de tarefa
+                                    Sem vínculo de destino
                                 </Button>
                             )}
                         </div>

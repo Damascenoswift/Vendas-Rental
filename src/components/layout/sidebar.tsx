@@ -17,12 +17,13 @@ import {
     Calculator,
     KanbanSquare,
     MessageCircle,
-    Bell
+    Bell,
+    MessageSquareText,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 
@@ -34,6 +35,7 @@ export function Sidebar({ className }: SidebarProps) {
     const { showToast } = useToast()
     const [isSigningOut, setIsSigningOut] = useState(false)
     const [logoLoadError, setLogoLoadError] = useState(false)
+    const [unreadChatCount, setUnreadChatCount] = useState(0)
 
     const handleSignOut = async () => {
         setIsSigningOut(true)
@@ -46,13 +48,69 @@ export function Sidebar({ className }: SidebarProps) {
         router.replace("/login")
     }
 
-    if (!profile) return null
-
-    const role = profile.role
-    const department = profile.department ?? null
+    const role = profile?.role ?? ""
+    const department = profile?.department ?? null
+    const canAccessInternalChat = role !== "" && role !== "investidor"
     const canAccessIndicacoes =
-        ['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) ||
-        department === 'financeiro'
+        Boolean(role) && (
+            ['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) ||
+            department === 'financeiro'
+        )
+
+    useEffect(() => {
+        if (!profile?.id || !canAccessInternalChat) {
+            setUnreadChatCount(0)
+            return
+        }
+
+        let isMounted = true
+
+        const loadUnreadChatCount = async () => {
+            const { data, error } = await supabase
+                .from("internal_chat_participants")
+                .select("unread_count")
+                .eq("user_id", profile.id)
+
+            if (error) {
+                console.error("Erro ao carregar badge de chat interno:", error)
+                return
+            }
+
+            const total = ((data ?? []) as { unread_count: number | null }[]).reduce((sum, row) => {
+                const unread = typeof row.unread_count === "number" ? row.unread_count : 0
+                return sum + Math.max(unread, 0)
+            }, 0)
+
+            if (isMounted) {
+                setUnreadChatCount(total)
+            }
+        }
+
+        void loadUnreadChatCount()
+
+        const channel = supabase
+            .channel(`sidebar-internal-chat-${profile.id}`)
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "internal_chat_participants",
+                    filter: `user_id=eq.${profile.id}`,
+                },
+                () => {
+                    void loadUnreadChatCount()
+                }
+            )
+            .subscribe()
+
+        return () => {
+            isMounted = false
+            void supabase.removeChannel(channel)
+        }
+    }, [canAccessInternalChat, profile?.id])
+
+    if (!profile || !role) return null
 
     return (
         <div className={cn("pb-12 min-h-screen w-64 border-r bg-sidebar hidden lg:block", className)}>
@@ -88,6 +146,15 @@ export function Sidebar({ className }: SidebarProps) {
 
                         {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'vendedor_interno', 'vendedor_externo', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
+                        )}
+
+                        {canAccessInternalChat && (
+                            <NavItem
+                                href="/admin/chat"
+                                label="Chat Interno"
+                                icon={MessageSquareText}
+                                badgeCount={unreadChatCount}
+                            />
                         )}
 
                         <NavItem href="/admin/notificacoes" label="Notificações" icon={Bell} />

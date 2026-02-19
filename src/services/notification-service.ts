@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 
-export type NotificationType = "TASK_COMMENT" | "TASK_MENTION" | "TASK_REPLY" | "TASK_SYSTEM"
+export type NotificationType =
+    | "TASK_COMMENT"
+    | "TASK_MENTION"
+    | "TASK_REPLY"
+    | "TASK_SYSTEM"
+    | "INTERNAL_CHAT_MESSAGE"
 
 type NotificationReason = "ASSIGNEE" | "OBSERVER" | "REPLY" | "MENTION"
 

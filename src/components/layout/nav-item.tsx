@@ -11,10 +11,11 @@ interface NavItemProps {
     icon: LucideIcon
     active?: boolean
     exactMatch?: boolean
+    badgeCount?: number | null
     onClick?: () => void
 }
 
-export function NavItem({ href, label, icon: Icon, exactMatch = false, onClick }: NavItemProps) {
+export function NavItem({ href, label, icon: Icon, exactMatch = false, badgeCount, onClick }: NavItemProps) {
     const pathname = usePathname()
     const isActive = exactMatch
         ? pathname === href
@@ -33,6 +34,18 @@ export function NavItem({ href, label, icon: Icon, exactMatch = false, onClick }
         >
             <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-current" : "text-muted-foreground group-hover:text-current")} />
             <span>{label}</span>
+            {typeof badgeCount === "number" && badgeCount > 0 && (
+                <span
+                    className={cn(
+                        "ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                        isActive
+                            ? "bg-sidebar-primary-foreground/20 text-sidebar-primary-foreground"
+                            : "bg-primary/10 text-primary"
+                    )}
+                >
+                    {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
+            )}
             {isActive && (
                 <div className="absolute left-0 h-8 w-1 rounded-r-full bg-primary lg:hidden" />
             )}
