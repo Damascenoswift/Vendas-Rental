@@ -303,11 +303,11 @@ export function IndicationDetailsDialog({
     }
 
     const handleMarkContractSigned = async () => {
-        if (isMarkingContractSigned || signedAt) return
+        if (isMarkingContractSigned) return
 
         setIsMarkingContractSigned(true)
         try {
-            const result = await markDorataContractSigned(indicationId)
+            const result = await markDorataContractSigned(indicationId, { allowToggle: true })
             if (result?.error) {
                 showToast({
                     title: "Erro ao marcar contrato",
@@ -317,15 +317,17 @@ export function IndicationDetailsDialog({
                 return
             }
 
-            const resolvedSignedAt = result?.signedAt ?? new Date().toISOString()
+            const resolvedSignedAt = result?.signed ? (result?.signedAt ?? new Date().toISOString()) : null
             setSignedAt(resolvedSignedAt)
 
             showToast({
-                title: "Contrato assinado",
-                description: result?.warning
-                    ? `Comissão liberada, mas com alerta: ${result.warning}`
-                    : "Comissão Dorata liberada e gestor financeiro notificado.",
-                variant: "success",
+                title: result?.signed ? "Contrato assinado" : "Contrato desmarcado",
+                description: result?.signed
+                    ? result?.warning
+                        ? `Comissão liberada, mas com alerta: ${result.warning}`
+                        : "Comissão Dorata liberada e gestor financeiro notificado."
+                    : "Cliente voltou para aguardando assinatura e saiu da fila liberada do financeiro.",
+                variant: result?.signed ? "success" : "info",
             })
 
             router.refresh()
@@ -425,7 +427,7 @@ export function IndicationDetailsDialog({
                                             <div>
                                                 <p className="text-sm font-semibold">Comissão Dorata</p>
                                                 <p className="text-xs text-muted-foreground">
-                                                    Ao marcar contrato assinado, a comissão fica liberada para recebimento.
+                                                    Ao marcar contrato assinado, a comissão é liberada. Clique novamente para desfazer.
                                                 </p>
                                             </div>
                                             <Badge variant={signedAt ? "success" : "secondary"}>
@@ -437,14 +439,14 @@ export function IndicationDetailsDialog({
                                                 <Button
                                                     type="button"
                                                     onClick={handleMarkContractSigned}
-                                                    disabled={isMarkingContractSigned || Boolean(signedAt)}
+                                                    disabled={isMarkingContractSigned}
                                                 >
                                                     {isMarkingContractSigned ? (
                                                         <>
                                                             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                                                             Salvando...
                                                         </>
-                                                    ) : signedAt ? "Contrato já assinado" : "Contrato assinado"}
+                                                    ) : signedAt ? "Marcar como não assinado" : "Contrato assinado"}
                                                 </Button>
                                             ) : (
                                                 <span className="text-xs text-muted-foreground">

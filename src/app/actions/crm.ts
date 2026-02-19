@@ -114,7 +114,10 @@ export async function deleteCrmCard(cardId: string, brand: "dorata" | "rental") 
     return { success: true }
 }
 
-export async function markDorataContractSigned(indicacaoId: string) {
+export async function markDorataContractSigned(
+    indicacaoId: string,
+    options?: { allowToggle?: boolean }
+) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -143,6 +146,97 @@ export async function markDorataContractSigned(indicacaoId: string) {
 
     if (indicacao.marca !== "dorata") {
         return { error: "Ação disponível apenas para indicações Dorata." }
+    }
+
+    const shouldUnsetSignature = Boolean(options?.allowToggle) && Boolean(indicacao.assinada_em)
+
+    if (shouldUnsetSignature) {
+        const updates: Record<string, string | null> = {
+            assinada_em: null,
+        }
+
+        if (indicacao.status === "CONCLUIDA") {
+            updates.status = "AGUARDANDO_ASSINATURA"
+        }
+
+        const { error: updateError } = await supabaseAdmin
+            .from("indicacoes")
+            .update(updates)
+            .eq("id", indicacaoId)
+
+        if (updateError) {
+            return { error: updateError.message }
+        }
+
+        if (updates.status === "AGUARDANDO_ASSINATURA") {
+            const { error: statusInteractionError } = await supabaseAdmin
+                .from("indicacao_interactions" as any)
+                .insert({
+                    indicacao_id: indicacaoId,
+                    user_id: user.id,
+                    type: "STATUS_CHANGE",
+                    content: "Status alterado para: AGUARDANDO_ASSINATURA",
+                    metadata: { new_status: "AGUARDANDO_ASSINATURA", source: "crm_dorata_contract_toggle" },
+                } as any)
+
+            if (statusInteractionError) {
+                console.error("Erro ao registrar histórico de status (Dorata toggle):", statusInteractionError)
+            }
+        }
+
+        const notificationMarker = `[dorata_commission_release:${indicacaoId}]`
+        const { data: openCommissionTasks, error: openCommissionTasksError } = await supabaseAdmin
+            .from("tasks")
+            .select("id")
+            .eq("indicacao_id", indicacaoId)
+            .like("description", `%${notificationMarker}%`)
+            .neq("status", "DONE")
+
+        if (openCommissionTasksError) {
+            console.error("Erro ao buscar tarefas financeiras para bloquear (Dorata toggle):", openCommissionTasksError)
+        } else if (openCommissionTasks && openCommissionTasks.length > 0) {
+            const taskIds = openCommissionTasks.map((task) => task.id)
+            const { error: blockTasksError } = await supabaseAdmin
+                .from("tasks")
+                .update({ status: "BLOCKED" })
+                .in("id", taskIds)
+
+            if (blockTasksError) {
+                console.error("Erro ao bloquear tarefas financeiras (Dorata toggle):", blockTasksError)
+            }
+        }
+
+        const { error: commissionInteractionError } = await supabaseAdmin
+            .from("indicacao_interactions" as any)
+            .insert({
+                indicacao_id: indicacaoId,
+                user_id: user.id,
+                type: "COMMENT",
+                content: "Contrato desmarcado como assinado no CRM Dorata. Comissão voltou para aguardando assinatura.",
+                metadata: {
+                    source: "crm_dorata_contract_toggle",
+                    commission_released: false,
+                    manager_notified: false,
+                    reverted: true,
+                },
+            } as any)
+
+        if (commissionInteractionError) {
+            console.error("Erro ao registrar interação de reversão de comissão Dorata:", commissionInteractionError)
+        }
+
+        revalidatePath("/admin/crm")
+        revalidatePath("/admin/indicacoes")
+        revalidatePath("/admin/financeiro")
+        revalidatePath("/admin/tarefas")
+        revalidatePath("/dashboard")
+
+        return {
+            success: true,
+            signed: false,
+            signedAt: null,
+            reverted: true,
+        }
     }
 
     const nowIso = new Date().toISOString()
@@ -275,9 +369,11 @@ export async function markDorataContractSigned(indicacaoId: string) {
 
     return {
         success: true,
+        signed: true,
         signedAt,
         notificationCreated,
         warning: notificationWarning,
+        reverted: false,
     }
 }
 
