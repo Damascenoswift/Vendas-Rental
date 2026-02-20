@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react"
 import type { Product } from "@/services/product-service"
-import { createProposal } from "@/services/proposal-service"
-import type { PricingRule, ProposalInsert } from "@/services/proposal-service"
+import { createProposal, updateProposal } from "@/services/proposal-service"
+import type { PricingRule, ProposalInsert, ProposalEditorData, ProposalStatus } from "@/services/proposal-service"
 import { calculateProposal, type ProposalCalcInput, type ProposalCalcParams } from "@/lib/proposal-calculation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,6 +26,8 @@ import { LeadSelect } from "@/components/admin/tasks/lead-select"
 interface ProposalCalculatorProps {
     products: Product[]
     pricingRules?: PricingRule[]
+    initialProposal?: ProposalEditorData | null
+    intent?: "create" | "edit"
 }
 
 type RuleMap = Record<string, number>
@@ -71,7 +73,25 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
-export function ProposalCalculatorSimple({ products, pricingRules = [] }: ProposalCalculatorProps) {
+function normalizeStatusForForm(status: ProposalStatus | null | undefined): "draft" | "sent" {
+    return status === "draft" ? "draft" : "sent"
+}
+
+function toStatusLabel(status: string | null | undefined) {
+    if (!status) return "Sem status"
+    if (status === "draft") return "Rascunho"
+    if (status === "sent") return "Enviado"
+    if (status === "accepted") return "Aceito"
+    if (status === "rejected") return "Rejeitado"
+    return status
+}
+
+export function ProposalCalculatorSimple({
+    products,
+    pricingRules = [],
+    initialProposal = null,
+    intent = "create",
+}: ProposalCalculatorProps) {
     const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
     const defaultModulePower = rules.potencia_modulo_w ?? 700
     const defaultSoloUnitValue = rules.valor_unit_solo ?? 0
@@ -91,35 +111,112 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
         []
     )
 
-    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(null)
-    const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(null)
-    const [contactSelectKey, setContactSelectKey] = useState(0)
-    const [manualContact, setManualContact] = useState<ManualContactState>({
-        first_name: "",
-        last_name: "",
-        whatsapp: "",
+    const initialInput =
+        initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
+            ? (initialProposal.calculation.input as ProposalCalcInput)
+            : null
+    const initialOutput =
+        initialProposal?.calculation?.output && typeof initialProposal.calculation.output === "object"
+            ? initialProposal.calculation.output
+            : null
+    const isEditMode = intent === "edit" && Boolean(initialProposal?.id)
+
+    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(initialProposal?.client_id ?? null)
+    const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(() => {
+        const contact = initialProposal?.contact
+        if (!contact?.id) return null
+        return {
+            id: contact.id,
+            full_name: contact.full_name ?? null,
+            first_name: contact.first_name ?? null,
+            last_name: contact.last_name ?? null,
+            email: contact.email ?? null,
+            whatsapp: contact.whatsapp ?? null,
+            phone: contact.phone ?? null,
+            mobile: contact.mobile ?? null,
+        }
     })
+    const [contactSelectKey, setContactSelectKey] = useState(0)
+    const [manualContact, setManualContact] = useState<ManualContactState>(() => ({
+        first_name:
+            initialProposal?.contact?.first_name ??
+            initialProposal?.client_name?.split(" ")[0] ??
+            "",
+        last_name:
+            initialProposal?.contact?.last_name ??
+            initialProposal?.client_name?.split(" ").slice(1).join(" ") ??
+            "",
+        whatsapp:
+            initialProposal?.contact?.whatsapp ??
+            initialProposal?.contact?.phone ??
+            initialProposal?.contact?.mobile ??
+            "",
+    }))
 
-    const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">("sent")
+    const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">(
+        normalizeStatusForForm(initialProposal?.status)
+    )
+    const isStatusLocked =
+        isEditMode &&
+        Boolean(initialProposal?.status) &&
+        initialProposal?.status !== "draft" &&
+        initialProposal?.status !== "sent"
 
-    const [qtdModulos, setQtdModulos] = useState(0)
-    const [potenciaModuloW, setPotenciaModuloW] = useState(defaultModulePower)
-    const [indiceProducao, setIndiceProducao] = useState(defaultProductionIndex)
-    const [tipoInversor, setTipoInversor] = useState<ProposalCalcInput["dimensioning"]["tipo_inversor"]>("STRING")
-    const [qtdInversorString, setQtdInversorString] = useState(1)
-    const [qtdInversorMicro, setQtdInversorMicro] = useState(0)
-    const [kitGeradorValor, setKitGeradorValor] = useState(0)
-    const [margemPercentual, setMargemPercentual] = useState(defaultMargin)
-    const [valorAdicional, setValorAdicional] = useState(0)
+    const [qtdModulos, setQtdModulos] = useState(
+        initialInput?.dimensioning?.qtd_modulos ?? 0
+    )
+    const [potenciaModuloW, setPotenciaModuloW] = useState(
+        initialInput?.dimensioning?.potencia_modulo_w ?? defaultModulePower
+    )
+    const [indiceProducao, setIndiceProducao] = useState(
+        initialInput?.dimensioning?.indice_producao ?? defaultProductionIndex
+    )
+    const [tipoInversor, setTipoInversor] = useState<ProposalCalcInput["dimensioning"]["tipo_inversor"]>(
+        initialInput?.dimensioning?.tipo_inversor ?? "STRING"
+    )
+    const [qtdInversorString, setQtdInversorString] = useState(
+        initialInput?.dimensioning?.qtd_inversor_string ?? 1
+    )
+    const [qtdInversorMicro, setQtdInversorMicro] = useState(
+        initialInput?.dimensioning?.qtd_inversor_micro ?? 0
+    )
+    const [potenciaInversorStringKw, setPotenciaInversorStringKw] = useState(
+        initialInput?.dimensioning?.potencia_inversor_string_kw ??
+            initialOutput?.dimensioning?.inversor?.pot_string_kw ??
+            0
+    )
+    const [kitGeradorValor, setKitGeradorValor] = useState(
+        initialProposal?.calculation?.output?.kit?.custo_kit ?? 0
+    )
+    const [margemPercentual, setMargemPercentual] = useState(
+        initialInput?.margin?.margem_percentual ?? defaultMargin
+    )
+    const [valorAdicional, setValorAdicional] = useState(
+        initialInput?.extras?.valor_adequacao_padrao ?? 0
+    )
 
-    const [hasSoloStructure, setHasSoloStructure] = useState(false)
-    const [soloUnitValue, setSoloUnitValue] = useState(defaultSoloUnitValue)
+    const [hasSoloStructure, setHasSoloStructure] = useState(
+        (initialInput?.structure?.qtd_placas_solo ?? 0) > 0
+    )
+    const [soloUnitValue, setSoloUnitValue] = useState(
+        initialInput?.structure?.valor_unit_solo ?? defaultSoloUnitValue
+    )
 
-    const [financeEnabled, setFinanceEnabled] = useState(false)
-    const [entradaValor, setEntradaValor] = useState(0)
-    const [carenciaMeses, setCarenciaMeses] = useState(0)
-    const [jurosMensal, setJurosMensal] = useState(defaultInterest)
-    const [numParcelas, setNumParcelas] = useState(0)
+    const [financeEnabled, setFinanceEnabled] = useState(
+        initialInput?.finance?.enabled ?? false
+    )
+    const [entradaValor, setEntradaValor] = useState(
+        initialInput?.finance?.entrada_valor ?? 0
+    )
+    const [carenciaMeses, setCarenciaMeses] = useState(
+        initialInput?.finance?.carencia_meses ?? 0
+    )
+    const [jurosMensal, setJurosMensal] = useState(
+        initialInput?.finance?.juros_mensal ?? defaultInterest
+    )
+    const [numParcelas, setNumParcelas] = useState(
+        initialInput?.finance?.num_parcelas ?? 0
+    )
 
     const { showToast } = useToast()
     const router = useRouter()
@@ -136,6 +233,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                 indice_producao: indiceProducao,
                 tipo_inversor: tipoInversor,
                 fator_oversizing: 1,
+                potencia_inversor_string_kw: potenciaInversorStringKw,
                 qtd_inversor_string: qtdInversorString,
                 qtd_inversor_micro: qtdInversorMicro,
             },
@@ -177,6 +275,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
         valorAdicional,
         indiceProducao,
         tipoInversor,
+        potenciaInversorStringKw,
         qtdInversorString,
         qtdInversorMicro,
         hasSoloStructure,
@@ -277,37 +376,39 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
         const selectedPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
         const hasIndicacao = Boolean(selectedIndicacaoId)
 
-        if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
-            showToast({
-                variant: "error",
-                title: "Cliente obrigatório",
-                description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
-            })
-            return
-        }
+        if (!isEditMode) {
+            if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
+                showToast({
+                    variant: "error",
+                    title: "Cliente obrigatório",
+                    description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
+                })
+                return
+            }
 
-        if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
-            showToast({
-                variant: "error",
-                title: "Dados do cliente incompletos",
-                description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
-            })
-            return
-        }
+            if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
+                showToast({
+                    variant: "error",
+                    title: "Dados do cliente incompletos",
+                    description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
+                })
+                return
+            }
 
-        if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
-            showToast({
-                variant: "error",
-                title: "Contato sem WhatsApp",
-                description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
-            })
-            return
+            if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
+                showToast({
+                    variant: "error",
+                    title: "Contato sem WhatsApp",
+                    description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
+                })
+                return
+            }
         }
 
         setLoading(true)
         try {
             const proposalData: ProposalInsert & { source_mode: "simple" } = {
-                status: proposalStatus,
+                status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
                 total_value: calculated.output.totals.total_a_vista,
                 equipment_cost: calculated.output.kit.custo_kit,
                 additional_cost: calculated.output.extras.extras_total,
@@ -317,31 +418,31 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                 source_mode: "simple",
             }
 
-            const contactPayload = selectedIndicacaoId
-                ? null
-                : selectedContact
-                    ? {
-                        ...selectedContact,
-                        whatsapp: selectedContact.whatsapp || manualWhatsapp || null,
-                        phone: selectedContact.phone || manualWhatsapp || null,
-                    }
-                    : {
-                        first_name: manualFirstName,
-                        last_name: manualLastName || null,
-                        full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
-                        whatsapp: manualWhatsapp,
-                        email: null,
-                        phone: null,
-                        mobile: null,
-                    }
-
-            const result = await createProposal(proposalData, [], {
-                client: {
-                    indicacao_id: selectedIndicacaoId,
-                    contact: contactPayload,
-                },
-                crm_brand: "dorata",
-            })
+            const result = isEditMode
+                ? await updateProposal(initialProposal!.id, proposalData, [])
+                : await createProposal(proposalData, [], {
+                    client: {
+                        indicacao_id: selectedIndicacaoId,
+                        contact: selectedIndicacaoId
+                            ? null
+                            : selectedContact
+                                ? {
+                                    ...selectedContact,
+                                    whatsapp: selectedContact.whatsapp || manualWhatsapp || null,
+                                    phone: selectedContact.phone || manualWhatsapp || null,
+                                }
+                                : {
+                                    first_name: manualFirstName,
+                                    last_name: manualLastName || null,
+                                    full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
+                                    whatsapp: manualWhatsapp,
+                                    email: null,
+                                    phone: null,
+                                    mobile: null,
+                                },
+                    },
+                    crm_brand: "dorata",
+                })
 
             if (!result.success) {
                 showToast({
@@ -353,8 +454,10 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
             }
 
             showToast({
-                title: "Orçamento criado",
-                description: "Orçamento salvo e vinculado ao cliente para histórico.",
+                title: isEditMode ? "Orçamento atualizado" : "Orçamento criado",
+                description: isEditMode
+                    ? "As alterações do orçamento foram salvas."
+                    : "Orçamento salvo e vinculado ao cliente para histórico.",
                 variant: "success",
             })
             router.push("/admin/orcamentos")
@@ -376,9 +479,25 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
             <div className="space-y-6 lg:col-span-2">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Cliente</CardTitle>
+                        <CardTitle>{isEditMode ? "Cliente Vinculado" : "Cliente"}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        {isEditMode ? (
+                            <div className="space-y-2 rounded-md border p-3 text-sm">
+                                <p>
+                                    <span className="font-medium">Cliente:</span>{" "}
+                                    {initialProposal?.client_name || initialProposal?.contact_name || "Não informado"}
+                                </p>
+                                <p>
+                                    <span className="font-medium">Status atual:</span>{" "}
+                                    {toStatusLabel(initialProposal?.status)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Para alterar vínculo de cliente/contato, crie um novo orçamento.
+                                </p>
+                            </div>
+                        ) : (
+                            <>
                         <div className="space-y-2">
                             <Label>Buscar cliente (contatos ou indicações)</Label>
                             <div className="flex items-center gap-2">
@@ -443,6 +562,8 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                                 />
                             </div>
                         </div>
+                            </>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -506,6 +627,16 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                                 />
                             </div>
                             <div className="space-y-2">
+                                <Label>Potência inversor string (kW)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={potenciaInversorStringKw}
+                                    onChange={(e) => setPotenciaInversorStringKw(toNumber(e.target.value))}
+                                />
+                            </div>
+                            <div className="space-y-2">
                                 <Label>Qtd. micro inversor</Label>
                                 <Input
                                     type="number"
@@ -532,15 +663,27 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                             </div>
                             <div className="space-y-2">
                                 <Label>Status do orçamento</Label>
-                                <Select value={proposalStatus} onValueChange={(value) => setProposalStatus(value as "draft" | "sent")}>
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="draft">Rascunho</SelectItem>
-                                        <SelectItem value="sent">Enviado</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                {isStatusLocked ? (
+                                    <Input value={toStatusLabel(initialProposal?.status)} disabled />
+                                ) : (
+                                    <Select
+                                        value={proposalStatus}
+                                        onValueChange={(value) => setProposalStatus(value as "draft" | "sent")}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="draft">Rascunho</SelectItem>
+                                            <SelectItem value="sent">Enviado</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                                {isStatusLocked ? (
+                                    <p className="text-xs text-muted-foreground">
+                                        Status atual ({toStatusLabel(initialProposal?.status)}) é mantido automaticamente.
+                                    </p>
+                                ) : null}
                             </div>
                         </div>
 
@@ -794,7 +937,7 @@ export function ProposalCalculatorSimple({ products, pricingRules = [] }: Propos
                     </CardContent>
                     <CardFooter>
                         <Button className="w-full" onClick={handleSave} disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar Orçamento"}
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : isEditMode ? "Salvar Alterações" : "Salvar Orçamento"}
                         </Button>
                     </CardFooter>
                 </Card>

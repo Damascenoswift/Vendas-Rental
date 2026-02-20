@@ -14,9 +14,10 @@ export type Proposal = Database['public']['Tables']['proposals']['Row']
 export type ProposalInsert = Database['public']['Tables']['proposals']['Insert']
 export type ProposalItem = Database['public']['Tables']['proposal_items']['Row']
 export type ProposalItemInsert = Database['public']['Tables']['proposal_items']['Insert']
-type ProposalSourceMode = 'simple' | 'complete' | 'legacy'
+export type ProposalStatus = Database['public']['Enums']['proposal_status_enum']
+export type ProposalSourceMode = 'simple' | 'complete' | 'legacy'
 
-type ProposalContactInput = {
+export type ProposalContactInput = {
     id?: string | null
     first_name?: string | null
     last_name?: string | null
@@ -34,6 +35,22 @@ type ProposalCreateOptions = {
     } | null
     crm_brand?: CrmBrand
     create_crm_card?: boolean
+}
+
+export type ProposalEditorData = {
+    id: string
+    source_mode: ProposalSourceMode
+    status: ProposalStatus | null
+    client_id: string | null
+    client_name: string | null
+    contact_id: string | null
+    contact_name: string | null
+    seller_id: string | null
+    total_power: number | null
+    total_value: number | null
+    calculation: ProposalCalculation | null
+    contact: ProposalContactInput | null
+    items: ProposalItem[]
 }
 
 function buildFullName(contact?: ProposalContactInput | null) {
@@ -440,6 +457,241 @@ export async function createProposal(
     return { success: true }
 }
 
+function normalizeSourceMode(value: unknown): ProposalSourceMode {
+    if (value === "simple" || value === "complete" || value === "legacy") {
+        return value
+    }
+    return "legacy"
+}
+
+function normalizeProposalStatusForForm(status: ProposalStatus | null | undefined): ProposalStatus {
+    return status ?? "sent"
+}
+
+function asProposalCalculation(value: unknown): ProposalCalculation | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null
+    }
+    return value as ProposalCalculation
+}
+
+export async function getProposalEditorData(proposalId: string): Promise<ProposalEditorData | null> {
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+        return null
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    let includeSourceMode = true
+
+    while (true) {
+        const columns = [
+            "id",
+            "client_id",
+            "contact_id",
+            "seller_id",
+            "status",
+            "calculation",
+            "total_power",
+            "total_value",
+            "cliente:indicacoes(id, nome)",
+            "contato:contacts(id, full_name, first_name, last_name, email, whatsapp, phone, mobile)",
+        ]
+        if (includeSourceMode) columns.splice(8, 0, "source_mode")
+
+        const { data: proposal, error } = await supabaseAdmin
+            .from("proposals")
+            .select(columns.join(", "))
+            .eq("id", proposalId)
+            .maybeSingle()
+
+        if (error) {
+            const missingColumn = parseMissingColumnError(error.message)
+            if (missingColumn?.table === "proposals" && missingColumn.column === "source_mode" && includeSourceMode) {
+                includeSourceMode = false
+                continue
+            }
+            console.error("Erro ao carregar proposta para edição:", error)
+            return null
+        }
+
+        if (!proposal) {
+            return null
+        }
+
+        const { data: items, error: itemsError } = await supabaseAdmin
+            .from("proposal_items")
+            .select("*")
+            .eq("proposal_id", proposalId)
+            .order("created_at", { ascending: true })
+
+        if (itemsError) {
+            console.error("Erro ao carregar itens da proposta para edição:", itemsError)
+            return null
+        }
+
+        const rawCliente = (proposal as Record<string, any>).cliente
+        const rawContato = (proposal as Record<string, any>).contato
+        const cliente = Array.isArray(rawCliente) ? (rawCliente[0] ?? null) : rawCliente
+        const contato = Array.isArray(rawContato) ? (rawContato[0] ?? null) : rawContato
+        const contactName =
+            contato?.full_name?.trim() ||
+            [contato?.first_name, contato?.last_name].filter(Boolean).join(" ").trim() ||
+            null
+
+        return {
+            id: String((proposal as Record<string, any>).id),
+            source_mode: normalizeSourceMode((proposal as Record<string, any>).source_mode),
+            status: ((proposal as Record<string, any>).status as ProposalStatus | null) ?? null,
+            client_id: ((proposal as Record<string, any>).client_id as string | null) ?? null,
+            client_name: (cliente?.nome as string | null) ?? null,
+            contact_id: ((proposal as Record<string, any>).contact_id as string | null) ?? null,
+            contact_name: contactName,
+            seller_id: ((proposal as Record<string, any>).seller_id as string | null) ?? null,
+            total_power: ((proposal as Record<string, any>).total_power as number | null) ?? null,
+            total_value: ((proposal as Record<string, any>).total_value as number | null) ?? null,
+            calculation: asProposalCalculation((proposal as Record<string, any>).calculation),
+            contact: contato
+                ? {
+                    id: (contato.id as string | null) ?? null,
+                    first_name: (contato.first_name as string | null) ?? null,
+                    last_name: (contato.last_name as string | null) ?? null,
+                    full_name: (contato.full_name as string | null) ?? null,
+                    email: (contato.email as string | null) ?? null,
+                    whatsapp: (contato.whatsapp as string | null) ?? null,
+                    phone: (contato.phone as string | null) ?? null,
+                    mobile: (contato.mobile as string | null) ?? null,
+                }
+                : null,
+            items: (items ?? []) as ProposalItem[],
+        }
+    }
+}
+
+export async function updateProposal(
+    proposalId: string,
+    proposalData: Partial<ProposalInsert> & { source_mode?: ProposalSourceMode },
+    items: ProposalItemInsert[]
+): Promise<{ success: true } | { success: false; error: string }> {
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { success: false, error: "Usuário não autenticado." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    let includeSourceMode = "source_mode" in proposalData
+
+    const updatePayload: Record<string, any> = {
+        ...proposalData,
+        status: normalizeProposalStatusForForm((proposalData.status as ProposalStatus | null | undefined) ?? null),
+        updated_at: new Date().toISOString(),
+    }
+
+    if (!includeSourceMode) {
+        delete updatePayload.source_mode
+    }
+
+    let updatedProposal: { id: string; status: ProposalStatus | null } | null = null
+
+    while (true) {
+        const { data, error } = await supabaseAdmin
+            .from("proposals")
+            .update(updatePayload)
+            .eq("id", proposalId)
+            .select("id, status")
+            .maybeSingle()
+
+        if (!error && data) {
+            updatedProposal = data as { id: string; status: ProposalStatus | null }
+            break
+        }
+
+        if (!error || !includeSourceMode) {
+            const message = error?.message ?? "Proposta não encontrada."
+            return { success: false, error: `Falha ao atualizar orçamento: ${message}` }
+        }
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (missingColumn?.table === "proposals" && missingColumn.column === "source_mode") {
+            delete updatePayload.source_mode
+            includeSourceMode = false
+            continue
+        }
+
+        return { success: false, error: `Falha ao atualizar orçamento: ${error.message}` }
+    }
+
+    const { error: deleteItemsError } = await supabaseAdmin
+        .from("proposal_items")
+        .delete()
+        .eq("proposal_id", proposalId)
+
+    if (deleteItemsError) {
+        return { success: false, error: `Falha ao atualizar itens do orçamento: ${deleteItemsError.message}` }
+    }
+
+    const itemsWithProposalId = items.map((item) => ({
+        ...item,
+        proposal_id: proposalId,
+    }))
+
+    if (itemsWithProposalId.length > 0) {
+        const { error: insertItemsError } = await supabaseAdmin
+            .from("proposal_items")
+            .insert(itemsWithProposalId)
+
+        if (insertItemsError) {
+            return { success: false, error: `Falha ao salvar itens do orçamento: ${insertItemsError.message}` }
+        }
+    }
+
+    let shouldSyncWorkCard = updatedProposal?.status === "accepted"
+
+    if (!shouldSyncWorkCard) {
+        const { data: workLinks, error: workLinksError } = await supabaseAdmin
+            .from("obra_card_proposals" as any)
+            .select("obra_id")
+            .eq("proposal_id", proposalId)
+            .limit(1)
+
+        if (!workLinksError && (workLinks?.length ?? 0) > 0) {
+            shouldSyncWorkCard = true
+        }
+    }
+
+    if (shouldSyncWorkCard) {
+        try {
+            const workCardsModule = await import("@/services/work-cards-service")
+            const workSyncResult = await workCardsModule.upsertWorkCardFromProposal({
+                proposalId,
+                actorId: user.id,
+                allowNonAccepted: true,
+            })
+
+            if (workSyncResult && "error" in workSyncResult && workSyncResult.error) {
+                console.error("Falha ao sincronizar obra após editar orçamento:", workSyncResult.error)
+            }
+        } catch (error) {
+            console.error("Erro ao sincronizar obra após editar orçamento:", error)
+        }
+    }
+
+    revalidatePath('/admin/orcamentos')
+    revalidatePath('/admin/obras')
+    revalidatePath('/admin/crm')
+    revalidatePath('/admin/indicacoes')
+
+    return { success: true }
+}
+
 // Calculation Logic
 // This could be moved to a shared utility or kept here.
 // Returns calculated values but does NOT save to DB.
@@ -467,7 +719,6 @@ async function getCommissionPercent(supabase: Awaited<ReturnType<typeof createCl
 }
 
 // Status & Stock Logic
-export type ProposalStatus = Database['public']['Enums']['proposal_status_enum']
 
 import { createStockMovement } from "./product-service"
 

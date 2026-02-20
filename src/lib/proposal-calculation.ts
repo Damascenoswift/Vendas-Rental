@@ -17,6 +17,7 @@ export type ProposalCalcInput = {
         indice_producao: number
         tipo_inversor: "STRING" | "MICRO"
         fator_oversizing: number
+        potencia_inversor_string_kw?: number
         qtd_inversor_string?: number
         qtd_inversor_micro?: number
     }
@@ -147,7 +148,10 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const kWp = (qtdModulos * potenciaModuloW) / 1000
     const kWhEstimado = (qtdModulos * potenciaModuloW * indiceProducao) / 1000
 
-    const potStringKw = fatorOversizing ? kWp / fatorOversizing : 0
+    const potenciaInversorStringInformada = Number(input.dimensioning.potencia_inversor_string_kw || 0)
+    const potStringKw = potenciaInversorStringInformada > 0
+        ? potenciaInversorStringInformada
+        : (fatorOversizing ? kWp / fatorOversizing : 0)
     const qtdMicroSugerida = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
     const qtdStringInformada = Number(input.dimensioning.qtd_inversor_string || 0)
     const qtdMicroInformada = Number(input.dimensioning.qtd_inversor_micro || 0)

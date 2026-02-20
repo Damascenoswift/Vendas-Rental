@@ -74,21 +74,139 @@ function formatDateTime(value?: string | null) {
     }).format(parsed)
 }
 
-function collectPrimitiveSnapshotValues(value: unknown, parent = ""): Array<{ key: string; value: string }> {
-    if (value === null || value === undefined) return []
+function getSnapshotValue(snapshot: unknown, path: string): unknown {
+    if (!snapshot || typeof snapshot !== "object") return null
+    const keys = path.split(".")
+    let current: any = snapshot
 
-    if (typeof value !== "object") {
-        return [{ key: parent || "valor", value: String(value) }]
+    for (const key of keys) {
+        if (!current || typeof current !== "object") return null
+        current = current[key]
     }
 
-    if (Array.isArray(value)) {
-        return value.flatMap((item, index) => collectPrimitiveSnapshotValues(item, `${parent}[${index}]`))
+    return current ?? null
+}
+
+function formatSnapshotValue(value: unknown, format?: "number" | "integer" | "datetime", unit?: string) {
+    if (value === null || value === undefined || value === "") return "-"
+
+    if (format === "datetime") {
+        return formatDateTime(String(value))
     }
 
-    return Object.entries(value as Record<string, unknown>).flatMap(([key, nested]) => {
-        const nextKey = parent ? `${parent}.${key}` : key
-        return collectPrimitiveSnapshotValues(nested, nextKey)
-    })
+    if (format === "number" || format === "integer") {
+        const parsed = Number(value)
+        if (!Number.isFinite(parsed)) return "-"
+        const valueText =
+            format === "integer"
+                ? parsed.toLocaleString("pt-BR", { maximumFractionDigits: 0 })
+                : parsed.toLocaleString("pt-BR", {
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 2,
+                })
+        return unit ? `${valueText} ${unit}` : valueText
+    }
+
+    return String(value)
+}
+
+function buildTechnicalSnapshotRows(snapshot: unknown) {
+    const rows = [
+        {
+            label: "Origem do orçamento",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "meta.source_mode")),
+        },
+        {
+            label: "Orçamento",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "meta.proposal_id")),
+        },
+        {
+            label: "Atualizado em",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "meta.proposal_updated_at"), "datetime"),
+        },
+        {
+            label: "Código da instalação",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "installation.codigo_instalacao")),
+        },
+        {
+            label: "Código do cliente",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "installation.codigo_cliente")),
+        },
+        {
+            label: "Unidade consumidora",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "installation.unidade_consumidora")),
+        },
+        {
+            label: "Quantidade de módulos",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.input_dimensioning.qtd_modulos"), "integer"),
+        },
+        {
+            label: "Potência do módulo",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.input_dimensioning.potencia_modulo_w"), "number", "W"),
+        },
+        {
+            label: "Potência total",
+            value: formatSnapshotValue(
+                getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWp") ??
+                    getSnapshotValue(snapshot, "dimensioning.total_power"),
+                "number",
+                "kWp"
+            ),
+        },
+        {
+            label: "Produção estimada",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWh_estimado"), "number", "kWh"),
+        },
+        {
+            label: "Tipo de inversor",
+            value: formatSnapshotValue(
+                getSnapshotValue(snapshot, "dimensioning.inverter.tipo") ??
+                    getSnapshotValue(snapshot, "dimensioning.input_dimensioning.tipo_inversor")
+            ),
+        },
+        {
+            label: "Qtd. inversor string",
+            value: formatSnapshotValue(
+                getSnapshotValue(snapshot, "dimensioning.inverter.qtd_string") ??
+                    getSnapshotValue(snapshot, "dimensioning.input_dimensioning.qtd_inversor_string"),
+                "integer"
+            ),
+        },
+        {
+            label: "Qtd. micro inversor",
+            value: formatSnapshotValue(
+                getSnapshotValue(snapshot, "dimensioning.inverter.qtd_micro") ??
+                    getSnapshotValue(snapshot, "dimensioning.input_dimensioning.qtd_inversor_micro"),
+                "integer"
+            ),
+        },
+        {
+            label: "Potência inversor string",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.inverter.pot_string_kw"), "number", "kW"),
+        },
+        {
+            label: "Potência micro total",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.inverter.pot_micro_total_kw"), "number", "kW"),
+        },
+        {
+            label: "Índice de produção",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.input_dimensioning.indice_producao"), "number"),
+        },
+        {
+            label: "Fator de oversizing",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.input_dimensioning.fator_oversizing"), "number"),
+        },
+        {
+            label: "Placas em solo",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.structure_quantities.qtd_placas_solo"), "integer"),
+        },
+        {
+            label: "Placas em telhado",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.structure_quantities.qtd_placas_telhado"), "integer"),
+        },
+    ]
+
+    return rows.filter((row) => row.value !== "-")
 }
 
 function ImageGallery({
@@ -420,7 +538,7 @@ export function WorkDetailsDialog({
     const beforeImages = images.filter((item) => item.image_type === "ANTES")
     const afterImages = images.filter((item) => item.image_type === "DEPOIS")
 
-    const snapshotValues = collectPrimitiveSnapshotValues(work?.technical_snapshot ?? {})
+    const technicalRows = buildTechnicalSnapshotRows(work?.technical_snapshot ?? {})
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -477,15 +595,21 @@ export function WorkDetailsDialog({
                         <div className="grid gap-4 lg:grid-cols-2">
                             <div className="space-y-3 rounded-md border p-4">
                                 <p className="text-sm font-semibold">Dados técnicos (sem valores)</p>
-                                {snapshotValues.length === 0 ? (
+                                {technicalRows.length === 0 ? (
                                     <p className="text-xs text-muted-foreground">Sem dados técnicos registrados.</p>
                                 ) : (
-                                    <div className="max-h-64 space-y-1 overflow-auto rounded-md bg-slate-50 p-2">
-                                        {snapshotValues.map((entry) => (
-                                            <div key={`${entry.key}-${entry.value}`} className="text-xs">
-                                                <span className="font-medium">{entry.key}:</span> {entry.value}
-                                            </div>
-                                        ))}
+                                    <div className="max-h-72 overflow-auto rounded-md border bg-slate-50 p-3">
+                                        <div className="grid gap-2 sm:grid-cols-2">
+                                            {technicalRows.map((entry) => (
+                                                <div key={`${entry.label}-${entry.value}`} className="rounded-md border bg-white p-2 text-xs">
+                                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{entry.label}</p>
+                                                    <p className="mt-1 text-sm font-medium text-foreground">{entry.value}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <p className="mt-3 text-[11px] text-muted-foreground">
+                                            Somente informações técnicas do orçamento são exibidas aqui.
+                                        </p>
                                     </div>
                                 )}
                             </div>

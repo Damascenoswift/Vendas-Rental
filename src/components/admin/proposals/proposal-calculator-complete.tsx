@@ -2,8 +2,14 @@
 
 import { useMemo, useState } from "react"
 import type { Product } from "@/services/product-service"
-import { createProposal } from "@/services/proposal-service"
-import type { ProposalItemInsert, ProposalInsert, PricingRule } from "@/services/proposal-service"
+import { createProposal, updateProposal } from "@/services/proposal-service"
+import type {
+    ProposalEditorData,
+    ProposalItemInsert,
+    ProposalInsert,
+    PricingRule,
+    ProposalStatus,
+} from "@/services/proposal-service"
 import { calculateProposal, type ProposalCalcInput, type ProposalCalcParams } from "@/lib/proposal-calculation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -26,6 +32,8 @@ import { LeadSelect } from "@/components/admin/tasks/lead-select"
 interface ProposalCalculatorProps {
     products: Product[]
     pricingRules?: PricingRule[]
+    initialProposal?: ProposalEditorData | null
+    intent?: "create" | "edit"
 }
 
 type ExtraItem = { id: string; name: string; value: number }
@@ -73,6 +81,19 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
+function normalizeStatusForForm(status: ProposalStatus | null | undefined): "draft" | "sent" {
+    return status === "draft" ? "draft" : "sent"
+}
+
+function toStatusLabel(status: string | null | undefined) {
+    if (!status) return "Sem status"
+    if (status === "draft") return "Rascunho"
+    if (status === "sent") return "Enviado"
+    if (status === "accepted") return "Aceito"
+    if (status === "rejected") return "Rejeitado"
+    return status
+}
+
 function getSpecValue(product: Product, key: string) {
     const specs = product.specs
     if (!specs || typeof specs !== "object" || Array.isArray(specs)) {
@@ -81,7 +102,12 @@ function getSpecValue(product: Product, key: string) {
     return (specs as Record<string, any>)[key]
 }
 
-export function ProposalCalculatorComplete({ products, pricingRules = [] }: ProposalCalculatorProps) {
+export function ProposalCalculatorComplete({
+    products,
+    pricingRules = [],
+    initialProposal = null,
+    intent = "create",
+}: ProposalCalculatorProps) {
     const panelProducts = products.filter((p) => p.type === "module")
     const inverterProducts = products.filter((p) => p.type === "inverter")
     const microInverterProducts = inverterProducts.filter(
@@ -112,64 +138,152 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
         [rules]
     )
 
+    const isEditMode = intent === "edit" && Boolean(initialProposal?.id)
+    const initialCalculationInput =
+        initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
+            ? (initialProposal.calculation.input as Partial<ProposalCalcInput>)
+            : null
+
     const [moduleProductId, setModuleProductId] = useState<string>("")
     const [microProductId, setMicroProductId] = useState<string>("")
     const [stringProductId, setStringProductId] = useState<string>("")
-    const [stringQuantity, setStringQuantity] = useState<number>(1)
+    const [stringQuantity, setStringQuantity] = useState<number>(
+        initialCalculationInput?.dimensioning?.qtd_inversor_string ?? 1
+    )
     const [structureSoloProductId, setStructureSoloProductId] = useState<string>("")
     const [structureTelhadoProductId, setStructureTelhadoProductId] = useState<string>("")
 
-    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(null)
-    const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(null)
-    const [contactSelectKey, setContactSelectKey] = useState(0)
-    const [manualContact, setManualContact] = useState<ManualContactState>({
-        first_name: "",
-        last_name: "",
-        whatsapp: "",
+    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(initialProposal?.client_id ?? null)
+    const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(() => {
+        const contact = initialProposal?.contact
+        if (!contact?.id) return null
+        return {
+            id: contact.id,
+            full_name: contact.full_name ?? null,
+            first_name: contact.first_name ?? null,
+            last_name: contact.last_name ?? null,
+            email: contact.email ?? null,
+            whatsapp: contact.whatsapp ?? null,
+            phone: contact.phone ?? null,
+            mobile: contact.mobile ?? null,
+        }
     })
-
-    const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">("sent")
-    const [input, setInput] = useState<ProposalCalcInput>(() => ({
-        dimensioning: {
-            qtd_modulos: 0,
-            potencia_modulo_w: defaultModulePower,
-            indice_producao: rules.indice_producao ?? 112,
-            tipo_inversor: "STRING",
-            fator_oversizing: rules.default_oversizing_factor ?? params.default_oversizing_factor,
-        },
-        kit: {
-            module_cost_per_watt: defaultModuleCostPerWatt,
-            cabling_unit_cost: rules.cabling_unit_cost ?? 0,
-            micro_unit_cost: rules.micro_unit_cost ?? 0,
-            string_inverter_total_cost: rules.string_inverter_total_cost ?? 0,
-        },
-        structure: {
-            qtd_placas_solo: 0,
-            qtd_placas_telhado: 0,
-            valor_unit_solo: rules.valor_unit_solo ?? 0,
-            valor_unit_telhado: rules.valor_unit_telhado ?? 0,
-        },
-        margin: {
-            margem_percentual: normalizePercent(
-                rules.margem_percentual ?? rules.default_margin ?? 0.1,
-                0.1
-            ),
-        },
-        extras: {
-            valor_baterias: 0,
-            valor_adequacao_padrao: 0,
-            outros_extras: [],
-        },
-        finance: {
-            enabled: false,
-            entrada_valor: 0,
-            carencia_meses: 0,
-            juros_mensal: normalizePercent(rules.juros_mensal ?? 0.019, 0.019),
-            num_parcelas: 0,
-            baloes: [],
-        },
-        params,
+    const [contactSelectKey, setContactSelectKey] = useState(0)
+    const [manualContact, setManualContact] = useState<ManualContactState>(() => ({
+        first_name:
+            initialProposal?.contact?.first_name ??
+            initialProposal?.client_name?.split(" ")[0] ??
+            "",
+        last_name:
+            initialProposal?.contact?.last_name ??
+            initialProposal?.client_name?.split(" ").slice(1).join(" ") ??
+            "",
+        whatsapp:
+            initialProposal?.contact?.whatsapp ??
+            initialProposal?.contact?.phone ??
+            initialProposal?.contact?.mobile ??
+            "",
     }))
+
+    const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">(
+        normalizeStatusForForm(initialProposal?.status)
+    )
+    const isStatusLocked =
+        isEditMode &&
+        Boolean(initialProposal?.status) &&
+        initialProposal?.status !== "draft" &&
+        initialProposal?.status !== "sent"
+    const [input, setInput] = useState<ProposalCalcInput>(() => {
+        const baseInput: ProposalCalcInput = {
+            dimensioning: {
+                qtd_modulos: 0,
+                potencia_modulo_w: defaultModulePower,
+                indice_producao: rules.indice_producao ?? 112,
+                tipo_inversor: "STRING",
+                fator_oversizing: rules.default_oversizing_factor ?? params.default_oversizing_factor,
+            },
+            kit: {
+                module_cost_per_watt: defaultModuleCostPerWatt,
+                cabling_unit_cost: rules.cabling_unit_cost ?? 0,
+                micro_unit_cost: rules.micro_unit_cost ?? 0,
+                string_inverter_total_cost: rules.string_inverter_total_cost ?? 0,
+            },
+            structure: {
+                qtd_placas_solo: 0,
+                qtd_placas_telhado: 0,
+                valor_unit_solo: rules.valor_unit_solo ?? 0,
+                valor_unit_telhado: rules.valor_unit_telhado ?? 0,
+            },
+            margin: {
+                margem_percentual: normalizePercent(
+                    rules.margem_percentual ?? rules.default_margin ?? 0.1,
+                    0.1
+                ),
+            },
+            extras: {
+                valor_baterias: 0,
+                valor_adequacao_padrao: 0,
+                outros_extras: [],
+            },
+            finance: {
+                enabled: false,
+                entrada_valor: 0,
+                carencia_meses: 0,
+                juros_mensal: normalizePercent(rules.juros_mensal ?? 0.019, 0.019),
+                num_parcelas: 0,
+                baloes: [],
+            },
+            params,
+        }
+
+        if (!initialCalculationInput) return baseInput
+
+        return {
+            ...baseInput,
+            ...initialCalculationInput,
+            dimensioning: {
+                ...baseInput.dimensioning,
+                ...(initialCalculationInput.dimensioning ?? {}),
+            },
+            kit: {
+                ...baseInput.kit,
+                ...(initialCalculationInput.kit ?? {}),
+            },
+            structure: {
+                ...baseInput.structure,
+                ...(initialCalculationInput.structure ?? {}),
+            },
+            margin: {
+                ...baseInput.margin,
+                ...(initialCalculationInput.margin ?? {}),
+            },
+            extras: {
+                ...baseInput.extras,
+                ...(initialCalculationInput.extras ?? {}),
+                outros_extras: Array.isArray(initialCalculationInput.extras?.outros_extras)
+                    ? initialCalculationInput.extras?.outros_extras.map((extra, index) => ({
+                        id: extra?.id || `${index}`,
+                        name: extra?.name || "",
+                        value: Number(extra?.value || 0),
+                    }))
+                    : [],
+            },
+            finance: {
+                ...baseInput.finance,
+                ...(initialCalculationInput.finance ?? {}),
+                baloes: Array.isArray(initialCalculationInput.finance?.baloes)
+                    ? initialCalculationInput.finance?.baloes.map((balao) => ({
+                        balao_mes: Number(balao?.balao_mes || 0),
+                        balao_valor: Number(balao?.balao_valor || 0),
+                    }))
+                    : [],
+            },
+            params: {
+                ...params,
+                ...(initialCalculationInput.params ?? {}),
+            },
+        }
+    })
 
     const { showToast } = useToast()
     const router = useRouter()
@@ -339,31 +453,33 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
         const selectedPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
         const hasIndicacao = Boolean(selectedIndicacaoId)
 
-        if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
-            showToast({
-                variant: "error",
-                title: "Cliente obrigatório",
-                description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
-            })
-            return
-        }
+        if (!isEditMode) {
+            if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
+                showToast({
+                    variant: "error",
+                    title: "Cliente obrigatório",
+                    description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
+                })
+                return
+            }
 
-        if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
-            showToast({
-                variant: "error",
-                title: "Dados do cliente incompletos",
-                description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
-            })
-            return
-        }
+            if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
+                showToast({
+                    variant: "error",
+                    title: "Dados do cliente incompletos",
+                    description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
+                })
+                return
+            }
 
-        if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
-            showToast({
-                variant: "error",
-                title: "Contato sem WhatsApp",
-                description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
-            })
-            return
+            if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
+                showToast({
+                    variant: "error",
+                    title: "Contato sem WhatsApp",
+                    description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
+                })
+                return
+            }
         }
 
         setLoading(true)
@@ -418,7 +534,7 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
             }
 
             const proposalData: ProposalInsert & { source_mode: "complete" } = {
-                status: proposalStatus,
+                status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
                 total_value: calculated.output.totals.total_a_vista,
                 equipment_cost: calculated.output.kit.custo_kit,
                 additional_cost: calculated.output.extras.extras_total,
@@ -428,31 +544,44 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                 source_mode: "complete",
             }
 
-            const contactPayload = selectedIndicacaoId
-                ? null
-                : selectedContact
-                    ? {
-                        ...selectedContact,
-                        whatsapp: selectedContact.whatsapp || manualWhatsapp || null,
-                        phone: selectedContact.phone || manualWhatsapp || null,
-                    }
-                    : {
-                        first_name: manualFirstName,
-                        last_name: manualLastName || null,
-                        full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
-                        whatsapp: manualWhatsapp,
-                        email: null,
-                        phone: null,
-                        mobile: null,
-                    }
+            const itemsForSave = items.length > 0
+                ? items
+                : (
+                    isEditMode
+                        ? (initialProposal?.items ?? []).map((item) => ({
+                            product_id: item.product_id,
+                            quantity: item.quantity,
+                            unit_price: item.unit_price,
+                            total_price: item.total_price,
+                        }))
+                        : items
+                )
 
-            const result = await createProposal(proposalData, items, {
-                client: {
-                    indicacao_id: selectedIndicacaoId,
-                    contact: contactPayload,
-                },
-                crm_brand: "dorata",
-            })
+            const result = isEditMode
+                ? await updateProposal(initialProposal!.id, proposalData, itemsForSave)
+                : await createProposal(proposalData, items, {
+                    client: {
+                        indicacao_id: selectedIndicacaoId,
+                        contact: selectedIndicacaoId
+                            ? null
+                            : selectedContact
+                                ? {
+                                    ...selectedContact,
+                                    whatsapp: selectedContact.whatsapp || manualWhatsapp || null,
+                                    phone: selectedContact.phone || manualWhatsapp || null,
+                                }
+                                : {
+                                    first_name: manualFirstName,
+                                    last_name: manualLastName || null,
+                                    full_name: [manualFirstName, manualLastName].filter(Boolean).join(" "),
+                                    whatsapp: manualWhatsapp,
+                                    email: null,
+                                    phone: null,
+                                    mobile: null,
+                                },
+                    },
+                    crm_brand: "dorata",
+                })
             if (!result.success) {
                 showToast({
                     variant: "error",
@@ -463,8 +592,10 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
             }
 
             showToast({
-                title: "Orçamento criado",
-                description: "O orçamento foi salvo com sucesso.",
+                title: isEditMode ? "Orçamento atualizado" : "Orçamento criado",
+                description: isEditMode
+                    ? "As alterações do orçamento foram salvas."
+                    : "O orçamento foi salvo com sucesso.",
                 variant: "success",
             })
             router.push("/admin/orcamentos")
@@ -486,9 +617,25 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
             <div className="lg:col-span-2 space-y-6">
                 <Card>
                     <CardHeader>
-                        <CardTitle>Cliente</CardTitle>
+                        <CardTitle>{isEditMode ? "Cliente Vinculado" : "Cliente"}</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        {isEditMode ? (
+                            <div className="space-y-2 rounded-md border p-3 text-sm">
+                                <p>
+                                    <span className="font-medium">Cliente:</span>{" "}
+                                    {initialProposal?.client_name || initialProposal?.contact_name || "Não informado"}
+                                </p>
+                                <p>
+                                    <span className="font-medium">Status atual:</span>{" "}
+                                    {toStatusLabel(initialProposal?.status)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Para alterar vínculo de cliente/contato, crie um novo orçamento.
+                                </p>
+                            </div>
+                        ) : (
+                            <>
                         <div className="space-y-2">
                             <Label>Buscar cliente (contatos ou indicações)</Label>
                             <div className="flex items-center gap-2">
@@ -565,6 +712,8 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                                     : "Indicação selecionada no CRM Dorata."}
                             </p>
                         )}
+                            </>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -628,18 +777,40 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>Status do orcamento</Label>
-                            <Select value={proposalStatus} onValueChange={(value) => setProposalStatus(value as "draft" | "sent")}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="draft">Rascunho</SelectItem>
-                                    <SelectItem value="sent">Enviado</SelectItem>
-                                </SelectContent>
-                            </Select>
+                            <Label>Potência inversor string (kW)</Label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={input.dimensioning.potencia_inversor_string_kw ?? 0}
+                                onChange={(e) => updateDimensioning({ potencia_inversor_string_kw: toNumber(e.target.value) })}
+                            />
                             <p className="text-xs text-muted-foreground">
-                                Apenas orcamentos enviados entram na previsao de comissao.
+                                Se deixar 0, o cálculo usa automaticamente o oversizing.
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Status do orcamento</Label>
+                            {isStatusLocked ? (
+                                <Input value={toStatusLabel(initialProposal?.status)} disabled />
+                            ) : (
+                                <Select
+                                    value={proposalStatus}
+                                    onValueChange={(value) => setProposalStatus(value as "draft" | "sent")}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="draft">Rascunho</SelectItem>
+                                        <SelectItem value="sent">Enviado</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                                {isStatusLocked
+                                    ? `Status atual (${toStatusLabel(initialProposal?.status)}) é mantido automaticamente.`
+                                    : "Apenas orcamentos enviados entram na previsao de comissao."}
                             </p>
                         </div>
                         <div className="space-y-2">
@@ -651,7 +822,7 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                             <Input value={calculated.output.dimensioning.kWh_estimado.toFixed(2)} disabled />
                         </div>
                         <div className="space-y-2">
-                            <Label>Potência inversor (kW)</Label>
+                            <Label>Potência inversor calculada (kW)</Label>
                             <Input value={calculated.output.dimensioning.inversor.pot_string_kw.toFixed(2)} disabled />
                         </div>
                         <div className="space-y-2">
@@ -1115,7 +1286,7 @@ export function ProposalCalculatorComplete({ products, pricingRules = [] }: Prop
                     </CardContent>
                     <CardFooter>
                         <Button className="w-full" onClick={handleSave} disabled={loading}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar Orçamento"}
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : isEditMode ? "Salvar Alterações" : "Salvar Orçamento"}
                         </Button>
                     </CardFooter>
                 </Card>

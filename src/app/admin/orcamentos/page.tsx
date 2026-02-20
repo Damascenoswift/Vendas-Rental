@@ -17,7 +17,25 @@ import {
     TableRow,
 } from "@/components/ui/table"
 
-export default async function ProposalsPage() {
+function getEstimatedKwh(calculation: unknown): number | null {
+    if (!calculation || typeof calculation !== "object" || Array.isArray(calculation)) return null
+    const output = (calculation as Record<string, any>).output
+    const dimensioning = output && typeof output === "object" ? output.dimensioning : null
+    const value = dimensioning && typeof dimensioning === "object" ? dimensioning.kWh_estimado : null
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
+interface ProposalsPageProps {
+    searchParams: Promise<{
+        proposalId?: string
+    }>
+}
+
+export default async function ProposalsPage({ searchParams }: ProposalsPageProps) {
+    const { proposalId } = await searchParams
+    const targetProposalId = proposalId?.trim() || null
+
     const supabase = await createClient()
     const {
         data: { user },
@@ -86,6 +104,10 @@ export default async function ProposalsPage() {
             proposalsQuery = proposalsQuery.in("client_id", scopedClientIds ?? [])
         }
 
+        if (targetProposalId) {
+            proposalsQuery = proposalsQuery.eq("id", targetProposalId)
+        }
+
         const proposalsResult = await proposalsQuery
         proposals = proposalsResult.data ?? []
         proposalsError = proposalsResult.error as { message: string } | null
@@ -99,6 +121,7 @@ export default async function ProposalsPage() {
             ...proposal,
             seller,
             cliente,
+            estimated_kwh: getEstimatedKwh(proposal.calculation),
         }
     })
 
@@ -113,6 +136,11 @@ export default async function ProposalsPage() {
                             Novo Orçamento
                         </Button>
                     </Link>
+                    {targetProposalId ? (
+                        <Link href="/admin/orcamentos">
+                            <Button variant="outline">Ver todos</Button>
+                        </Link>
+                    ) : null}
                 </div>
             </div>
 
@@ -123,21 +151,23 @@ export default async function ProposalsPage() {
                             <TableHead>Data</TableHead>
                             <TableHead>Cliente</TableHead>
                             <TableHead>Vendedor</TableHead>
+                            <TableHead>Produção Estimada</TableHead>
                             <TableHead>Validade</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Valor Total</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {proposalsError ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center h-24 text-destructive">
+                                <TableCell colSpan={8} className="text-center h-24 text-destructive">
                                     Erro ao carregar orçamentos: {proposalsError.message}
                                 </TableCell>
                             </TableRow>
                         ) : normalizedProposals.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
+                                <TableCell colSpan={8} className="text-center h-24 text-muted-foreground">
                                     Nenhum orçamento encontrado.
                                 </TableCell>
                             </TableRow>
@@ -147,10 +177,28 @@ export default async function ProposalsPage() {
                                     <TableCell>{format(new Date(proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
                                     <TableCell>{proposal.cliente?.nome || '-'}</TableCell>
                                     <TableCell>{proposal.seller?.name || proposal.seller?.email || 'Sistema'}</TableCell>
+                                    <TableCell>
+                                        {typeof proposal.estimated_kwh === "number"
+                                            ? `${proposal.estimated_kwh.toLocaleString("pt-BR", {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })} kWh`
+                                            : "-"}
+                                    </TableCell>
                                     <TableCell>{proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}</TableCell>
                                     <TableCell className="capitalize">{proposal.status}</TableCell>
                                     <TableCell className="text-right font-medium">
                                         {proposal.total_value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                            <Link href={`/admin/orcamentos/${proposal.id}/editar`}>
+                                                <Button size="sm" variant="outline">Editar</Button>
+                                            </Link>
+                                            <Link href={`/admin/orcamentos/novo?duplicar=${proposal.id}`}>
+                                                <Button size="sm" variant="ghost">Duplicar</Button>
+                                            </Link>
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             ))
