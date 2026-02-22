@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Loader2, Save } from "lucide-react"
+import { ChevronDown, ChevronUp, Loader2, Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +57,7 @@ export function RentalCommissionSettings({
     const [overrideValue, setOverrideValue] = useState<number>(managerOverridePercent)
     const [sellerValues, setSellerValues] = useState<Record<string, number>>({})
     const [clientValues, setClientValues] = useState<Record<string, number>>({})
+    const [showDorataOverrides, setShowDorataOverrides] = useState(false)
     const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({})
 
     const tableRows = useMemo(() => {
@@ -255,76 +256,90 @@ export function RentalCommissionSettings({
                 </Table>
             </div>
 
-            <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Comissão individual por cliente (Dorata)</h3>
-                <p className="text-xs text-muted-foreground">
-                    Aplicada somente nas vendas Dorata. Quando configurado, substitui regra do orçamento/padrão.
-                </p>
-            </div>
-
             <div className="rounded-md border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead>Vendedor</TableHead>
-                            <TableHead className="w-[160px]">Comissão (%)</TableHead>
-                            <TableHead className="w-[120px]">Origem</TableHead>
-                            <TableHead className="w-[80px]"></TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {clientTableRows.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
-                                    Nenhuma venda Dorata encontrada para o filtro atual.
-                                </TableCell>
-                            </TableRow>
-                        ) : (
-                            clientTableRows.map((row) => {
-                                const loadingKey = `client:${row.leadId}`
-                                return (
-                                    <TableRow key={row.leadId}>
-                                        <TableCell className="font-medium">{row.clientName}</TableCell>
-                                        <TableCell className="text-muted-foreground">{row.sellerName}</TableCell>
-                                        <TableCell>
-                                            <Input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                max="100"
-                                                value={row.currentPercent}
-                                                onChange={(event) =>
-                                                    setClientValues((prev) => ({
-                                                        ...prev,
-                                                        [row.leadId]: Number(event.target.value),
-                                                    }))
-                                                }
-                                            />
-                                        </TableCell>
-                                        <TableCell className="text-sm text-muted-foreground">
-                                            {row.isCustom ? "Personalizada" : "Orçamento/Padrão"}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Button
-                                                size="icon"
-                                                variant="ghost"
-                                                onClick={() => saveClientPercent(row.leadId)}
-                                                disabled={loadingMap[loadingKey]}
-                                            >
-                                                {loadingMap[loadingKey] ? (
-                                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                                ) : (
-                                                    <Save className="h-4 w-4 text-green-600" />
-                                                )}
-                                            </Button>
+                <button
+                    type="button"
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+                    onClick={() => setShowDorataOverrides((prev) => !prev)}
+                >
+                    <div>
+                        <h3 className="text-sm font-semibold">Comissão individual por cliente (Dorata)</h3>
+                        <p className="text-xs text-muted-foreground">
+                            Casos esporádicos. Clique para {showDorataOverrides ? "ocultar" : "abrir"} a lista.
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{clientTableRows.length} vendas</span>
+                        {showDorataOverrides ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </div>
+                </button>
+
+                {showDorataOverrides ? (
+                    <div className="border-t max-h-[440px] overflow-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Cliente</TableHead>
+                                    <TableHead>Vendedor</TableHead>
+                                    <TableHead className="w-[160px]">Comissão (%)</TableHead>
+                                    <TableHead className="w-[120px]">Origem</TableHead>
+                                    <TableHead className="w-[80px]"></TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {clientTableRows.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                                            Nenhuma venda Dorata encontrada para o filtro atual.
                                         </TableCell>
                                     </TableRow>
-                                )
-                            })
-                        )}
-                    </TableBody>
-                </Table>
+                                ) : (
+                                    clientTableRows.map((row) => {
+                                        const loadingKey = `client:${row.leadId}`
+                                        return (
+                                            <TableRow key={row.leadId}>
+                                                <TableCell className="font-medium">{row.clientName}</TableCell>
+                                                <TableCell className="text-muted-foreground">{row.sellerName}</TableCell>
+                                                <TableCell>
+                                                    <Input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        max="100"
+                                                        value={row.currentPercent}
+                                                        onChange={(event) =>
+                                                            setClientValues((prev) => ({
+                                                                ...prev,
+                                                                [row.leadId]: Number(event.target.value),
+                                                            }))
+                                                        }
+                                                    />
+                                                </TableCell>
+                                                <TableCell className="text-sm text-muted-foreground">
+                                                    {row.isCustom ? "Personalizada" : "Orçamento/Padrão"}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Button
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        onClick={() => saveClientPercent(row.leadId)}
+                                                        disabled={loadingMap[loadingKey]}
+                                                    >
+                                                        {loadingMap[loadingKey] ? (
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                        ) : (
+                                                            <Save className="h-4 w-4 text-green-600" />
+                                                        )}
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        )
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                ) : null}
             </div>
         </div>
     )

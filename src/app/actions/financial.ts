@@ -124,6 +124,64 @@ async function checkFinancialPermission(): Promise<FinancialPermissionResult> {
     return { userId: user.id }
 }
 
+type DorataSaleReference = {
+    isValid: boolean
+    clientName: string | null
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== 'object') return null
+    return value as Record<string, unknown>
+}
+
+function firstRelationRow(value: unknown): Record<string, unknown> | null {
+    if (Array.isArray(value)) {
+        return toRecord(value[0] ?? null)
+    }
+    return toRecord(value)
+}
+
+async function resolveDorataSaleReference(
+    supabaseClient: any,
+    saleId: string
+): Promise<DorataSaleReference> {
+    const [proposalResult, indicationResult] = await Promise.all([
+        supabaseClient
+            .from('proposals')
+            .select('id, cliente:indicacoes(id, nome, marca)')
+            .eq('id', saleId)
+            .maybeSingle(),
+        supabaseClient
+            .from('indicacoes')
+            .select('id, nome, marca')
+            .eq('id', saleId)
+            .maybeSingle(),
+    ])
+
+    const proposal = proposalResult.data
+    const proposalRow = toRecord(proposal)
+    const proposalClient = firstRelationRow(proposalRow?.cliente)
+    const proposalBrand = String(proposalClient?.marca ?? '').toLowerCase()
+    if (proposalRow?.id && proposalBrand === 'dorata') {
+        return {
+            isValid: true,
+            clientName: (proposalClient?.nome as string | null) ?? null,
+        }
+    }
+
+    const indication = indicationResult.data
+    const indicationRow = toRecord(indication)
+    const indicationBrand = String(indicationRow?.marca ?? '').toLowerCase()
+    if (indicationRow?.id && indicationBrand === 'dorata') {
+        return {
+            isValid: true,
+            clientName: (indicationRow?.nome as string | null) ?? null,
+        }
+    }
+
+    return { isValid: false, clientName: null }
+}
+
 async function getSalesEligibilityMap(supabaseAdmin: any, userIds: string[]) {
     const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
     if (uniqueUserIds.length === 0) return new Map<string, boolean>()
@@ -546,37 +604,26 @@ export async function upsertDorataSaleCommissionPercent(input: { saleId: string;
     const { saleId, percent } = parsed.data
 
     const sessionClient = await createClient()
-    const { data: proposal } = await sessionClient
-        .from('proposals')
-        .select('id, cliente:indicacoes(id, nome, marca)')
-        .eq('id', saleId)
-        .maybeSingle()
+    let supabaseAdmin: any = null
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin para financeiro:', error)
+    }
 
-    const proposalClient = proposal
-        ? (Array.isArray((proposal as Record<string, unknown>).cliente)
-            ? ((proposal as Record<string, unknown>).cliente as Array<Record<string, unknown>>)[0]
-            : (proposal as Record<string, unknown>).cliente) as Record<string, unknown> | null
-        : null
+    let reference = supabaseAdmin
+        ? await resolveDorataSaleReference(supabaseAdmin, saleId)
+        : { isValid: false, clientName: null }
 
-    const validProposalDorata =
-        Boolean(proposal?.id) &&
-        String(proposalClient?.marca ?? '').toLowerCase() === 'dorata'
+    if (!reference.isValid) {
+        reference = await resolveDorataSaleReference(sessionClient as any, saleId)
+    }
 
-    const { data: indication } = await sessionClient
-        .from('indicacoes')
-        .select('id, nome, marca')
-        .eq('id', saleId)
-        .maybeSingle()
-
-    const validIndicationDorata = Boolean(indication?.id) && String(indication.marca ?? '').toLowerCase() === 'dorata'
-    if (!validProposalDorata && !validIndicationDorata) {
+    if (!reference.isValid) {
         return { success: false as const, message: 'Venda Dorata não encontrada para esse identificador.' }
     }
 
-    const clientName =
-        (proposalClient?.nome as string | null) ??
-        (indication?.nome as string | null) ??
-        saleId
+    const clientName = reference.clientName ?? saleId
     const rulePayload = {
         name: `Percentual comissão Dorata - ${clientName}`,
         key: `dorata_commission_percent_sale_${saleId}`,
@@ -587,11 +634,9 @@ export async function upsertDorataSaleCommissionPercent(input: { saleId: string;
     }
 
     let lastError: { message?: string | null } | null = null
-    try {
-        const supabaseAdmin = createSupabaseServiceClient()
+    if (supabaseAdmin) {
         lastError = await upsertPricingRuleWithFallback(supabaseAdmin, rulePayload)
-    } catch (error) {
-        console.error('Erro ao inicializar cliente admin para financeiro:', error)
+    } else {
         lastError = { message: 'cliente admin indisponível' }
     }
 
