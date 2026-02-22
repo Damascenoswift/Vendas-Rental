@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table"
 import { useToast } from "@/hooks/use-toast"
 import {
+    upsertDorataSaleCommissionPercent,
     upsertRentalDefaultCommissionPercent,
     upsertRentalManagerOverridePercent,
     upsertSellerRentalCommissionPercent,
@@ -28,11 +29,20 @@ type SellerRateItem = {
     isCustom: boolean
 }
 
+type ClientRateItem = {
+    leadId: string
+    clientName: string
+    sellerName: string
+    percent: number
+    isCustom: boolean
+}
+
 type RentalCommissionSettingsProps = {
     managerName: string
     defaultPercent: number
     managerOverridePercent: number
     sellerRates: SellerRateItem[]
+    clientRates: ClientRateItem[]
 }
 
 export function RentalCommissionSettings({
@@ -40,11 +50,13 @@ export function RentalCommissionSettings({
     defaultPercent,
     managerOverridePercent,
     sellerRates,
+    clientRates,
 }: RentalCommissionSettingsProps) {
     const { showToast } = useToast()
     const [defaultValue, setDefaultValue] = useState<number>(defaultPercent)
     const [overrideValue, setOverrideValue] = useState<number>(managerOverridePercent)
     const [sellerValues, setSellerValues] = useState<Record<string, number>>({})
+    const [clientValues, setClientValues] = useState<Record<string, number>>({})
     const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>({})
 
     const tableRows = useMemo(() => {
@@ -53,6 +65,13 @@ export function RentalCommissionSettings({
             currentPercent: sellerValues[item.userId] ?? item.percent,
         }))
     }, [sellerRates, sellerValues])
+
+    const clientTableRows = useMemo(() => {
+        return clientRates.map((item) => ({
+            ...item,
+            currentPercent: clientValues[item.leadId] ?? item.percent,
+        }))
+    }, [clientRates, clientValues])
 
     const setLoading = (key: string, value: boolean) => {
         setLoadingMap((prev) => ({ ...prev, [key]: value }))
@@ -93,6 +112,26 @@ export function RentalCommissionSettings({
 
         const result = await upsertSellerRentalCommissionPercent({
             userId,
+            percent,
+        })
+
+        setLoading(key, false)
+
+        if (!result.success) {
+            showToast({ variant: "error", title: "Erro", description: result.message })
+            return
+        }
+
+        showToast({ variant: "success", title: "Atualizado", description: result.message })
+    }
+
+    const saveClientPercent = async (leadId: string) => {
+        const key = `client:${leadId}`
+        const percent = Number(clientValues[leadId] ?? clientRates.find((row) => row.leadId === leadId)?.percent ?? 0)
+        setLoading(key, true)
+
+        const result = await upsertDorataSaleCommissionPercent({
+            saleId: leadId,
             percent,
         })
 
@@ -215,7 +254,78 @@ export function RentalCommissionSettings({
                     </TableBody>
                 </Table>
             </div>
+
+            <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Comissão individual por cliente (Dorata)</h3>
+                <p className="text-xs text-muted-foreground">
+                    Aplicada somente nas vendas Dorata. Quando configurado, substitui regra do orçamento/padrão.
+                </p>
+            </div>
+
+            <div className="rounded-md border">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Cliente</TableHead>
+                            <TableHead>Vendedor</TableHead>
+                            <TableHead className="w-[160px]">Comissão (%)</TableHead>
+                            <TableHead className="w-[120px]">Origem</TableHead>
+                            <TableHead className="w-[80px]"></TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {clientTableRows.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                                    Nenhuma venda Dorata encontrada para o filtro atual.
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            clientTableRows.map((row) => {
+                                const loadingKey = `client:${row.leadId}`
+                                return (
+                                    <TableRow key={row.leadId}>
+                                        <TableCell className="font-medium">{row.clientName}</TableCell>
+                                        <TableCell className="text-muted-foreground">{row.sellerName}</TableCell>
+                                        <TableCell>
+                                            <Input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                max="100"
+                                                value={row.currentPercent}
+                                                onChange={(event) =>
+                                                    setClientValues((prev) => ({
+                                                        ...prev,
+                                                        [row.leadId]: Number(event.target.value),
+                                                    }))
+                                                }
+                                            />
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {row.isCustom ? "Personalizada" : "Orçamento/Padrão"}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                onClick={() => saveClientPercent(row.leadId)}
+                                                disabled={loadingMap[loadingKey]}
+                                            >
+                                                {loadingMap[loadingKey] ? (
+                                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                                ) : (
+                                                    <Save className="h-4 w-4 text-green-600" />
+                                                )}
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                )
+                            })
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
         </div>
     )
 }
-

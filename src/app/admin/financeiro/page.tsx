@@ -218,9 +218,19 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const managerOverridePercentDisplay = toPercentDisplay(managerOverrideRule?.value, 3)
     const managerOverridePercent = toFraction(managerOverrideRule?.value, 3)
 
+    const dorataPercentBySaleId = new Map<string, number>()
+    const dorataPercentDisplayBySaleId = new Map<string, number>()
     const sellerPercentByUserId = new Map<string, number>()
     const sellerPercentDisplayByUserId = new Map<string, number>()
     for (const rule of pricingRules) {
+        if (rule.key.startsWith('dorata_commission_percent_sale_')) {
+            const saleId = rule.key.replace('dorata_commission_percent_sale_', '').trim()
+            if (!saleId) continue
+            dorataPercentBySaleId.set(saleId, toFraction(rule.value, 3))
+            dorataPercentDisplayBySaleId.set(saleId, toPercentDisplay(rule.value, 3))
+            continue
+        }
+
         if (!rule.key.startsWith('rental_commission_percent_user_')) continue
         const userId = rule.key.replace('rental_commission_percent_user_', '').trim()
         if (!userId) continue
@@ -336,18 +346,40 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         const calculation = proposal.calculation as any
         const storedCommission = calculation?.commission
         const contractValue = Number(storedCommission?.base_value ?? proposal.total_value ?? 0)
-        const commissionPercent = Number(storedCommission?.percent ?? defaultDorataCommissionPercent)
-        const commissionValue = Number(storedCommission?.value ?? contractValue * commissionPercent)
+        const storedPercentRaw = Number(storedCommission?.percent ?? defaultDorataCommissionPercent)
+        const storedPercent = storedPercentRaw > 1 ? storedPercentRaw / 100 : storedPercentRaw
+        const customPercent = dorataPercentBySaleId.get(proposal.id as string)
+        const customPercentDisplay = dorataPercentDisplayBySaleId.get(proposal.id as string)
+        const commissionPercent = customPercent ?? storedPercent
+        const commissionPercentDisplay = customPercentDisplay ?? (storedPercentRaw > 1 ? storedPercentRaw : storedPercentRaw * 100)
+        const commissionValue = Number(
+            customPercent !== undefined
+                ? contractValue * customPercent
+                : (storedCommission?.value ?? contractValue * commissionPercent)
+        )
         const signedAt = (cliente?.assinada_em as string | null) ?? null
         const signed = Boolean(signedAt) || cliente?.status === "CONCLUIDA"
+        const proposalClientName =
+            (cliente?.nome as string | null) ??
+            (calculation?.client_name as string | null) ??
+            (calculation?.cliente_nome as string | null) ??
+            null
+        const commissionPercentSource = customPercent !== undefined
+            ? "Cliente"
+            : (storedCommission?.percent != null || storedCommission?.value != null)
+                ? "Orçamento"
+                : "Padrão"
 
         return {
             id: proposal.id as string,
             created_at: proposal.created_at as string,
             sellerId: (proposal.seller?.id as string | null) ?? (proposal.seller_id as string | null) ?? null,
             seller: proposal.seller,
+            nome: proposalClientName,
             contractValue,
             commissionPercent,
+            commissionPercentDisplay,
+            commissionPercentSource,
             commissionValue,
             signedAt,
             signed,
@@ -359,7 +391,10 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         .filter((indicacao: any) => !dorataProposalClientIds.has(indicacao.id))
         .map((indicacao: any) => {
             const contractValue = Number(indicacao.valor ?? 0)
-            const commissionPercent = Number(defaultDorataCommissionPercent)
+            const customPercent = dorataPercentBySaleId.get(indicacao.id as string)
+            const customPercentDisplay = dorataPercentDisplayBySaleId.get(indicacao.id as string)
+            const commissionPercent = customPercent ?? Number(defaultDorataCommissionPercent)
+            const commissionPercentDisplay = customPercentDisplay ?? toPercentDisplay(defaultDorataCommissionPercent, 3)
             const commissionValue = contractValue * commissionPercent
             const signedAt = (indicacao.assinada_em as string | null) ?? null
             const signed = Boolean(signedAt) || indicacao.status === "CONCLUIDA"
@@ -369,8 +404,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 created_at: indicacao.created_at as string,
                 sellerId: (indicacao.users?.id as string | null) ?? (indicacao.user_id as string | null) ?? null,
                 seller: indicacao.users,
+                nome: (indicacao.nome as string | null) ?? null,
                 contractValue,
                 commissionPercent,
+                commissionPercentDisplay,
+                commissionPercentSource: customPercent !== undefined ? "Cliente" : "Padrão",
                 commissionValue,
                 signedAt,
                 signed,
@@ -538,6 +576,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         percent: sellerPercentDisplayByUserId.get(seller.id) ?? rentalDefaultPercentDisplay,
         isCustom: sellerPercentDisplayByUserId.has(seller.id),
     }))
+    const clientCommissionSettingsRows = filteredDorataForecasts.map((row) => {
+        const sellerData = Array.isArray(row.seller) ? row.seller[0] : row.seller
+        return {
+            leadId: row.id,
+            clientName: row.nome || row.id.slice(0, 8),
+            sellerName: sellerData?.name || sellerData?.email || "Sistema",
+            percent: row.commissionPercentDisplay,
+            isCustom: dorataPercentDisplayBySaleId.has(row.id),
+        }
+    })
 
     const totalDorataContract = filteredDorataForecasts.reduce((sum, item) => sum + item.contractValue, 0)
     const totalDorataCommission = filteredDorataForecasts.reduce((sum, item) => sum + item.commissionValue, 0)
@@ -656,7 +704,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             amount: availableAmount,
             description: `Fechamento Dorata - ${(row as any).nome ?? row.id.slice(0, 8)}`,
             origin_lead_id: row.id,
-            client_name: (row as any).nome ?? null,
+            client_name: (row as any).nome ?? `Orçamento ${row.id.slice(0, 8)}`,
         })
     }
 
@@ -797,6 +845,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                         defaultPercent={rentalDefaultPercentDisplay}
                         managerOverridePercent={managerOverridePercentDisplay}
                         sellerRates={commissionSettingsRows}
+                        clientRates={clientCommissionSettingsRows}
                     />
 
                     <div className="grid gap-6 xl:grid-cols-2">
@@ -918,7 +967,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     <TableRow>
                                         <TableHead>Data</TableHead>
                                         <TableHead>Vendedor</TableHead>
+                                        <TableHead>Cliente</TableHead>
                                         <TableHead className="text-right">Contrato</TableHead>
+                                        <TableHead className="text-right">% Com.</TableHead>
                                         <TableHead className="text-right">Comissão</TableHead>
                                         <TableHead>Status comissão</TableHead>
                                     </TableRow>
@@ -926,7 +977,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 <TableBody>
                                     {filteredDorataForecasts.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
+                                            <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
                                                 Nenhuma previsão Dorata registrada.
                                             </TableCell>
                                         </TableRow>
@@ -935,7 +986,14 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                             <TableRow key={item.id}>
                                                 <TableCell>{formatDate(item.created_at)}</TableCell>
                                                 <TableCell>{item.seller?.name || item.seller?.email || 'Sistema'}</TableCell>
+                                                <TableCell>{item.nome || "—"}</TableCell>
                                                 <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex flex-col items-end">
+                                                        <span>{formatPercent(item.commissionPercentDisplay)}</span>
+                                                        <span className="text-xs text-muted-foreground">{item.commissionPercentSource}</span>
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell className="text-right">{formatCurrency(item.commissionValue)}</TableCell>
                                                 <TableCell>
                                                     <div className="flex flex-col gap-1">

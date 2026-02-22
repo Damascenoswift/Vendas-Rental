@@ -35,6 +35,11 @@ const sellerCommissionSchema = z.object({
     percent: z.coerce.number().min(0, 'Percentual inválido').max(100, 'Percentual inválido'),
 })
 
+const dorataSaleCommissionSchema = z.object({
+    saleId: z.string().uuid(),
+    percent: z.coerce.number().min(0, 'Percentual inválido').max(100, 'Percentual inválido'),
+})
+
 const commissionPercentSchema = z.object({
     percent: z.coerce.number().min(0, 'Percentual inválido').max(100, 'Percentual inválido'),
 })
@@ -527,6 +532,88 @@ export async function getFinancialSummary() {
     }
 
     return data
+}
+
+export async function upsertDorataSaleCommissionPercent(input: { saleId: string; percent: number }) {
+    const permission = await checkFinancialPermission()
+    if ('error' in permission) return { success: false as const, message: permission.error }
+
+    const parsed = dorataSaleCommissionSchema.safeParse(input)
+    if (!parsed.success) {
+        return { success: false as const, message: 'Dados inválidos para percentual da venda Dorata.' }
+    }
+
+    const { saleId, percent } = parsed.data
+
+    const sessionClient = await createClient()
+    const { data: proposal } = await sessionClient
+        .from('proposals')
+        .select('id, cliente:indicacoes(id, nome, marca)')
+        .eq('id', saleId)
+        .maybeSingle()
+
+    const proposalClient = proposal
+        ? (Array.isArray((proposal as Record<string, unknown>).cliente)
+            ? ((proposal as Record<string, unknown>).cliente as Array<Record<string, unknown>>)[0]
+            : (proposal as Record<string, unknown>).cliente) as Record<string, unknown> | null
+        : null
+
+    const validProposalDorata =
+        Boolean(proposal?.id) &&
+        String(proposalClient?.marca ?? '').toLowerCase() === 'dorata'
+
+    const { data: indication } = await sessionClient
+        .from('indicacoes')
+        .select('id, nome, marca')
+        .eq('id', saleId)
+        .maybeSingle()
+
+    const validIndicationDorata = Boolean(indication?.id) && String(indication.marca ?? '').toLowerCase() === 'dorata'
+    if (!validProposalDorata && !validIndicationDorata) {
+        return { success: false as const, message: 'Venda Dorata não encontrada para esse identificador.' }
+    }
+
+    const clientName =
+        (proposalClient?.nome as string | null) ??
+        (indication?.nome as string | null) ??
+        saleId
+    const rulePayload = {
+        name: `Percentual comissão Dorata - ${clientName}`,
+        key: `dorata_commission_percent_sale_${saleId}`,
+        value: Number(percent),
+        unit: '%',
+        description: 'Percentual de comissão Dorata específico por venda/cliente',
+        active: true,
+    }
+
+    let lastError: { message?: string | null } | null = null
+    try {
+        const supabaseAdmin = createSupabaseServiceClient()
+        lastError = await upsertPricingRuleWithFallback(supabaseAdmin, rulePayload)
+    } catch (error) {
+        console.error('Erro ao inicializar cliente admin para financeiro:', error)
+        lastError = { message: 'cliente admin indisponível' }
+    }
+
+    if (lastError) {
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        if (!sessionError) {
+            revalidatePath('/admin/financeiro')
+            return { success: true as const, message: 'Comissão individual de venda Dorata atualizada.' }
+        }
+        lastError = sessionError
+    }
+
+    if (lastError) {
+        console.error('Erro ao salvar comissão individual por cliente:', lastError)
+        return {
+            success: false as const,
+            message: `Erro ao salvar comissão individual: ${lastError.message ?? 'falha desconhecida'}`,
+        }
+    }
+
+    revalidatePath('/admin/financeiro')
+    return { success: true as const, message: 'Comissão individual de venda Dorata atualizada.' }
 }
 
 export async function upsertSellerRentalCommissionPercent(input: { userId: string; percent: number }) {
