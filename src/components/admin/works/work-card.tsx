@@ -43,6 +43,8 @@ export function WorkCardItem({
                         src={item.cover_image_url}
                         alt={`Capa da obra ${item.title ?? item.id}`}
                         className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
                     />
                 ) : (
                     <div className="flex h-full items-center justify-center text-xs text-muted-foreground">

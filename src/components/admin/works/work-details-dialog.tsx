@@ -11,6 +11,7 @@ import {
     deleteWorkProcessItem,
     getWorkCardById,
     getWorkComments,
+    getWorkImageOriginalAssetUrls,
     getWorkImages,
     getWorkProcessItems,
     getWorkProposalLinks,
@@ -212,10 +213,12 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
 function ImageGallery({
     label,
     items,
+    onOpenImage,
     onDelete,
 }: {
     label: string
     items: WorkImage[]
+    onOpenImage: (image: WorkImage) => void
     onDelete: (imageId: string) => Promise<void>
 }) {
     return (
@@ -228,11 +231,19 @@ function ImageGallery({
                     {items.map((image) => (
                         <div key={image.id} className="overflow-hidden rounded-md border">
                             {image.signed_url ? (
-                                <img
-                                    src={image.signed_url}
-                                    alt={image.caption || "Imagem da obra"}
-                                    className="h-32 w-full object-cover"
-                                />
+                                <button
+                                    type="button"
+                                    className="block w-full"
+                                    onClick={() => onOpenImage(image)}
+                                >
+                                    <img
+                                        src={image.signed_url}
+                                        alt={image.caption || "Imagem da obra"}
+                                        className="h-32 w-full object-cover"
+                                        loading="lazy"
+                                        decoding="async"
+                                    />
+                                </button>
                             ) : (
                                 <div className="flex h-32 items-center justify-center bg-slate-100 text-xs text-muted-foreground">
                                     Sem preview
@@ -241,6 +252,9 @@ function ImageGallery({
                             <div className="space-y-2 p-2">
                                 <p className="line-clamp-2 text-xs text-muted-foreground">
                                     {image.caption || "Sem descrição"}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Toque na imagem para abrir em alta.
                                 </p>
                                 <Button
                                     variant="outline"
@@ -289,6 +303,13 @@ export function WorkDetailsDialog({
     const [uploadType, setUploadType] = useState<WorkImageType>("ANTES")
     const [uploadCaption, setUploadCaption] = useState("")
     const [uploadFile, setUploadFile] = useState<File | null>(null)
+
+    const [viewerOpen, setViewerOpen] = useState(false)
+    const [viewerLoading, setViewerLoading] = useState(false)
+    const [viewerImage, setViewerImage] = useState<WorkImage | null>(null)
+    const [viewerViewUrl, setViewerViewUrl] = useState<string | null>(null)
+    const [viewerDownloadUrl, setViewerDownloadUrl] = useState<string | null>(null)
+    const [viewerError, setViewerError] = useState<string | null>(null)
 
     const projectItems = useMemo(
         () => processItems.filter((item) => item.phase === "PROJETO"),
@@ -510,6 +531,41 @@ export function WorkDetailsDialog({
         } finally {
             setIsSaving(false)
         }
+    }
+
+    async function handleOpenImageViewer(image: WorkImage) {
+        setViewerOpen(true)
+        setViewerImage(image)
+        setViewerLoading(true)
+        setViewerViewUrl(null)
+        setViewerDownloadUrl(null)
+        setViewerError(null)
+
+        try {
+            const result = await getWorkImageOriginalAssetUrls(image.id)
+            if (result.error || !result.viewUrl) {
+                const errorMessage = result.error ?? "Falha ao carregar imagem em alta."
+                setViewerError(errorMessage)
+                showToast({ title: "Erro", description: errorMessage, variant: "error" })
+                return
+            }
+
+            setViewerViewUrl(result.viewUrl)
+            setViewerDownloadUrl(result.downloadUrl ?? null)
+        } finally {
+            setViewerLoading(false)
+        }
+    }
+
+    function handleViewerOpenChange(nextOpen: boolean) {
+        setViewerOpen(nextOpen)
+        if (nextOpen) return
+
+        setViewerLoading(false)
+        setViewerImage(null)
+        setViewerViewUrl(null)
+        setViewerDownloadUrl(null)
+        setViewerError(null)
     }
 
     async function handleDeleteImage(imageId: string) {
@@ -812,10 +868,30 @@ export function WorkDetailsDialog({
                             </div>
 
                             <div className="space-y-3">
-                                <ImageGallery label="Capa" items={coverImages} onDelete={handleDeleteImage} />
-                                <ImageGallery label="Perfil" items={profileImages} onDelete={handleDeleteImage} />
-                                <ImageGallery label="Antes" items={beforeImages} onDelete={handleDeleteImage} />
-                                <ImageGallery label="Depois" items={afterImages} onDelete={handleDeleteImage} />
+                                <ImageGallery
+                                    label="Capa"
+                                    items={coverImages}
+                                    onOpenImage={handleOpenImageViewer}
+                                    onDelete={handleDeleteImage}
+                                />
+                                <ImageGallery
+                                    label="Perfil"
+                                    items={profileImages}
+                                    onOpenImage={handleOpenImageViewer}
+                                    onDelete={handleDeleteImage}
+                                />
+                                <ImageGallery
+                                    label="Antes"
+                                    items={beforeImages}
+                                    onOpenImage={handleOpenImageViewer}
+                                    onDelete={handleDeleteImage}
+                                />
+                                <ImageGallery
+                                    label="Depois"
+                                    items={afterImages}
+                                    onOpenImage={handleOpenImageViewer}
+                                    onDelete={handleDeleteImage}
+                                />
                             </div>
                         </div>
 
@@ -844,6 +920,53 @@ export function WorkDetailsDialog({
                     </div>
                 )}
             </DialogContent>
+
+            <Dialog open={viewerOpen} onOpenChange={handleViewerOpenChange}>
+                <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{viewerImage?.caption || "Imagem da obra"}</DialogTitle>
+                        <DialogDescription>
+                            Visualização em alta qualidade sob demanda.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {viewerLoading ? (
+                        <div className="flex justify-center py-10">
+                            <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                    ) : viewerError ? (
+                        <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+                            {viewerError}
+                        </div>
+                    ) : viewerViewUrl ? (
+                        <div className="overflow-hidden rounded-md border bg-slate-100">
+                            <img
+                                src={viewerViewUrl}
+                                alt={viewerImage?.caption || "Imagem da obra"}
+                                className="max-h-[70vh] w-full object-contain"
+                                decoding="async"
+                            />
+                        </div>
+                    ) : (
+                        <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+                            Imagem indisponível no momento.
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                        {viewerDownloadUrl ? (
+                            <Button asChild variant="outline">
+                                <a href={viewerDownloadUrl} target="_blank" rel="noopener noreferrer">
+                                    Baixar original
+                                </a>
+                            </Button>
+                        ) : null}
+                        <Button variant="secondary" onClick={() => handleViewerOpenChange(false)}>
+                            Fechar
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </Dialog>
     )
 }

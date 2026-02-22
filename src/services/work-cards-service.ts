@@ -129,6 +129,12 @@ const INTERNAL_WORK_ROLES = new Set([
     "funcionario_n2",
 ])
 
+const WORK_IMAGES_BUCKET = "obra-images"
+const WORK_IMAGE_PREVIEW_WIDTH = 720
+const WORK_IMAGE_PREVIEW_QUALITY = 55
+const WORK_IMAGE_PREVIEW_TTL_SECONDS = 60 * 60
+const WORK_IMAGE_FULL_TTL_SECONDS = 60 * 10
+
 const PROJECT_TEMPLATE = [
     { sort_order: 1, title: "Validar dados técnicos do orçamento" },
     { sort_order: 2, title: "Validar documentação técnica" },
@@ -483,6 +489,39 @@ async function getScopedIndicacaoIdsForRole(params: {
     }
 
     return (data ?? []).map((item: { id: string }) => item.id)
+}
+
+async function createWorkImagePreviewSignedUrl(params: {
+    storageClient: any
+    storagePath: string
+}) {
+    const previewResult = await params.storageClient.storage
+        .from(WORK_IMAGES_BUCKET)
+        .createSignedUrl(params.storagePath, WORK_IMAGE_PREVIEW_TTL_SECONDS, {
+            transform: {
+                width: WORK_IMAGE_PREVIEW_WIDTH,
+                quality: WORK_IMAGE_PREVIEW_QUALITY,
+            },
+        })
+
+    if (!previewResult.error && previewResult.data?.signedUrl) {
+        return previewResult.data.signedUrl
+    }
+
+    if (previewResult.error) {
+        console.warn("Erro ao gerar preview transformado de imagem da obra:", previewResult.error)
+    }
+
+    const fallbackResult = await params.storageClient.storage
+        .from(WORK_IMAGES_BUCKET)
+        .createSignedUrl(params.storagePath, WORK_IMAGE_PREVIEW_TTL_SECONDS)
+
+    if (fallbackResult.error) {
+        console.error("Erro ao gerar preview fallback de imagem da obra:", fallbackResult.error)
+        return null
+    }
+
+    return fallbackResult.data?.signedUrl ?? null
 }
 
 async function ensureUserCanAccessWorkModule() {
@@ -1007,7 +1046,6 @@ export async function getWorkCards(filters?: {
     if (rows.length === 0) return rows
 
     const workIds = rows.map((row) => row.id)
-    const supabase = await createClient()
     const { data: processRows, error: processError } = await supabaseAdmin
         .from("obra_process_items" as any)
         .select("obra_id, phase, status")
@@ -1064,10 +1102,10 @@ export async function getWorkCards(filters?: {
         let coverImageUrl: string | null = null
 
         if (coverPath) {
-            const signed = await supabase.storage
-                .from("obra-images")
-                .createSignedUrl(coverPath, 60 * 60)
-            coverImageUrl = signed.data?.signedUrl ?? null
+            coverImageUrl = await createWorkImagePreviewSignedUrl({
+                storageClient: supabaseAdmin,
+                storagePath: coverPath,
+            })
         }
 
         return {
@@ -1584,7 +1622,6 @@ export async function getWorkImages(workId: string) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return [] as WorkImage[]
 
-    const supabase = await createClient()
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data, error } = await supabaseAdmin
@@ -1613,18 +1650,112 @@ export async function getWorkImages(workId: string) {
 
     const results = await Promise.all(
         rows.map(async (row) => {
-            const signed = await supabase.storage
-                .from("obra-images")
-                .createSignedUrl(row.storage_path, 60 * 60)
-
             return {
                 ...row,
-                signed_url: signed.data?.signedUrl ?? null,
+                signed_url: await createWorkImagePreviewSignedUrl({
+                    storageClient: supabaseAdmin,
+                    storagePath: row.storage_path,
+                }),
             } satisfies WorkImage
         })
     )
 
     return results
+}
+
+async function canSupervisorAccessWorkCard(params: {
+    supabaseAdmin: any
+    userId: string
+    obraId: string
+}) {
+    const scopedIndicacaoIds = await getScopedIndicacaoIdsForRole({
+        supabaseAdmin: params.supabaseAdmin,
+        role: "supervisor",
+        userId: params.userId,
+    })
+
+    if (!scopedIndicacaoIds || scopedIndicacaoIds.length === 0) {
+        return false
+    }
+
+    const { data: cardRow, error } = await params.supabaseAdmin
+        .from("obra_cards" as any)
+        .select("indicacao_id")
+        .eq("id", params.obraId)
+        .maybeSingle()
+
+    if (error || !cardRow) {
+        console.error("Erro ao validar escopo do supervisor para obra:", error)
+        return false
+    }
+
+    const indicacaoId = (cardRow as { indicacao_id?: string | null }).indicacao_id
+    if (!indicacaoId) {
+        return false
+    }
+
+    return scopedIndicacaoIds.includes(indicacaoId)
+}
+
+export async function getWorkImageOriginalAssetUrls(imageId: string) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return { error: "Sem permissão." }
+
+    const normalizedImageId = imageId.trim()
+    if (!normalizedImageId) return { error: "Imagem inválida." }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: row, error: rowError } = await supabaseAdmin
+        .from("obra_images" as any)
+        .select("id, obra_id, storage_path")
+        .eq("id", normalizedImageId)
+        .maybeSingle()
+
+    if (rowError || !row) {
+        return { error: rowError?.message ?? "Imagem não encontrada." }
+    }
+
+    const obraId = (row as { obra_id?: string | null }).obra_id
+    const storagePath = (row as { storage_path?: string | null }).storage_path
+
+    if (!obraId || !storagePath) {
+        return { error: "Imagem sem arquivo vinculado." }
+    }
+
+    if (role === "supervisor") {
+        const isAllowed = await canSupervisorAccessWorkCard({
+            supabaseAdmin,
+            userId: user.id,
+            obraId,
+        })
+
+        if (!isAllowed) {
+            return { error: "Sem permissão para acessar esta imagem." }
+        }
+    }
+
+    const [viewResult, downloadResult] = await Promise.all([
+        supabaseAdmin.storage
+            .from(WORK_IMAGES_BUCKET)
+            .createSignedUrl(storagePath, WORK_IMAGE_FULL_TTL_SECONDS),
+        supabaseAdmin.storage
+            .from(WORK_IMAGES_BUCKET)
+            .createSignedUrl(storagePath, WORK_IMAGE_FULL_TTL_SECONDS, { download: true }),
+    ])
+
+    if (viewResult.error || !viewResult.data?.signedUrl) {
+        return { error: viewResult.error?.message ?? "Falha ao gerar URL da imagem." }
+    }
+
+    if (downloadResult.error) {
+        console.error("Erro ao gerar URL de download da imagem da obra:", downloadResult.error)
+    }
+
+    return {
+        success: true as const,
+        viewUrl: viewResult.data.signedUrl,
+        downloadUrl: downloadResult.data?.signedUrl ?? null,
+    }
 }
 
 export async function addWorkImage(input: {
@@ -1658,7 +1789,7 @@ export async function addWorkImage(input: {
 
         if (storagePaths.length > 0) {
             const { error: storageCleanupError } = await supabaseAdmin.storage
-                .from("obra-images")
+                .from(WORK_IMAGES_BUCKET)
                 .remove(storagePaths)
 
             if (storageCleanupError) {
@@ -1722,7 +1853,7 @@ export async function deleteWorkImage(imageId: string) {
     const storagePath = (row as { storage_path: string }).storage_path
 
     const { error: deleteStorageError } = await supabase.storage
-        .from("obra-images")
+        .from(WORK_IMAGES_BUCKET)
         .remove([storagePath])
 
     if (deleteStorageError) {
