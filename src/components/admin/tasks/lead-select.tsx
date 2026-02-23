@@ -70,31 +70,26 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
             || "Contato"
     }, [])
 
-    // Fetch initial selected value (lead or contact depending on mode)
     React.useEffect(() => {
-        if (!value) return
+        if (!value) {
+            if (mode === "contacts") {
+                setSelectedContact(null)
+            } else {
+                setSelectedLead(null)
+            }
+            return
+        }
 
         if (mode === "contacts") {
-            if (selectedContact?.id === value) return
-            getTaskContactById(value).then((data) => {
-                if (data) setSelectedContact(data)
+            void getTaskContactById(value).then((data) => {
+                setSelectedContact(data ?? null)
             })
             return
         }
 
-        if (selectedLead?.id === value) return
-        getTaskLeadById(value).then((data) => {
-            if (data) setSelectedLead(data)
+        void getTaskLeadById(value).then((data) => {
+            setSelectedLead(data ?? null)
         })
-    }, [mode, value, selectedContact?.id, selectedLead?.id])
-
-    React.useEffect(() => {
-        if (mode === "leads" && !value) {
-            setSelectedLead(null)
-        }
-        if (mode === "contacts" && !value) {
-            setSelectedContact(null)
-        }
     }, [mode, value])
 
     React.useEffect(() => {
@@ -117,7 +112,7 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
             if (contactData) setContacts(contactData)
         }
         fetchLeads()
-    }, [debouncedSearch, showLeads, showContacts])
+    }, [debouncedSearch, showLeads, showContacts, leadBrand])
 
     const selectedLabel = React.useMemo(() => {
         if (selectedLead) {
@@ -181,17 +176,13 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                         {showLeads && (
                             <CommandGroup heading="Indicações">
                                 {leads.map((lead) => (
-                                <CommandItem
-                                    key={`lead-${lead.id}`}
-                                    value={`lead-${lead.nome}-${lead.id}`}
-                                    className="cursor-pointer"
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    onSelect={() => {
-                                        handleSelectLead(lead)
-                                    }}
-                                    onClick={() => {
-                                        handleSelectLead(lead)
-                                    }}
+                                    <CommandItem
+                                        key={`lead-${lead.id}`}
+                                        value={`lead-${lead.nome}-${lead.id}`}
+                                        className="cursor-pointer text-foreground"
+                                        onSelect={() => {
+                                            handleSelectLead(lead)
+                                        }}
                                 >
                                         <Check
                                             className={cn(
@@ -227,14 +218,10 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                     <CommandItem
                                         key={`contact-${contact.id}`}
                                         value={`contact-${name}-${contact.id}`}
-                                        className="cursor-pointer"
-                                        onMouseDown={(event) => event.preventDefault()}
+                                        className="cursor-pointer text-foreground"
                                         onSelect={() => {
                                             handleSelectContact(contact)
                                         }}
-                                        onClick={() => {
-                                            handleSelectContact(contact)
-                                            }}
                                         >
                                             <Check
                                                 className={cn(
