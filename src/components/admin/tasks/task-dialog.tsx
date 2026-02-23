@@ -338,7 +338,7 @@ export function TaskDialog() {
                                             <SelectContent>
                                                 <SelectItem value="vendas">Vendas</SelectItem>
                                                 <SelectItem value="cadastro">Cadastro</SelectItem>
-                                                <SelectItem value="energia">Energia</SelectItem>
+                                                <SelectItem value="energia">Engenharia/Proj.</SelectItem>
                                                 <SelectItem value="juridico">Jurídico</SelectItem>
                                                 <SelectItem value="financeiro">Financeiro</SelectItem>
                                                 <SelectItem value="ti">TI</SelectItem>

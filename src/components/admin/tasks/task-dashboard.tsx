@@ -29,7 +29,7 @@ const DEPARTMENT_ORDER: Department[] = [
 const DEPARTMENT_LABELS: Record<Department, string> = {
     vendas: "Vendas",
     cadastro: "Cadastro",
-    energia: "Energia",
+    energia: "Engenharia/Proj.",
     juridico: "Jurídico",
     financeiro: "Financeiro",
     ti: "TI",
