@@ -13,7 +13,7 @@ interface TaskDashboardProps {
 }
 
 const PRODUCTIVITY_TIMEZONE = "America/Cuiaba"
-const CADASTRO_ALERT_STORAGE_KEY = "tasks:cadastro-alert:last-seen-at"
+const CADASTRO_ALERT_STORAGE_KEY = "tasks:cadastro-alert:seen-ids"
 
 const DEPARTMENT_ORDER: Department[] = [
     "vendas",
@@ -87,86 +87,154 @@ function normalizeDepartment(value: string | null | undefined): Department | nul
     return null
 }
 
+function isCadastroTodoTask(task: Pick<Task, "department" | "status">) {
+    return normalizeDepartment(task.department) === "cadastro" && task.status === "TODO"
+}
+
+function normalizeStoredTaskIds(value: unknown) {
+    if (!Array.isArray(value)) return []
+
+    const uniqueIds = new Set<string>()
+    value.forEach((item) => {
+        const id = typeof item === "string" ? item.trim() : ""
+        if (id) uniqueIds.add(id)
+    })
+
+    return Array.from(uniqueIds)
+}
+
+function mergeIds(base: string[], incoming: string[]) {
+    const merged = new Set(base)
+    incoming.forEach((id) => {
+        const normalized = id.trim()
+        if (normalized) merged.add(normalized)
+    })
+    return Array.from(merged)
+}
+
 export function TaskDashboard({ tasks }: TaskDashboardProps) {
-    const [cadastroAlertSeenAt, setCadastroAlertSeenAt] = useState<string | null>(null)
+    const [seenCadastroTaskIds, setSeenCadastroTaskIds] = useState<string[]>([])
+    const [pendingCadastroTaskIds, setPendingCadastroTaskIds] = useState<string[]>([])
     const [isCadastroAlertReady, setIsCadastroAlertReady] = useState(false)
-    const [hasUnseenCadastroAlert, setHasUnseenCadastroAlert] = useState(false)
 
-    const syncCadastroAlert = useCallback(async (seenAtOverride?: string | null) => {
-        const seenAt = seenAtOverride ?? cadastroAlertSeenAt
-        if (!seenAt) return
+    const seenCadastroTaskIdsSet = useMemo(() => new Set(seenCadastroTaskIds), [seenCadastroTaskIds])
 
-        const { count, error } = await supabase
+    const addPendingCadastroTaskIds = useCallback((ids: string[]) => {
+        if (ids.length === 0) return
+
+        setPendingCadastroTaskIds((previous) => {
+            const next = new Set(previous)
+            ids.forEach((id) => {
+                const normalized = id.trim()
+                if (!normalized) return
+                if (seenCadastroTaskIdsSet.has(normalized)) return
+                next.add(normalized)
+            })
+            return Array.from(next)
+        })
+    }, [seenCadastroTaskIdsSet])
+
+    const syncCadastroAlert = useCallback(async () => {
+        const { data, error } = await supabase
             .from("tasks")
-            .select("id", { count: "exact", head: true })
+            .select("id, department, status")
             .in("department", ["cadastro", "CADASTRO"])
-            .gt("created_at", seenAt)
+            .eq("status", "TODO")
 
         if (error) {
             console.error("Erro ao sincronizar alerta de cadastro:", error)
             return
         }
 
-        setHasUnseenCadastroAlert((previousValue) => previousValue || (count ?? 0) > 0)
-    }, [cadastroAlertSeenAt])
+        const ids = ((data ?? []) as { id?: string | null }[])
+            .map((row) => (typeof row.id === "string" ? row.id.trim() : ""))
+            .filter((id) => id.length > 0)
+
+        addPendingCadastroTaskIds(ids)
+    }, [addPendingCadastroTaskIds])
 
     const markCadastroAlertAsSeen = useCallback(() => {
-        const nowIso = new Date().toISOString()
-        setCadastroAlertSeenAt(nowIso)
-        setHasUnseenCadastroAlert(false)
+        if (pendingCadastroTaskIds.length === 0) return
+
+        const nextSeenIds = mergeIds(seenCadastroTaskIds, pendingCadastroTaskIds)
+        setSeenCadastroTaskIds(nextSeenIds)
+        setPendingCadastroTaskIds([])
+
         if (typeof window !== "undefined") {
-            window.localStorage.setItem(CADASTRO_ALERT_STORAGE_KEY, nowIso)
+            window.localStorage.setItem(
+                CADASTRO_ALERT_STORAGE_KEY,
+                JSON.stringify(nextSeenIds.slice(-1000))
+            )
         }
-    }, [])
+    }, [pendingCadastroTaskIds, seenCadastroTaskIds])
 
     useEffect(() => {
         if (typeof window === "undefined") return
 
         const storedValue = window.localStorage.getItem(CADASTRO_ALERT_STORAGE_KEY)
-        if (storedValue) {
-            setCadastroAlertSeenAt(storedValue)
+        if (!storedValue) {
+            setSeenCadastroTaskIds([])
             setIsCadastroAlertReady(true)
             return
         }
 
-        const nowIso = new Date().toISOString()
-        window.localStorage.setItem(CADASTRO_ALERT_STORAGE_KEY, nowIso)
-        setCadastroAlertSeenAt(nowIso)
+        try {
+            const parsed = JSON.parse(storedValue)
+            setSeenCadastroTaskIds(normalizeStoredTaskIds(parsed))
+        } catch {
+            setSeenCadastroTaskIds([])
+        }
+
         setIsCadastroAlertReady(true)
     }, [])
 
     useEffect(() => {
-        if (!isCadastroAlertReady || !cadastroAlertSeenAt) return
-        void syncCadastroAlert(cadastroAlertSeenAt)
-    }, [isCadastroAlertReady, cadastroAlertSeenAt, syncCadastroAlert])
+        if (!isCadastroAlertReady) return
+
+        const initialCadastroTodoIds = tasks
+            .filter(isCadastroTodoTask)
+            .map((task) => task.id)
+            .filter((id) => typeof id === "string" && id.trim().length > 0)
+
+        addPendingCadastroTaskIds(initialCadastroTodoIds)
+        void syncCadastroAlert()
+    }, [isCadastroAlertReady, tasks, addPendingCadastroTaskIds, syncCadastroAlert])
 
     useEffect(() => {
-        if (!isCadastroAlertReady || !cadastroAlertSeenAt) return
+        if (!isCadastroAlertReady) return
 
         const channel = supabase
             .channel("task-dashboard-cadastro-alert")
             .on(
                 "postgres_changes",
                 {
-                    event: "INSERT",
+                    event: "*",
                     schema: "public",
                     table: "tasks",
                 },
                 (payload) => {
-                    const next = (payload as { new?: { department?: string | null; created_at?: string | null } }).new
+                    const next = (payload as { new?: { id?: string | null; department?: string | null; status?: string | null } }).new
+                    const previous = (payload as { old?: { id?: string | null; department?: string | null; status?: string | null } }).old
                     const nextDepartment = normalizeDepartment(next?.department)
-                    if (nextDepartment !== "cadastro") return
+                    const previousDepartment = normalizeDepartment(previous?.department)
+                    const nextStatus = (next?.status ?? "").toUpperCase()
+                    const previousStatus = (previous?.status ?? "").toUpperCase()
 
-                    const createdAtMs = new Date(next?.created_at ?? "").getTime()
-                    const seenAtMs = new Date(cadastroAlertSeenAt).getTime()
-                    if (Number.isNaN(createdAtMs) || Number.isNaN(seenAtMs)) {
-                        setHasUnseenCadastroAlert(true)
-                        return
+                    const touchesCadastro = nextDepartment === "cadastro" || previousDepartment === "cadastro"
+                    const touchesTodo = nextStatus === "TODO" || previousStatus === "TODO"
+                    if (!touchesCadastro && !touchesTodo) return
+
+                    const nextId = typeof next?.id === "string" ? next.id.trim() : ""
+                    if (
+                        nextId &&
+                        nextDepartment === "cadastro" &&
+                        nextStatus === "TODO" &&
+                        !seenCadastroTaskIdsSet.has(nextId)
+                    ) {
+                        addPendingCadastroTaskIds([nextId])
                     }
 
-                    if (createdAtMs > seenAtMs) {
-                        setHasUnseenCadastroAlert(true)
-                    }
+                    void syncCadastroAlert()
                 }
             )
             .subscribe()
@@ -174,24 +242,9 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
         return () => {
             void supabase.removeChannel(channel)
         }
-    }, [isCadastroAlertReady, cadastroAlertSeenAt, syncCadastroAlert])
+    }, [isCadastroAlertReady, seenCadastroTaskIdsSet, addPendingCadastroTaskIds, syncCadastroAlert])
 
-    const hasUnseenCadastroFromInitialTasks = useMemo(() => {
-        if (!cadastroAlertSeenAt) return false
-        const seenAtMs = new Date(cadastroAlertSeenAt).getTime()
-        if (Number.isNaN(seenAtMs)) return false
-
-        return tasks.some((task) => {
-            const taskCreatedAtMs = new Date(task.created_at).getTime()
-            if (Number.isNaN(taskCreatedAtMs)) return false
-            return (
-                normalizeDepartment(task.department) === "cadastro" &&
-                taskCreatedAtMs > seenAtMs
-            )
-        })
-    }, [tasks, cadastroAlertSeenAt])
-
-    const shouldBlinkCadastro = hasUnseenCadastroAlert || hasUnseenCadastroFromInitialTasks
+    const shouldBlinkCadastro = pendingCadastroTaskIds.length > 0
 
     const metrics = useMemo(() => {
         const now = new Date()
