@@ -693,6 +693,8 @@ export async function createTask(data: {
     brand?: Brand
     visibility_scope?: TaskVisibilityScope
     observer_ids?: string[]
+    confirm_duplicate?: boolean
+    allow_duplicate?: boolean
 }) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -700,7 +702,13 @@ export async function createTask(data: {
     if (!user) return { error: "Unauthorized" }
 
     const visibilityScope = data.visibility_scope ?? 'TEAM'
-    const { observer_ids: observerIdsRaw, description: descriptionRaw, ...taskData } = data
+    const {
+        observer_ids: observerIdsRaw,
+        description: descriptionRaw,
+        confirm_duplicate: confirmDuplicate,
+        allow_duplicate: allowDuplicate,
+        ...taskData
+    } = data
     const description = descriptionRaw?.trim()
     const nowIso = new Date().toISOString()
     const internalProposalLookupRoles = new Set([
@@ -796,6 +804,57 @@ export async function createTask(data: {
         }
         if (client?.marca) {
             taskData.brand = client.marca
+        }
+    }
+
+    if (confirmDuplicate && !allowDuplicate) {
+        const normalizedTitle = taskData.title?.trim()
+        const normalizedClientName = taskData.client_name?.trim() || null
+        const normalizedInstallationCode = taskData.codigo_instalacao?.trim() || null
+        const normalizedDepartment = taskData.department ?? null
+
+        if (normalizedTitle) {
+            const duplicateStatuses: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'REVIEW', 'BLOCKED']
+            let duplicateQuery = supabase
+                .from('tasks')
+                .select('id, title, status, created_at')
+                .eq('title', normalizedTitle)
+                .in('status', duplicateStatuses)
+                .limit(5)
+                .order('created_at', { ascending: false })
+
+            if (taskData.brand) {
+                duplicateQuery = duplicateQuery.eq('brand', taskData.brand)
+            }
+
+            if (normalizedDepartment) {
+                duplicateQuery = duplicateQuery.in('department', [normalizedDepartment, toLegacyDepartmentValue(normalizedDepartment)])
+            }
+
+            if (taskData.indicacao_id) {
+                duplicateQuery = duplicateQuery.eq('indicacao_id', taskData.indicacao_id)
+            } else if (taskData.contact_id) {
+                duplicateQuery = duplicateQuery.eq('contact_id', taskData.contact_id)
+            } else if (taskData.proposal_id) {
+                duplicateQuery = duplicateQuery.eq('proposal_id', taskData.proposal_id)
+            } else if (normalizedInstallationCode) {
+                duplicateQuery = duplicateQuery.eq('codigo_instalacao', normalizedInstallationCode)
+            } else if (normalizedClientName) {
+                duplicateQuery = duplicateQuery.eq('client_name', normalizedClientName)
+            }
+
+            const { data: duplicateRows, error: duplicateQueryError } = await duplicateQuery
+
+            if (duplicateQueryError) {
+                console.error("Error checking duplicate tasks:", duplicateQueryError)
+            } else if ((duplicateRows?.length ?? 0) > 0) {
+                return {
+                    requires_duplicate_confirmation: true as const,
+                    duplicate_count: duplicateRows?.length ?? 0,
+                    duplicate_task_ids: (duplicateRows ?? []).map((row: any) => row.id as string),
+                    duplicate_title: normalizedTitle,
+                }
+            }
         }
     }
 

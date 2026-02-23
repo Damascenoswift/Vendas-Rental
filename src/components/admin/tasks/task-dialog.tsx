@@ -149,6 +149,7 @@ export function TaskDialog() {
     }
 
     async function onSubmit(data: TaskFormValues) {
+        if (isLoading) return
         setIsLoading(true)
         try {
             const selectedProposal = data.proposal_id
@@ -166,15 +167,34 @@ export function TaskDialog() {
                 if (lead?.nome) clientName = lead.nome
             }
 
-            const result = await createTask({
+            const taskPayload = {
                 ...data,
                 brand: selectedProposal?.brand ?? data.brand,
                 indicacao_id: data.indicacao_id ?? selectedProposal?.client_id ?? undefined,
                 contact_id: data.contact_id ?? selectedProposal?.contact_id ?? undefined,
                 codigo_instalacao: data.codigo_instalacao ?? selectedProposal?.codigo_instalacao ?? undefined,
                 client_name: clientName,
-                observer_ids: observerIds
-            })
+                observer_ids: observerIds,
+                confirm_duplicate: true,
+            } as const
+
+            let result = await createTask(taskPayload)
+            if ("requires_duplicate_confirmation" in result && result.requires_duplicate_confirmation) {
+                const duplicateCount = result.duplicate_count ?? 1
+                const confirmed = confirm(
+                    `Já existe${duplicateCount > 1 ? `m ${duplicateCount} tarefas parecidas` : " uma tarefa parecida"} em aberto. Deseja criar duplicada mesmo assim?`
+                )
+
+                if (!confirmed) {
+                    setIsLoading(false)
+                    return
+                }
+
+                result = await createTask({
+                    ...taskPayload,
+                    allow_duplicate: true,
+                })
+            }
 
             if (result.error) {
                 showToast({ title: "Erro ao criar tarefa", description: result.error, variant: "error" })
