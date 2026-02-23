@@ -10,7 +10,12 @@ import type {
     PricingRule,
     ProposalStatus,
 } from "@/services/proposal-service"
-import { calculateProposal, type ProposalCalcInput, type ProposalCalcParams } from "@/lib/proposal-calculation"
+import {
+    calculateProposal,
+    type ProposalCalcInput,
+    type ProposalCalcParams,
+    type ProposalStringInverterInput,
+} from "@/lib/proposal-calculation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -55,6 +60,37 @@ type ManualContactState = {
     first_name: string
     last_name: string
     whatsapp: string
+}
+
+type StringInverterRow = {
+    row_id: string
+    product_id: string
+    quantity: number
+    unit_cost: number
+    power_kw: number
+    power_source: "product" | "manual"
+    purchase_required: boolean
+}
+
+function createRowId() {
+    return Math.random().toString(36).slice(2, 10)
+}
+
+function normalizeQuantity(value: number) {
+    if (!Number.isFinite(value)) return 1
+    return value > 0 ? value : 1
+}
+
+function normalizePositive(value: number) {
+    if (!Number.isFinite(value)) return 0
+    return value > 0 ? value : 0
+}
+
+function toPowerKwFromProduct(product?: Product | null) {
+    if (!product) return 0
+    const watts = Number(product.power || 0)
+    if (!Number.isFinite(watts) || watts <= 0) return 0
+    return watts / 1000
 }
 
 function toNumber(value: string) {
@@ -144,12 +180,101 @@ export function ProposalCalculatorComplete({
             ? (initialProposal.calculation.input as Partial<ProposalCalcInput>)
             : null
 
-    const [moduleProductId, setModuleProductId] = useState<string>("")
-    const [microProductId, setMicroProductId] = useState<string>("")
-    const [stringProductId, setStringProductId] = useState<string>("")
-    const [stringQuantity, setStringQuantity] = useState<number>(
-        initialCalculationInput?.dimensioning?.qtd_inversor_string ?? 1
-    )
+    const productById = useMemo(() => {
+        const map = new Map<string, Product>()
+        for (const product of products) {
+            map.set(product.id, product)
+        }
+        return map
+    }, [products])
+
+    const initialProposalItems = initialProposal?.items ?? []
+    const initialInverterMode = initialCalculationInput?.dimensioning?.tipo_inversor ?? "STRING"
+    const initialModuleItem = initialProposalItems.find((item) => {
+        const productId = item.product_id ?? ""
+        return productById.get(productId)?.type === "module"
+    })
+    const initialMicroItem = initialProposalItems.find((item) => {
+        const productId = item.product_id ?? ""
+        const product = productById.get(productId)
+        if (!product || product.type !== "inverter") return false
+        const kind = getSpecValue(product, "inverter_kind")
+        if (kind === "micro") return true
+        return initialInverterMode === "MICRO" && kind !== "string"
+    })
+
+    const buildInitialStringInverterRows = () => {
+        const fromCalculation = initialCalculationInput?.dimensioning?.string_inverters
+        if (Array.isArray(fromCalculation) && fromCalculation.length > 0) {
+            const rows = fromCalculation
+                .map((line) => {
+                    const productId = typeof line?.product_id === "string" ? line.product_id : ""
+                    if (!productId) return null
+                    const quantity = normalizeQuantity(Number(line?.quantity || 0))
+                    const unitCost = normalizePositive(Number(line?.unit_cost || 0))
+                    const powerKw = normalizePositive(Number(line?.power_kw || 0))
+                    const powerSource = line?.power_source === "manual" ? "manual" : "product"
+                    const purchaseRequired = line?.purchase_required === true || powerSource === "manual"
+                    return {
+                        row_id: createRowId(),
+                        product_id: productId,
+                        quantity,
+                        unit_cost: unitCost,
+                        power_kw: powerKw,
+                        power_source: powerSource,
+                        purchase_required: purchaseRequired,
+                    } satisfies StringInverterRow
+                })
+                .filter((row): row is StringInverterRow => Boolean(row))
+
+            if (rows.length > 0) return rows
+        }
+
+        if (initialInverterMode !== "STRING") return [] as StringInverterRow[]
+
+        const fallbackItems = initialProposalItems.filter((item) => {
+            const productId = item.product_id ?? ""
+            const product = productById.get(productId)
+            if (!product || product.type !== "inverter") return false
+            const kind = getSpecValue(product, "inverter_kind")
+            return kind === "string" || !kind
+        })
+
+        if (fallbackItems.length === 0) return [] as StringInverterRow[]
+
+        const legacyTotalPowerKw = normalizePositive(
+            Number(
+                initialCalculationInput?.dimensioning?.potencia_inversor_string_kw ??
+                    initialProposal?.calculation?.output?.dimensioning?.inversor?.pot_string_kw ??
+                    0
+            )
+        )
+        const fallbackTotalQty = fallbackItems.reduce((acc, item) => acc + normalizeQuantity(Number(item.quantity || 0)), 0)
+        const fallbackPerUnitPowerKw = fallbackTotalQty > 0 ? legacyTotalPowerKw / fallbackTotalQty : 0
+
+        return fallbackItems.map((item) => {
+            const productId = item.product_id ?? ""
+            const product = productById.get(productId)
+            const powerKwFromProduct = toPowerKwFromProduct(product)
+            const quantity = normalizeQuantity(Number(item.quantity || 0))
+            const unitCost = normalizePositive(Number(item.unit_price || 0))
+            const powerKw = powerKwFromProduct > 0 ? powerKwFromProduct : fallbackPerUnitPowerKw
+            const powerSource: "product" | "manual" = powerKwFromProduct > 0 ? "product" : "manual"
+            return {
+                row_id: createRowId(),
+                product_id: productId,
+                quantity,
+                unit_cost: unitCost,
+                power_kw: normalizePositive(powerKw),
+                power_source: powerSource,
+                purchase_required: powerSource === "manual",
+            } satisfies StringInverterRow
+        })
+    }
+
+    const [moduleProductId, setModuleProductId] = useState<string>(initialModuleItem?.product_id ?? "")
+    const [microProductId, setMicroProductId] = useState<string>(initialMicroItem?.product_id ?? "")
+    const [stringInverterRows, setStringInverterRows] = useState<StringInverterRow[]>(buildInitialStringInverterRows)
     const [structureSoloProductId, setStructureSoloProductId] = useState<string>("")
     const [structureTelhadoProductId, setStructureTelhadoProductId] = useState<string>("")
 
@@ -289,7 +414,50 @@ export function ProposalCalculatorComplete({
     const router = useRouter()
     const [loading, setLoading] = useState(false)
 
-    const calculated = useMemo(() => calculateProposal(input), [input])
+    const normalizedStringInverters = useMemo<ProposalStringInverterInput[]>(
+        () =>
+            stringInverterRows
+                .map((row) => ({
+                    product_id: row.product_id,
+                    quantity: normalizeQuantity(Number(row.quantity || 0)),
+                    unit_cost: normalizePositive(Number(row.unit_cost || 0)),
+                    power_kw: normalizePositive(Number(row.power_kw || 0)),
+                    power_source: row.power_source,
+                    purchase_required: row.purchase_required || row.power_source === "manual",
+                }))
+                .filter((row) => Boolean(row.product_id)),
+        [stringInverterRows]
+    )
+    const validStringInverters = useMemo(
+        () => normalizedStringInverters.filter((row) => row.quantity > 0 && row.power_kw > 0),
+        [normalizedStringInverters]
+    )
+    const stringInverterTotalCost = useMemo(
+        () => normalizedStringInverters.reduce((acc, row) => acc + (row.unit_cost * row.quantity), 0),
+        [normalizedStringInverters]
+    )
+    const stringInverterTotalQty = useMemo(
+        () => normalizedStringInverters.reduce((acc, row) => acc + row.quantity, 0),
+        [normalizedStringInverters]
+    )
+
+    const calculationInput = useMemo<ProposalCalcInput>(
+        () => ({
+            ...input,
+            dimensioning: {
+                ...input.dimensioning,
+                qtd_inversor_string: stringInverterTotalQty,
+                string_inverters: normalizedStringInverters.length > 0 ? normalizedStringInverters : undefined,
+            },
+            kit: {
+                ...input.kit,
+                string_inverter_total_cost: stringInverterTotalCost,
+            },
+        }),
+        [input, normalizedStringInverters, stringInverterTotalCost, stringInverterTotalQty]
+    )
+
+    const calculated = useMemo(() => calculateProposal(calculationInput), [calculationInput])
     const moduleUnitCost = calculated.output.kit.custo_modulo_unitario
     const selectedContactPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
     const isContactPhoneLocked = Boolean(selectedContact && selectedContactPhone)
@@ -369,20 +537,66 @@ export function ProposalCalculatorComplete({
         updateKit({ micro_unit_cost: unitCost })
     }
 
-    const handleStringSelect = (value: string) => {
-        setStringProductId(value)
-        const product = inverterProducts.find((p) => p.id === value)
-        if (!product) return
-        const unitCost = product.cost ?? product.price ?? 0
-        updateKit({ string_inverter_total_cost: unitCost * stringQuantity })
+    const handleAddStringInverterRow = () => {
+        setStringInverterRows((prev) => [
+            ...prev,
+            {
+                row_id: createRowId(),
+                product_id: "",
+                quantity: 1,
+                unit_cost: 0,
+                power_kw: 0,
+                power_source: "manual",
+                purchase_required: true,
+            },
+        ])
     }
 
-    const handleStringQuantityChange = (value: number) => {
-        setStringQuantity(value)
-        const product = inverterProducts.find((p) => p.id === stringProductId)
-        if (!product) return
-        const unitCost = product.cost ?? product.price ?? 0
-        updateKit({ string_inverter_total_cost: unitCost * value })
+    const handleRemoveStringInverterRow = (rowId: string) => {
+        setStringInverterRows((prev) => prev.filter((row) => row.row_id !== rowId))
+    }
+
+    const handleStringRowChange = (rowId: string, patch: Partial<StringInverterRow>) => {
+        setStringInverterRows((prev) =>
+            prev.map((row) => {
+                if (row.row_id !== rowId) return row
+                const next = { ...row, ...patch }
+                if (next.power_source === "manual") {
+                    next.purchase_required = true
+                }
+                return next
+            })
+        )
+    }
+
+    const handleStringRowProductSelect = (rowId: string, productId: string) => {
+        const product = inverterProducts.find((entry) => entry.id === productId)
+        if (!product) {
+            handleStringRowChange(rowId, { product_id: productId })
+            return
+        }
+
+        const unitCost = Number(product.cost ?? product.price ?? 0)
+        const productPowerKw = toPowerKwFromProduct(product)
+
+        if (productPowerKw > 0) {
+            handleStringRowChange(rowId, {
+                product_id: productId,
+                unit_cost: unitCost,
+                power_kw: productPowerKw,
+                power_source: "product",
+                purchase_required: false,
+            })
+            return
+        }
+
+        handleStringRowChange(rowId, {
+            product_id: productId,
+            unit_cost: unitCost,
+            power_kw: 0,
+            power_source: "manual",
+            purchase_required: true,
+        })
     }
 
     const handleStructureSoloSelect = (value: string) => {
@@ -446,6 +660,43 @@ export function ProposalCalculatorComplete({
             })
             return
         }
+        if (!moduleProductId) {
+            showToast({
+                variant: "error",
+                title: "Módulo obrigatório",
+                description: "Selecione a placa/módulo do estoque para salvar o orçamento completo.",
+            })
+            return
+        }
+        if (input.dimensioning.tipo_inversor === "MICRO" && !microProductId) {
+            showToast({
+                variant: "error",
+                title: "Inversor obrigatório",
+                description: "Selecione o micro inversor para salvar o orçamento completo.",
+            })
+            return
+        }
+        if (input.dimensioning.tipo_inversor === "STRING") {
+            const hasSelectedStringInverter = normalizedStringInverters.length > 0
+            if (!hasSelectedStringInverter) {
+                showToast({
+                    variant: "error",
+                    title: "Inversor obrigatório",
+                    description: "Adicione pelo menos um inversor string para salvar o orçamento completo.",
+                })
+                return
+            }
+
+            const hasInvalidStringInverter = normalizedStringInverters.some((line) => line.quantity <= 0 || line.power_kw <= 0)
+            if (hasInvalidStringInverter) {
+                showToast({
+                    variant: "error",
+                    title: "Potência de inversor inválida",
+                    description: "Preencha potência maior que zero para todos os inversores string selecionados.",
+                })
+                return
+            }
+        }
 
         const manualFirstName = manualContact.first_name.trim()
         const manualLastName = manualContact.last_name.trim()
@@ -505,14 +756,15 @@ export function ProposalCalculatorComplete({
                 })
             }
 
-            if (input.dimensioning.tipo_inversor === "STRING" && stringProductId && stringQuantity > 0) {
-                const unitPrice = stringQuantity > 0 ? input.kit.string_inverter_total_cost / stringQuantity : 0
-                items.push({
-                    product_id: stringProductId,
-                    quantity: stringQuantity,
-                    unit_price: unitPrice,
-                    total_price: input.kit.string_inverter_total_cost,
-                })
+            if (input.dimensioning.tipo_inversor === "STRING") {
+                for (const row of validStringInverters) {
+                    items.push({
+                        product_id: row.product_id,
+                        quantity: row.quantity,
+                        unit_price: row.unit_cost,
+                        total_price: row.unit_cost * row.quantity,
+                    })
+                }
             }
 
             if (structureSoloProductId && input.structure.qtd_placas_solo > 0) {
@@ -783,10 +1035,14 @@ export function ProposalCalculatorComplete({
                                 min="0"
                                 step="0.01"
                                 value={input.dimensioning.potencia_inversor_string_kw ?? 0}
+                                disabled={
+                                    input.dimensioning.tipo_inversor === "STRING" &&
+                                    stringInverterRows.some((row) => Boolean(row.product_id))
+                                }
                                 onChange={(e) => updateDimensioning({ potencia_inversor_string_kw: toNumber(e.target.value) })}
                             />
                             <p className="text-xs text-muted-foreground">
-                                Se deixar 0, o cálculo usa automaticamente o oversizing.
+                                Sem linhas de inversor string, o cálculo usa este valor (ou oversizing quando 0).
                             </p>
                         </div>
                         <div className="space-y-2">
@@ -880,41 +1136,125 @@ export function ProposalCalculatorComplete({
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label>Custo total inversor (string)</Label>
+                                <Label>Custo total inversores string (calculado)</Label>
                                 <Input
                                     type="number"
                                     step="0.01"
-                                    value={input.kit.string_inverter_total_cost}
-                                    onChange={(e) => updateKit({ string_inverter_total_cost: toNumber(e.target.value) })}
+                                    value={stringInverterTotalCost}
+                                    disabled
                                 />
                             </div>
                         </div>
 
-                        <div className="grid gap-4 md:grid-cols-3">
-                            <div className="space-y-2">
-                                <Label>Inversor string (opcional)</Label>
-                                <Select value={stringProductId} onValueChange={handleStringSelect}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Selecionar" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {effectiveStringInverters.map((product) => (
-                                            <SelectItem key={product.id} value={product.id}>
-                                                {product.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                        <div className="space-y-3 rounded-md border p-3">
+                            <div className="flex items-center justify-between">
+                                <Label>Inversores string</Label>
+                                <Button type="button" variant="outline" size="sm" onClick={handleAddStringInverterRow}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Adicionar inversor
+                                </Button>
                             </div>
-                            <div className="space-y-2">
-                                <Label>Qtd. string</Label>
-                                <Input
-                                    type="number"
-                                    min="1"
-                                    value={stringQuantity}
-                                    onChange={(e) => handleStringQuantityChange(toNumber(e.target.value))}
-                                />
-                            </div>
+                            {stringInverterRows.length === 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                    Adicione um ou mais inversores string. A potência de cada item entra no cálculo final.
+                                </p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {stringInverterRows.map((row) => {
+                                        const isManualPower = row.power_source === "manual"
+                                        return (
+                                            <div key={row.row_id} className="rounded-md border p-3">
+                                                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_90px_140px_140px_auto]">
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs">Produto</Label>
+                                                        <Select
+                                                            value={row.product_id}
+                                                            onValueChange={(value) => handleStringRowProductSelect(row.row_id, value)}
+                                                        >
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Selecionar" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {effectiveStringInverters.map((product) => (
+                                                                    <SelectItem key={product.id} value={product.id}>
+                                                                        {product.name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs">Qtd.</Label>
+                                                        <Input
+                                                            type="number"
+                                                            min="1"
+                                                            value={row.quantity}
+                                                            onChange={(e) =>
+                                                                handleStringRowChange(row.row_id, {
+                                                                    quantity: normalizeQuantity(toNumber(e.target.value)),
+                                                                })
+                                                            }
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs">Custo unitário</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.01"
+                                                            value={row.unit_cost}
+                                                            onChange={(e) =>
+                                                                handleStringRowChange(row.row_id, {
+                                                                    unit_cost: normalizePositive(toNumber(e.target.value)),
+                                                                })
+                                                            }
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs">Potência (kW)</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            value={row.power_kw}
+                                                            disabled={!isManualPower}
+                                                            onChange={(e) =>
+                                                                handleStringRowChange(row.row_id, {
+                                                                    power_kw: normalizePositive(toNumber(e.target.value)),
+                                                                })
+                                                            }
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-end justify-end">
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => handleRemoveStringInverterRow(row.row_id)}
+                                                        >
+                                                            <Trash2 className="h-4 w-4 text-red-500" />
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                                <div className="mt-2 flex items-center justify-between gap-2">
+                                                    <span className="text-[11px] text-muted-foreground">
+                                                        {isManualPower
+                                                            ? "Potência manual: item marcado para compra necessária."
+                                                            : "Potência carregada automaticamente do estoque (W -> kW)."}
+                                                    </span>
+                                                    {row.purchase_required ? (
+                                                        <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
+                                                            Compra necessária
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                                 <Label>Custo unitário micro</Label>
                                 <Input
@@ -924,9 +1264,13 @@ export function ProposalCalculatorComplete({
                                     onChange={(e) => updateKit({ micro_unit_cost: toNumber(e.target.value) })}
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label>Custo kit calculado</Label>
+                                <Input value={formatCurrency(calculated.output.kit.custo_kit)} disabled />
+                            </div>
                         </div>
 
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid gap-4 md:grid-cols-1">
                             <div className="space-y-2">
                                 <Label>Micro inversor (opcional)</Label>
                                 <Select value={microProductId} onValueChange={handleMicroSelect}>
@@ -941,10 +1285,6 @@ export function ProposalCalculatorComplete({
                                         ))}
                                     </SelectContent>
                                 </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Custo kit calculado</Label>
-                                <Input value={formatCurrency(calculated.output.kit.custo_kit)} disabled />
                             </div>
                         </div>
                     </CardContent>

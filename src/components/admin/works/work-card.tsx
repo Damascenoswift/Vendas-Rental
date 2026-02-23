@@ -1,13 +1,25 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import type { WorkCard } from "@/services/work-cards-service"
+import { differenceInBusinessDays } from "@/lib/business-days"
 
 function getStatusLabel(status: WorkCard["status"]) {
     if (status === "FECHADA") return "Obra Fechada"
     if (status === "PARA_INICIAR") return "Para Iniciar"
     return "Em Andamento"
+}
+
+function formatBusinessDaysLabel(totalDays: number) {
+    return `${totalDays} ${totalDays === 1 ? "dia útil" : "dias úteis"}`
+}
+
+function formatDateLabel(value: string) {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return "-"
+    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date)
 }
 
 export function WorkCardItem({
@@ -17,6 +29,13 @@ export function WorkCardItem({
     item: WorkCard
     onClick?: () => void
 }) {
+    const [now, setNow] = useState(() => new Date())
+
+    useEffect(() => {
+        const timerId = window.setInterval(() => setNow(new Date()), 60_000)
+        return () => window.clearInterval(timerId)
+    }, [])
+
     const progress = item.progress ?? {
         projeto_total: 0,
         projeto_done: 0,
@@ -32,11 +51,55 @@ export function WorkCardItem({
         ? Math.round((progress.execucao_done / progress.execucao_total) * 100)
         : 0
 
+    const deadlineInfo = useMemo(() => {
+        if (!item.execution_deadline_at || !item.execution_deadline_business_days) return null
+
+        const deadlineDate = new Date(item.execution_deadline_at)
+        if (Number.isNaN(deadlineDate.getTime())) return null
+
+        const remainingBusinessDays = differenceInBusinessDays(now, deadlineDate)
+        const plannedDaysLabel = formatBusinessDaysLabel(item.execution_deadline_business_days)
+        const deadlineDateLabel = formatDateLabel(item.execution_deadline_at)
+
+        if (remainingBusinessDays > 0) {
+            return {
+                variant: "secondary" as const,
+                backgroundClass: "bg-amber-50 border-b border-amber-100",
+                label: `Entrega em ${formatBusinessDaysLabel(remainingBusinessDays)}`,
+                meta: `Prazo: ${plannedDaysLabel} · Previsto: ${deadlineDateLabel}`,
+            }
+        }
+
+        if (remainingBusinessDays === 0) {
+            return {
+                variant: "outline" as const,
+                backgroundClass: "bg-blue-50 border-b border-blue-100",
+                label: "Entrega hoje",
+                meta: `Prazo: ${plannedDaysLabel} · Previsto: ${deadlineDateLabel}`,
+            }
+        }
+
+        const delayedBusinessDays = Math.abs(remainingBusinessDays)
+        return {
+            variant: "destructive" as const,
+            backgroundClass: "bg-red-50 border-b border-red-100",
+            label: `Atrasada ${formatBusinessDaysLabel(delayedBusinessDays)}`,
+            meta: `Prazo: ${plannedDaysLabel} · Previsto: ${deadlineDateLabel}`,
+        }
+    }, [item.execution_deadline_at, item.execution_deadline_business_days, now])
+
     return (
         <Card
             className="cursor-pointer overflow-hidden border border-slate-200 bg-white transition-shadow hover:shadow-md"
             onClick={onClick}
         >
+            {deadlineInfo ? (
+                <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-2 ${deadlineInfo.backgroundClass}`}>
+                    <Badge variant={deadlineInfo.variant}>{deadlineInfo.label}</Badge>
+                    <span className="text-[11px] text-muted-foreground">{deadlineInfo.meta}</span>
+                </div>
+            ) : null}
+
             <div className="h-32 w-full bg-slate-100">
                 {item.cover_image_url ? (
                     <img

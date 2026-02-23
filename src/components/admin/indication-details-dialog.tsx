@@ -363,9 +363,36 @@ export function IndicationDetailsDialog({
     const handleActivateWorkCard = async (proposalId: string) => {
         if (activatingProposalId) return
 
+        const rawBusinessDays = window.prompt(
+            "Quanto tempo para execução desta obra? Informe em dias úteis.",
+            "30",
+        )
+
+        if (rawBusinessDays === null) return
+
+        const sanitizedBusinessDays = rawBusinessDays.trim()
+        if (!/^\d+$/.test(sanitizedBusinessDays)) {
+            showToast({
+                title: "Prazo inválido",
+                description: "Informe um número inteiro de dias úteis.",
+                variant: "error",
+            })
+            return
+        }
+
+        const executionBusinessDays = Number.parseInt(sanitizedBusinessDays, 10)
+        if (executionBusinessDays <= 0) {
+            showToast({
+                title: "Prazo inválido",
+                description: "O prazo deve ser maior que zero.",
+                variant: "error",
+            })
+            return
+        }
+
         setActivatingProposalId(proposalId)
         try {
-            const result = await activateWorkCardFromProposal(proposalId)
+            const result = await activateWorkCardFromProposal(proposalId, { executionBusinessDays })
             if (result?.error) {
                 showToast({
                     title: "Falha ao enviar para Obras",
@@ -377,7 +404,9 @@ export function IndicationDetailsDialog({
 
             showToast({
                 title: "Obra atualizada",
-                description: result?.warning ?? "Card criado/atualizado no módulo de Obras.",
+                description:
+                    result?.warning ??
+                    `Card criado/atualizado no módulo de Obras. Prazo definido: ${executionBusinessDays} dia(s) úteis.`,
                 variant: "success",
             })
             router.refresh()

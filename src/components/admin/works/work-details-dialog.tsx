@@ -47,6 +47,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { getProductRealtimeInfo, type ProductRealtimeInfo } from "@/services/product-service"
 
 function statusLabel(status: WorkCard["status"]) {
     if (status === "FECHADA") return "Obra Fechada"
@@ -153,7 +154,123 @@ function formatTotalInverterQuantity(snapshot: unknown) {
     return total > 0 ? total.toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "-"
 }
 
+type SnapshotModule = {
+    product_id: string | null
+    name: string | null
+    model: string | null
+    manufacturer: string | null
+    power_w: number | null
+}
+
+type SnapshotInverter = {
+    product_id: string | null
+    name: string | null
+    model: string | null
+    manufacturer: string | null
+    inverter_type: string | null
+    quantity: number | null
+    power_kw: number | null
+    power_w: number | null
+    purchase_required: boolean
+}
+
+type TechnicalProductTarget = {
+    product_id: string
+    title: string
+    subtitle: string
+    purchase_required?: boolean
+}
+
+function getSnapshotModule(snapshot: unknown): SnapshotModule | null {
+    const raw = getSnapshotValue(snapshot, "equipment.module")
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+    const row = raw as Record<string, unknown>
+    const powerRaw = Number(row.power ?? row.power_w)
+    return {
+        product_id: typeof row.product_id === "string" ? row.product_id : null,
+        name: typeof row.name === "string" ? row.name : null,
+        model: typeof row.model === "string" ? row.model : null,
+        manufacturer: typeof row.manufacturer === "string" ? row.manufacturer : null,
+        power_w: Number.isFinite(powerRaw) ? powerRaw : null,
+    }
+}
+
+function getSnapshotInverters(snapshot: unknown): SnapshotInverter[] {
+    const raw = getSnapshotValue(snapshot, "equipment.inverters")
+    if (!Array.isArray(raw)) return []
+
+    return raw
+        .map((item) => {
+            if (!item || typeof item !== "object") return null
+            const row = item as Record<string, unknown>
+            const quantityRaw = Number(row.quantity)
+            const powerKwRaw = Number(row.power_kw)
+            const powerWRaw = Number(row.power_w ?? row.power)
+            return {
+                product_id: typeof row.product_id === "string" ? row.product_id : null,
+                name: typeof row.name === "string" ? row.name : null,
+                model: typeof row.model === "string" ? row.model : null,
+                manufacturer: typeof row.manufacturer === "string" ? row.manufacturer : null,
+                inverter_type: typeof row.inverter_type === "string" ? row.inverter_type : null,
+                quantity: Number.isFinite(quantityRaw) ? quantityRaw : null,
+                power_kw: Number.isFinite(powerKwRaw) && powerKwRaw > 0 ? powerKwRaw : null,
+                power_w: Number.isFinite(powerWRaw) && powerWRaw > 0 ? powerWRaw : null,
+                purchase_required: row.purchase_required === true,
+            } satisfies SnapshotInverter
+        })
+        .filter((item): item is SnapshotInverter => Boolean(item))
+}
+
+function formatInverterManufacturers(snapshot: unknown) {
+    const manufacturers = getSnapshotInverters(snapshot)
+        .map((row) => row.manufacturer?.trim())
+        .filter((value): value is string => Boolean(value))
+
+    const unique = Array.from(new Set(manufacturers))
+    if (unique.length === 0) return "-"
+    return unique.join(" | ")
+}
+
+function formatInverterPowers(snapshot: unknown) {
+    const labels = getSnapshotInverters(snapshot)
+        .map((row) => {
+            const powerKw = row.power_kw ?? (row.power_w && row.power_w > 0 ? row.power_w / 1000 : null)
+            if (!powerKw || !Number.isFinite(powerKw)) return null
+            const quantity = row.quantity && row.quantity > 0 ? ` x${row.quantity}` : ""
+            const powerLabel = powerKw.toLocaleString("pt-BR", {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 2,
+            })
+            return `${powerLabel} kW${quantity}`
+        })
+        .filter((value): value is string => Boolean(value))
+
+    if (labels.length === 0) return "-"
+    return labels.join(" | ")
+}
+
+function formatModuleSelectionLabel(item: SnapshotModule) {
+    const name = item.model || item.name || "Placa sem nome"
+    const manufacturer = item.manufacturer ? ` • ${item.manufacturer}` : ""
+    const power = item.power_w && item.power_w > 0
+        ? ` • ${Number(item.power_w).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} W`
+        : ""
+    return `${name}${manufacturer}${power}`
+}
+
+function formatInverterSelectionLabel(item: SnapshotInverter) {
+    const modelOrName = item.model || item.name || "Inversor"
+    const manufacturer = item.manufacturer ? ` • ${item.manufacturer}` : ""
+    const powerKw = item.power_kw ?? (item.power_w && item.power_w > 0 ? item.power_w / 1000 : null)
+    const power = powerKw
+        ? ` • ${powerKw.toLocaleString("pt-BR", { maximumFractionDigits: 2 })} kW`
+        : ""
+    const quantity = item.quantity && item.quantity > 0 ? ` x${item.quantity}` : ""
+    return `${modelOrName}${manufacturer}${power}${quantity}`
+}
+
 function buildTechnicalSnapshotRows(snapshot: unknown) {
+    const moduleFromSnapshot = getSnapshotModule(snapshot)
     const rows = [
         {
             label: "Origem do orçamento",
@@ -186,6 +303,10 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
         {
             label: "Potência do módulo",
             value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.input_dimensioning.potencia_modulo_w"), "number", "W"),
+        },
+        {
+            label: "Potência da placa selecionada",
+            value: formatSnapshotValue(moduleFromSnapshot?.power_w, "number", "W"),
         },
         {
             label: "Modelo do módulo",
@@ -221,6 +342,14 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
         {
             label: "Modelo(s) de inversor(es)",
             value: formatInverterModels(snapshot),
+        },
+        {
+            label: "Marca(s) de inversor(es)",
+            value: formatInverterManufacturers(snapshot),
+        },
+        {
+            label: "Potência(s) de inversor(es)",
+            value: formatInverterPowers(snapshot),
         },
         {
             label: "Qtd. inversor(es)",
@@ -371,6 +500,11 @@ export function WorkDetailsDialog({
     const [viewerViewUrl, setViewerViewUrl] = useState<string | null>(null)
     const [viewerDownloadUrl, setViewerDownloadUrl] = useState<string | null>(null)
     const [viewerError, setViewerError] = useState<string | null>(null)
+    const [productDialogOpen, setProductDialogOpen] = useState(false)
+    const [productDialogLoading, setProductDialogLoading] = useState(false)
+    const [selectedTechnicalProduct, setSelectedTechnicalProduct] = useState<TechnicalProductTarget | null>(null)
+    const [selectedProductInfo, setSelectedProductInfo] = useState<ProductRealtimeInfo | null>(null)
+    const [productDialogError, setProductDialogError] = useState<string | null>(null)
 
     const projectItems = useMemo(
         () => processItems.filter((item) => item.phase === "PROJETO"),
@@ -629,6 +763,38 @@ export function WorkDetailsDialog({
         setViewerError(null)
     }
 
+    function handleProductDialogOpenChange(nextOpen: boolean) {
+        setProductDialogOpen(nextOpen)
+        if (nextOpen) return
+
+        setProductDialogLoading(false)
+        setSelectedTechnicalProduct(null)
+        setSelectedProductInfo(null)
+        setProductDialogError(null)
+    }
+
+    async function handleOpenTechnicalProduct(target: TechnicalProductTarget) {
+        setSelectedTechnicalProduct(target)
+        setSelectedProductInfo(null)
+        setProductDialogError(null)
+        setProductDialogLoading(true)
+        setProductDialogOpen(true)
+
+        try {
+            const realtimeInfo = await getProductRealtimeInfo(target.product_id)
+            if (!realtimeInfo) {
+                setProductDialogError("Produto não encontrado no estoque atual.")
+                return
+            }
+            setSelectedProductInfo(realtimeInfo)
+        } catch (error) {
+            console.error("Erro ao carregar produto em tempo real:", error)
+            setProductDialogError("Não foi possível carregar os dados atuais do produto.")
+        } finally {
+            setProductDialogLoading(false)
+        }
+    }
+
     async function handleDeleteImage(imageId: string) {
         setIsSaving(true)
         try {
@@ -655,7 +821,10 @@ export function WorkDetailsDialog({
     const beforeImages = images.filter((item) => item.image_type === "ANTES")
     const afterImages = images.filter((item) => item.image_type === "DEPOIS")
 
-    const technicalRows = buildTechnicalSnapshotRows(work?.technical_snapshot ?? {})
+    const technicalSnapshot = work?.technical_snapshot ?? {}
+    const technicalRows = buildTechnicalSnapshotRows(technicalSnapshot)
+    const technicalModule = getSnapshotModule(technicalSnapshot)
+    const technicalInverters = getSnapshotInverters(technicalSnapshot)
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -717,6 +886,56 @@ export function WorkDetailsDialog({
                                 ) : (
                                     <div className="max-h-72 overflow-auto rounded-md border bg-slate-50 p-3">
                                         <div className="grid gap-2 sm:grid-cols-2">
+                                            <div className="rounded-md border bg-white p-2 text-xs">
+                                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Placa selecionada</p>
+                                                {technicalModule?.product_id ? (
+                                                    <button
+                                                        type="button"
+                                                        className="mt-1 w-full rounded-md border border-dashed px-2 py-1 text-left text-sm font-medium text-foreground hover:bg-slate-50"
+                                                        onClick={() =>
+                                                            handleOpenTechnicalProduct({
+                                                                product_id: technicalModule.product_id!,
+                                                                title: technicalModule.model || technicalModule.name || "Placa",
+                                                                subtitle: formatModuleSelectionLabel(technicalModule),
+                                                            })
+                                                        }
+                                                    >
+                                                        {formatModuleSelectionLabel(technicalModule)}
+                                                    </button>
+                                                ) : (
+                                                    <p className="mt-1 text-sm font-medium text-foreground">-</p>
+                                                )}
+                                            </div>
+                                            <div className="rounded-md border bg-white p-2 text-xs">
+                                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Inversores selecionados</p>
+                                                {technicalInverters.filter((item) => item.product_id).length > 0 ? (
+                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                        {technicalInverters
+                                                            .filter((item): item is SnapshotInverter & { product_id: string } => Boolean(item.product_id))
+                                                            .map((item, index) => (
+                                                                <button
+                                                                    key={`${item.product_id}-${index}`}
+                                                                    type="button"
+                                                                    className="rounded-md border border-dashed px-2 py-1 text-left text-xs font-medium hover:bg-slate-50"
+                                                                    onClick={() =>
+                                                                        handleOpenTechnicalProduct({
+                                                                            product_id: item.product_id,
+                                                                            title: item.model || item.name || "Inversor",
+                                                                            subtitle: formatInverterSelectionLabel(item),
+                                                                            purchase_required: item.purchase_required,
+                                                                        })
+                                                                    }
+                                                                >
+                                                                    {formatInverterSelectionLabel(item)}
+                                                                </button>
+                                                            ))}
+                                                    </div>
+                                                ) : (
+                                                    <p className="mt-1 text-sm font-medium text-foreground">-</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
                                             {technicalRows.map((entry) => (
                                                 <div key={`${entry.label}-${entry.value}`} className="rounded-md border bg-white p-2 text-xs">
                                                     <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{entry.label}</p>
@@ -1023,6 +1242,81 @@ export function WorkDetailsDialog({
                             </Button>
                         ) : null}
                         <Button variant="secondary" onClick={() => handleViewerOpenChange(false)}>
+                            Fechar
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={productDialogOpen} onOpenChange={handleProductDialogOpenChange}>
+                <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>{selectedTechnicalProduct?.title || "Detalhes do equipamento"}</DialogTitle>
+                        <DialogDescription>
+                            Estoque em tempo real do produto selecionado.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {productDialogLoading ? (
+                        <div className="flex justify-center py-8">
+                            <Loader2 className="h-6 w-6 animate-spin" />
+                        </div>
+                    ) : productDialogError ? (
+                        <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+                            {productDialogError}
+                        </div>
+                    ) : selectedProductInfo ? (
+                        <div className="space-y-3 rounded-md border bg-slate-50 p-3 text-sm">
+                            <div className="space-y-1 rounded-md border bg-white p-3">
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground">Produto</p>
+                                <p className="font-medium">{selectedProductInfo.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                    {selectedTechnicalProduct?.subtitle || "-"}
+                                </p>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <div className="rounded-md border bg-white p-3">
+                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Fabricante</p>
+                                    <p className="font-medium">{selectedProductInfo.manufacturer || "-"}</p>
+                                </div>
+                                <div className="rounded-md border bg-white p-3">
+                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Modelo</p>
+                                    <p className="font-medium">{selectedProductInfo.model || "-"}</p>
+                                </div>
+                                <div className="rounded-md border bg-white p-3">
+                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Potência</p>
+                                    <p className="font-medium">
+                                        {typeof selectedProductInfo.power === "number"
+                                            ? `${selectedProductInfo.power.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} W`
+                                            : "-"}
+                                    </p>
+                                </div>
+                                <div className="rounded-md border bg-white p-3">
+                                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Estoque atual</p>
+                                    <p className="font-medium">
+                                        Total {selectedProductInfo.stock_total} • Reservado {selectedProductInfo.stock_reserved} • Disponível {selectedProductInfo.stock_available}
+                                    </p>
+                                </div>
+                            </div>
+                            {selectedTechnicalProduct?.purchase_required ? (
+                                <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                                    Compra necessária: este inversor foi salvo com potência manual no orçamento.
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+                            Produto indisponível no momento.
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-2">
+                        {selectedProductInfo ? (
+                            <Button asChild variant="outline">
+                                <Link href={`/admin/estoque/${selectedProductInfo.id}`}>Abrir no estoque</Link>
+                            </Button>
+                        ) : null}
+                        <Button variant="secondary" onClick={() => handleProductDialogOpenChange(false)}>
                             Fechar
                         </Button>
                     </div>

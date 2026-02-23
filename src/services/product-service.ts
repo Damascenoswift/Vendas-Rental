@@ -13,6 +13,17 @@ export type StockMovement = Database['public']['Tables']['stock_movements']['Row
 export type StockMovementInsert = Database['public']['Tables']['stock_movements']['Insert']
 export type StockMovementType = Database['public']['Enums']['stock_movement_type']
 
+export type ProductRealtimeInfo = {
+    id: string
+    name: string
+    manufacturer: string | null
+    model: string | null
+    power: number | null
+    stock_total: number
+    stock_reserved: number
+    stock_available: number
+}
+
 type ProductActionResult = { data: Product | null; error?: string }
 
 export async function getProducts(filters?: { active?: boolean, type?: ProductType }) {
@@ -56,6 +67,37 @@ export async function getProduct(id: string) {
     }
 
     return data as Product
+}
+
+export async function getProductRealtimeInfo(id: string): Promise<ProductRealtimeInfo | null> {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase
+        .from('products')
+        .select('id, name, manufacturer, model, power, stock_total, stock_reserved')
+        .eq('id', id)
+        .maybeSingle()
+
+    if (error || !data) {
+        if (error) {
+            console.error('Error fetching product realtime info:', error)
+        }
+        return null
+    }
+
+    const stockTotal = Number(data.stock_total || 0)
+    const stockReserved = Number(data.stock_reserved || 0)
+
+    return {
+        id: data.id,
+        name: data.name,
+        manufacturer: data.manufacturer,
+        model: data.model,
+        power: data.power,
+        stock_total: stockTotal,
+        stock_reserved: stockReserved,
+        stock_available: stockTotal - stockReserved,
+    }
 }
 
 export async function createProduct(product: ProductInsert) {

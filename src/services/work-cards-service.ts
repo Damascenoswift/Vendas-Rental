@@ -6,6 +6,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { createTask, type TaskStatus } from "@/services/task-service"
+import { addBusinessDays } from "@/lib/business-days"
 
 export type WorkCardStatus = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
 export type WorkPhase = "PROJETO" | "EXECUCAO"
@@ -27,6 +28,8 @@ export interface WorkCard {
     indicacao_id: string | null
     contact_id: string | null
     primary_proposal_id: string | null
+    execution_deadline_business_days: number | null
+    execution_deadline_at: string | null
     tasks_integration_enabled: boolean
     projeto_liberado_at: string | null
     projeto_liberado_by: string | null
@@ -229,6 +232,13 @@ function normalizeWorkCardsError(message?: string | null) {
         (normalized.includes("does not exist") || normalized.includes("schema cache") || normalized.includes("could not find"))
     ) {
         return "Banco desatualizado: execute a migração 087_work_cards_core.sql."
+    }
+
+    if (
+        normalized.includes("execution_deadline_business_days") ||
+        normalized.includes("execution_deadline_at")
+    ) {
+        return "Banco desatualizado: execute a migração 090_work_cards_execution_deadline.sql."
     }
 
     if (
@@ -436,6 +446,10 @@ type WorkProposalEquipmentInverter = {
     model: string | null
     manufacturer: string | null
     inverter_type: string | null
+    power_w: number | null
+    power_kw: number | null
+    power_source: "product" | "manual" | null
+    purchase_required: boolean
     quantity: number
 }
 
@@ -462,9 +476,48 @@ function normalizeProductRelation(raw: unknown) {
     return null
 }
 
+type WorkCalculationStringInverter = {
+    product_id: string
+    power_kw: number | null
+    power_source: "product" | "manual" | null
+    purchase_required: boolean
+}
+
+function getCalculationStringInverters(calculation: Record<string, unknown> | null): WorkCalculationStringInverter[] {
+    if (!calculation || typeof calculation !== "object") return []
+    const input = calculation.input
+    if (!input || typeof input !== "object") return []
+    const dimensioning = (input as Record<string, unknown>).dimensioning
+    if (!dimensioning || typeof dimensioning !== "object") return []
+    const raw = (dimensioning as Record<string, unknown>).string_inverters
+    if (!Array.isArray(raw)) return []
+
+    return raw
+        .map((item) => {
+            if (!item || typeof item !== "object") return null
+            const row = item as Record<string, unknown>
+            const productId = typeof row.product_id === "string" ? row.product_id : null
+            if (!productId) return null
+            const powerKwRaw = Number(row.power_kw)
+            const powerKw = Number.isFinite(powerKwRaw) && powerKwRaw > 0 ? powerKwRaw : null
+            const powerSource = row.power_source === "product" || row.power_source === "manual"
+                ? row.power_source
+                : null
+            const purchaseRequired = row.purchase_required === true || powerSource === "manual"
+            return {
+                product_id: productId,
+                power_kw: powerKw,
+                power_source: powerSource,
+                purchase_required: purchaseRequired,
+            } satisfies WorkCalculationStringInverter
+        })
+        .filter((item): item is WorkCalculationStringInverter => Boolean(item))
+}
+
 async function getProposalEquipmentSummary(params: {
     supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
     proposalId: string
+    calculation?: Record<string, unknown> | null
 }): Promise<WorkProposalEquipmentSummary> {
     const empty: WorkProposalEquipmentSummary = {
         module: null,
@@ -484,6 +537,14 @@ async function getProposalEquipmentSummary(params: {
     if (error) {
         console.error("Erro ao buscar itens/equipamentos do orçamento para obra:", error)
         return empty
+    }
+
+    const calculationStringInverters = getCalculationStringInverters(params.calculation ?? null)
+    const calculationStringInvertersByProduct = new Map<string, WorkCalculationStringInverter[]>()
+    for (const row of calculationStringInverters) {
+        const existing = calculationStringInvertersByProduct.get(row.product_id) ?? []
+        existing.push(row)
+        calculationStringInvertersByProduct.set(row.product_id, existing)
     }
 
     let bestModule: WorkProposalEquipmentModule | null = null
@@ -517,12 +578,24 @@ async function getProposalEquipmentSummary(params: {
         }
 
         if (productType === "inverter") {
+            const productPowerW = typeof product.power === "number" ? product.power : null
+            const fallbackPowerKw = productPowerW && productPowerW > 0 ? productPowerW / 1000 : null
+            const calculatedRows = calculationStringInvertersByProduct.get(productId) ?? []
+            const calculatedRow = calculatedRows.length > 0 ? calculatedRows.shift() ?? null : null
+            const powerSource = calculatedRow?.power_source ?? (fallbackPowerKw ? "product" : null)
+            const powerKw = calculatedRow?.power_kw ?? fallbackPowerKw
+            const purchaseRequired = calculatedRow?.purchase_required === true || powerSource === "manual"
+
             inverters.push({
                 product_id: productId,
                 name: typeof product.name === "string" ? product.name : null,
                 model: typeof product.model === "string" ? product.model : null,
                 manufacturer: typeof product.manufacturer === "string" ? product.manufacturer : null,
                 inverter_type: getProductSpecValue(product.specs, "inverter_kind"),
+                power_w: productPowerW,
+                power_kw: powerKw,
+                power_source: powerSource,
+                purchase_required: purchaseRequired,
                 quantity,
             })
         }
@@ -904,6 +977,7 @@ export async function upsertWorkCardFromProposal(params: {
     proposalId: string
     actorId?: string | null
     allowNonAccepted?: boolean
+    executionBusinessDays?: number | null
 }) {
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -922,6 +996,17 @@ export async function upsertWorkCardFromProposal(params: {
     if (!allowNonAccepted && proposal.status !== "accepted") {
         return { skipped: true }
     }
+
+    const executionBusinessDays =
+        typeof params.executionBusinessDays === "number" &&
+            Number.isInteger(params.executionBusinessDays) &&
+            params.executionBusinessDays > 0
+            ? params.executionBusinessDays
+            : null
+
+    const executionDeadlineAt = executionBusinessDays
+        ? addBusinessDays(new Date(), executionBusinessDays).toISOString()
+        : null
 
     type IndicacaoForWorkCard = {
         id: string
@@ -962,6 +1047,7 @@ export async function upsertWorkCardFromProposal(params: {
     const equipmentSummary = await getProposalEquipmentSummary({
         supabaseAdmin,
         proposalId: proposal.id,
+        calculation: proposal.calculation,
     })
 
     const shouldWarnMissingTechnicalEquipment =
@@ -1017,6 +1103,8 @@ export async function upsertWorkCardFromProposal(params: {
         indicacao_id: indicacao?.id ?? proposal.client_id ?? null,
         contact_id: proposal.contact_id ?? null,
         primary_proposal_id: proposal.id,
+        execution_deadline_business_days: executionBusinessDays,
+        execution_deadline_at: executionDeadlineAt,
         technical_snapshot: technicalSnapshot,
         created_by: actorId,
     }
@@ -1025,9 +1113,17 @@ export async function upsertWorkCardFromProposal(params: {
     let workId = existingCard?.id ?? null
 
     if (!workId) {
+        const insertPayload = executionBusinessDays
+            ? cardPayload
+            : {
+                ...cardPayload,
+                execution_deadline_business_days: null,
+                execution_deadline_at: null,
+            }
+
         const { data: inserted, error: insertError } = await supabaseAdmin
             .from("obra_cards" as any)
-            .insert(cardPayload)
+            .insert(insertPayload)
             .select("id")
             .single()
 
@@ -1037,17 +1133,24 @@ export async function upsertWorkCardFromProposal(params: {
 
         workId = inserted.id as string
     } else {
+        const updatePayload: Record<string, unknown> = {
+            codigo_instalacao: cardPayload.codigo_instalacao,
+            title: cardPayload.title,
+            indicacao_id: cardPayload.indicacao_id,
+            contact_id: cardPayload.contact_id ?? existingCard?.contact_id ?? null,
+            primary_proposal_id: cardPayload.primary_proposal_id,
+            technical_snapshot: cardPayload.technical_snapshot,
+            updated_at: new Date().toISOString(),
+        }
+
+        if (executionBusinessDays) {
+            updatePayload.execution_deadline_business_days = executionBusinessDays
+            updatePayload.execution_deadline_at = executionDeadlineAt
+        }
+
         const { error: updateError } = await supabaseAdmin
             .from("obra_cards" as any)
-            .update({
-                codigo_instalacao: cardPayload.codigo_instalacao,
-                title: cardPayload.title,
-                indicacao_id: cardPayload.indicacao_id,
-                contact_id: cardPayload.contact_id ?? existingCard?.contact_id ?? null,
-                primary_proposal_id: cardPayload.primary_proposal_id,
-                technical_snapshot: cardPayload.technical_snapshot,
-                updated_at: new Date().toISOString(),
-            })
+            .update(updatePayload)
             .eq("id", workId)
 
         if (updateError) {
@@ -1153,6 +1256,8 @@ export async function getWorkCards(filters?: {
             indicacao_id,
             contact_id,
             primary_proposal_id,
+            execution_deadline_business_days,
+            execution_deadline_at,
             tasks_integration_enabled,
             projeto_liberado_at,
             projeto_liberado_by,

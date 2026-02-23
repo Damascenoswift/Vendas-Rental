@@ -10,6 +10,15 @@ export type ProposalCalcParams = {
     duplication_rule: "DUPLICATE_KIT_AND_SOLO_STRUCTURE" | "NO_DUPLICATION"
 }
 
+export type ProposalStringInverterInput = {
+    product_id: string
+    quantity: number
+    unit_cost: number
+    power_kw: number
+    power_source: "product" | "manual"
+    purchase_required: boolean
+}
+
 export type ProposalCalcInput = {
     dimensioning: {
         qtd_modulos: number
@@ -20,6 +29,7 @@ export type ProposalCalcInput = {
         potencia_inversor_string_kw?: number
         qtd_inversor_string?: number
         qtd_inversor_micro?: number
+        string_inverters?: ProposalStringInverterInput[]
     }
     kit: {
         module_cost_per_watt: number
@@ -149,20 +159,48 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const kWhEstimado = (qtdModulos * potenciaModuloW * indiceProducao) / 1000
 
     const potenciaInversorStringInformada = Number(input.dimensioning.potencia_inversor_string_kw || 0)
-    const potStringKw = potenciaInversorStringInformada > 0
-        ? potenciaInversorStringInformada
-        : (fatorOversizing ? kWp / fatorOversizing : 0)
     const qtdMicroSugerida = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
     const qtdStringInformada = Number(input.dimensioning.qtd_inversor_string || 0)
     const qtdMicroInformada = Number(input.dimensioning.qtd_inversor_micro || 0)
-    const qtdString = qtdStringInformada > 0 ? qtdStringInformada : 0
     const qtdMicro = qtdMicroInformada > 0 ? qtdMicroInformada : qtdMicroSugerida
     const potMicroTotalKw = qtdMicro * params.micro_unit_power_kw
 
     const moduleCostPerWatt = Number(input.kit.module_cost_per_watt || 0)
     const cablingUnitCost = Number(input.kit.cabling_unit_cost || 0)
     const microUnitCost = Number(input.kit.micro_unit_cost || 0)
-    const stringInverterTotalCost = Number(input.kit.string_inverter_total_cost || 0)
+    const normalizedStringInverters = Array.isArray(input.dimensioning.string_inverters)
+        ? input.dimensioning.string_inverters
+            .map((item) => ({
+                quantity: Number(item?.quantity || 0),
+                unit_cost: Number(item?.unit_cost || 0),
+                power_kw: Number(item?.power_kw || 0),
+            }))
+            .filter((item) =>
+                Number.isFinite(item.quantity) &&
+                item.quantity > 0 &&
+                Number.isFinite(item.unit_cost) &&
+                Number.isFinite(item.power_kw) &&
+                item.power_kw > 0
+            )
+        : []
+    const hasStringInverterRows = normalizedStringInverters.length > 0
+    const qtdStringFromRows = normalizedStringInverters.reduce((acc, item) => acc + item.quantity, 0)
+    const potStringFromRowsKw = normalizedStringInverters.reduce((acc, item) => acc + (item.power_kw * item.quantity), 0)
+    const totalStringCostFromRows = normalizedStringInverters.reduce((acc, item) => acc + (item.unit_cost * item.quantity), 0)
+
+    const potStringKw = hasStringInverterRows
+        ? potStringFromRowsKw
+        : potenciaInversorStringInformada > 0
+            ? potenciaInversorStringInformada
+            : (fatorOversizing ? kWp / fatorOversizing : 0)
+    const qtdString = hasStringInverterRows
+        ? qtdStringFromRows
+        : qtdStringInformada > 0
+            ? qtdStringInformada
+            : 0
+    const stringInverterTotalCost = hasStringInverterRows
+        ? totalStringCostFromRows
+        : Number(input.kit.string_inverter_total_cost || 0)
     const moduleUnitCost = moduleCostPerWatt * potenciaModuloW
 
     const custoModulosTotal = qtdModulos * (moduleUnitCost + cablingUnitCost)

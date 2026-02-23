@@ -8,7 +8,10 @@ import { getRentalDefaultStageName } from "@/services/crm-card-service"
 import { createRentalTasksForIndication, createTask } from "@/services/task-service"
 import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
-export async function activateWorkCardFromProposal(proposalId: string) {
+export async function activateWorkCardFromProposal(
+    proposalId: string,
+    options?: { executionBusinessDays?: number | null },
+) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -23,10 +26,24 @@ export async function activateWorkCardFromProposal(proposalId: string) {
         return { error: "Sem permissão para enviar orçamento para Obras." }
     }
 
+    const rawBusinessDays = options?.executionBusinessDays
+    const hasBusinessDaysInput = rawBusinessDays !== null && rawBusinessDays !== undefined
+    const executionBusinessDays =
+        typeof rawBusinessDays === "number" &&
+            Number.isInteger(rawBusinessDays) &&
+            rawBusinessDays > 0
+            ? rawBusinessDays
+            : null
+
+    if (hasBusinessDaysInput && executionBusinessDays === null) {
+        return { error: "Informe o prazo de execução em dias úteis (inteiro maior que zero)." }
+    }
+
     const result = await upsertWorkCardFromProposal({
         proposalId,
         actorId: user.id,
         allowNonAccepted: true,
+        executionBusinessDays,
     })
 
     if (result?.error) {

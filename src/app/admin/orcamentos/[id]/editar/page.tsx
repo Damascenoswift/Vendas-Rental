@@ -19,7 +19,7 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
     const { upgrade } = await searchParams
 
     const [products, pricingRules, proposal] = await Promise.all([
-        getProducts({ active: true }),
+        getProducts(),
         getPricingRules(),
         getProposalEditorData(id),
     ])
