@@ -248,7 +248,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                         >
                             <option value="vendas">Vendas</option>
                             <option value="cadastro">Cadastro</option>
-                            <option value="energia">Energia</option>
+                            <option value="energia">Engenharia/Proj.</option>
                             <option value="juridico">Jurídico</option>
                             <option value="financeiro">Financeiro</option>
                             <option value="ti">TI</option>
