@@ -15,8 +15,8 @@ type SoundStep = {
 
 const SOUND_COOLDOWN_MS = 500
 const BASE_VOLUME = 0.04
-const SOUND_GAIN_MULTIPLIER = 10
-const MAX_OUTPUT_VOLUME = 0.5
+const SOUND_GAIN_MULTIPLIER = 20
+const MAX_OUTPUT_VOLUME = 1
 
 const soundTimeline: Record<NotificationSoundKind, SoundStep[]> = {
     rental_indication: [
