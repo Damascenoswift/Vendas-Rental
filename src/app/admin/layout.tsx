@@ -5,6 +5,7 @@ import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar" // Import Sidebar
 import { ToastContainer } from "@/components/ui/toaster"
 import { Bell } from "lucide-react"
+import { NotificationSoundListener } from "@/components/layout/notification-sound-listener"
 
 export default async function AdminLayout({
     children,
@@ -33,6 +34,7 @@ export default async function AdminLayout({
 
     return (
         <div className="flex min-h-screen">
+            <NotificationSoundListener />
             <Sidebar /> {/* Add Sidebar here */}
             <div className="flex flex-1 flex-col">
                 <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-6 shadow-sm">

@@ -8,6 +8,7 @@ import { ToastContainer } from "@/components/ui/toaster"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Header } from "@/components/layout/header"
+import { NotificationSoundListener } from "@/components/layout/notification-sound-listener"
 
 type DashboardLayoutProps = {
   children: ReactNode
@@ -35,6 +36,7 @@ export default function DashboardLayout({
 
   return (
     <div className="flex min-h-screen w-full bg-muted/40">
+      <NotificationSoundListener />
       <Sidebar className="hidden lg:block border-r bg-background" />
       <div className="flex flex-col flex-1 h-screen overflow-hidden">
         <Header />
