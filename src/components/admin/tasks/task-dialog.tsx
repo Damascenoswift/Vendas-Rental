@@ -37,7 +37,11 @@ import { createTask, getTaskAssignableUsers, getTaskLeadById, getTaskProposalOpt
 import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import { Checkbox } from "@/components/ui/checkbox"
-import { uploadTaskPdfAttachment, validateTaskPdfAttachment } from "@/lib/task-attachments"
+import {
+    MAX_TASK_ATTACHMENTS_PER_TASK,
+    uploadTaskAttachments,
+    validateTaskAttachmentFiles,
+} from "@/lib/task-attachments"
 
 const taskSchema = z
     .object({
@@ -74,7 +78,7 @@ export function TaskDialog() {
     const [users, setUsers] = useState<{ id: string, name: string, department: string | null }[]>([])
     const [observerIds, setObserverIds] = useState<string[]>([])
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
-    const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+    const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
     const attachmentInputRef = useRef<HTMLInputElement>(null)
 
     const { showToast } = useToast()
@@ -109,7 +113,7 @@ export function TaskDialog() {
     useEffect(() => {
         if (!open) {
             setObserverIds([])
-            setAttachmentFile(null)
+            setAttachmentFiles([])
             if (attachmentInputRef.current) {
                 attachmentInputRef.current.value = ""
             }
@@ -117,21 +121,21 @@ export function TaskDialog() {
     }, [open])
 
     function handleAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
-        const file = event.target.files?.[0] ?? null
-        if (!file) {
-            setAttachmentFile(null)
+        const files = Array.from(event.target.files ?? [])
+        if (files.length === 0) {
+            setAttachmentFiles([])
             return
         }
 
-        const validationError = validateTaskPdfAttachment(file)
+        const validationError = validateTaskAttachmentFiles(files, { maxCount: MAX_TASK_ATTACHMENTS_PER_TASK })
         if (validationError) {
             showToast({ title: "Arquivo inválido", description: validationError, variant: "error" })
             event.target.value = ""
-            setAttachmentFile(null)
+            setAttachmentFiles([])
             return
         }
 
-        setAttachmentFile(file)
+        setAttachmentFiles(files)
     }
 
     async function fetchUsers() {
@@ -202,30 +206,34 @@ export function TaskDialog() {
                 const createdTaskId = (result as { taskId?: string | null }).taskId ?? null
                 let attachmentError: string | null = null
 
-                if (attachmentFile && !createdTaskId) {
-                    attachmentError = "A tarefa foi criada, mas não foi possível identificar o ID para anexar o PDF."
-                } else if (attachmentFile && createdTaskId) {
-                    const uploadResult = await uploadTaskPdfAttachment(createdTaskId, attachmentFile)
+                if (attachmentFiles.length > 0 && !createdTaskId) {
+                    attachmentError = "A tarefa foi criada, mas não foi possível identificar o ID para anexar os arquivos."
+                } else if (attachmentFiles.length > 0 && createdTaskId) {
+                    const uploadResult = await uploadTaskAttachments(createdTaskId, attachmentFiles, {
+                        maxCount: MAX_TASK_ATTACHMENTS_PER_TASK,
+                    })
                     if (uploadResult.error) {
                         attachmentError = uploadResult.error
+                    } else if (uploadResult.failed.length > 0) {
+                        attachmentError = `Falha em ${uploadResult.failed.length} arquivo(s).`
                     }
                 }
 
                 if (attachmentError) {
                     showToast({
                         title: "Tarefa criada com alerta",
-                        description: `Tarefa criada, mas o PDF não foi anexado: ${attachmentError}`,
+                        description: `Tarefa criada, mas houve erro no anexo: ${attachmentError}`,
                         variant: "info",
                     })
-                } else if (attachmentFile) {
-                    showToast({ title: "Tarefa criada com PDF anexado!", variant: "success" })
+                } else if (attachmentFiles.length > 0) {
+                    showToast({ title: `Tarefa criada com ${attachmentFiles.length} anexo(s)!`, variant: "success" })
                 } else {
                     showToast({ title: "Tarefa criada!", variant: "success" })
                 }
                 setOpen(false)
                 form.reset()
                 setObserverIds([])
-                setAttachmentFile(null)
+                setAttachmentFiles([])
                 if (attachmentInputRef.current) {
                     attachmentInputRef.current.value = ""
                 }
@@ -624,15 +632,21 @@ export function TaskDialog() {
                         />
 
                         <div className="space-y-2">
-                            <FormLabel>Anexo PDF (Opcional)</FormLabel>
+                            <FormLabel>Anexos PDF/PNG (Opcional)</FormLabel>
                             <Input
                                 ref={attachmentInputRef}
                                 type="file"
-                                accept="application/pdf,.pdf"
+                                accept="application/pdf,.pdf,image/png,.png"
+                                multiple
                                 onChange={handleAttachmentChange}
                             />
+                            {attachmentFiles.length > 0 ? (
+                                <p className="text-xs text-muted-foreground">
+                                    {attachmentFiles.length} arquivo(s) selecionado(s).
+                                </p>
+                            ) : null}
                             <p className="text-xs text-muted-foreground">
-                                Apenas PDF, até 10MB.
+                                Até {MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa. Aceitos: PDF ou PNG (máx. 10MB cada).
                             </p>
                         </div>
 

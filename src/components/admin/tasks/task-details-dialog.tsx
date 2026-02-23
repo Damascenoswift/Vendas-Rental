@@ -25,11 +25,12 @@ import {
     updateTask,
 } from "@/services/task-service"
 import {
+    MAX_TASK_ATTACHMENTS_PER_TASK,
     formatTaskAttachmentSize,
-    listTaskPdfAttachments,
+    listTaskAttachments,
     type TaskAttachmentFile,
-    uploadTaskPdfAttachment,
-    validateTaskPdfAttachment,
+    uploadTaskAttachments,
+    validateTaskAttachmentFiles,
 } from "@/lib/task-attachments"
 
 import {
@@ -249,7 +250,7 @@ export function TaskDetailsDialog({
     const [editContactId, setEditContactId] = useState("")
     const [editProposalId, setEditProposalId] = useState("")
     const [isClientLinkExpanded, setIsClientLinkExpanded] = useState(false)
-    const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
+    const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const attachmentInputRef = useRef<HTMLInputElement>(null)
     const commentTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -376,7 +377,7 @@ export function TaskDetailsDialog({
         setActiveMentionContext(null)
         setHighlightedMentionIndex(0)
         setReplyTo(null)
-        setAttachmentFile(null)
+        setAttachmentFiles([])
         if (attachmentInputRef.current) {
             attachmentInputRef.current.value = ""
         }
@@ -402,7 +403,7 @@ export function TaskDetailsDialog({
                 getTaskChecklists(task.id),
                 getTaskObservers(task.id),
                 getTaskComments(task.id),
-                listTaskPdfAttachments(task.id),
+                listTaskAttachments(task.id),
             ])
 
             if (checklistResult.status === "fulfilled") {
@@ -642,7 +643,7 @@ export function TaskDetailsDialog({
     }
 
     const refreshTaskAttachments = async (taskId: string) => {
-        const result = await listTaskPdfAttachments(taskId)
+        const result = await listTaskAttachments(taskId)
         if (result.error) {
             console.error("Error fetching task attachments:", result.error)
             return
@@ -651,40 +652,85 @@ export function TaskDetailsDialog({
     }
 
     const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0] ?? null
-        if (!file) {
-            setAttachmentFile(null)
+        const files = Array.from(event.target.files ?? [])
+        if (files.length === 0) {
+            setAttachmentFiles([])
             return
         }
 
-        const validationError = validateTaskPdfAttachment(file)
+        const remainingSlots = Math.max(0, MAX_TASK_ATTACHMENTS_PER_TASK - attachments.length)
+        if (remainingSlots <= 0) {
+            showToast({
+                title: "Limite atingido",
+                description: `Esta tarefa já possui ${MAX_TASK_ATTACHMENTS_PER_TASK} anexos.`,
+                variant: "error",
+            })
+            event.target.value = ""
+            setAttachmentFiles([])
+            return
+        }
+
+        const validationError = validateTaskAttachmentFiles(files, { maxCount: remainingSlots })
         if (validationError) {
             showToast({ title: "Arquivo inválido", description: validationError, variant: "error" })
             event.target.value = ""
-            setAttachmentFile(null)
+            setAttachmentFiles([])
             return
         }
 
-        setAttachmentFile(file)
+        setAttachmentFiles(files)
     }
 
     const handleUploadAttachment = async () => {
-        if (!task || !attachmentFile) return
+        if (!task || attachmentFiles.length === 0) return
+
+        if (attachments.length >= MAX_TASK_ATTACHMENTS_PER_TASK) {
+            showToast({
+                title: "Limite atingido",
+                description: `Esta tarefa já possui ${MAX_TASK_ATTACHMENTS_PER_TASK} anexos.`,
+                variant: "error",
+            })
+            return
+        }
+
+        if (attachments.length + attachmentFiles.length > MAX_TASK_ATTACHMENTS_PER_TASK) {
+            showToast({
+                title: "Muitos arquivos",
+                description: `Você pode anexar no máximo ${MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa.`,
+                variant: "error",
+            })
+            return
+        }
 
         setIsUploadingAttachment(true)
-        const uploadResult = await uploadTaskPdfAttachment(task.id, attachmentFile)
-        if (uploadResult.error) {
-            showToast({ title: "Erro ao anexar PDF", description: uploadResult.error, variant: "error" })
+        const uploadResult = await uploadTaskAttachments(task.id, attachmentFiles, {
+            maxCount: MAX_TASK_ATTACHMENTS_PER_TASK - attachments.length,
+        })
+        if (uploadResult.error && uploadResult.uploaded.length === 0) {
+            showToast({ title: "Erro ao anexar arquivos", description: uploadResult.error, variant: "error" })
             setIsUploadingAttachment(false)
             return
         }
 
         await refreshTaskAttachments(task.id)
-        setAttachmentFile(null)
+        setAttachmentFiles([])
         if (attachmentInputRef.current) {
             attachmentInputRef.current.value = ""
         }
-        showToast({ title: "PDF anexado com sucesso!", variant: "success" })
+
+        if (uploadResult.failed.length > 0) {
+            showToast({
+                title: "Upload concluído com alertas",
+                description: `${uploadResult.uploaded.length} enviado(s), ${uploadResult.failed.length} com falha.`,
+                variant: "info",
+            })
+        } else {
+            showToast({
+                title: `${uploadResult.uploaded.length} arquivo(s) anexado(s)!`,
+                variant: "success",
+            })
+        }
+
         setIsUploadingAttachment(false)
     }
 
@@ -1264,26 +1310,32 @@ export function TaskDetailsDialog({
                             </div>
 
                             <div className="grid gap-2">
-                                <label className="text-xs text-muted-foreground">Anexos (PDF)</label>
+                                <label className="text-xs text-muted-foreground">Anexos (PDF/PNG)</label>
                                 <div className="rounded-md border bg-background p-3 space-y-3">
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                         <Input
                                             ref={attachmentInputRef}
                                             type="file"
-                                            accept="application/pdf,.pdf"
+                                            accept="application/pdf,.pdf,image/png,.png"
+                                            multiple
                                             onChange={handleAttachmentChange}
                                             className="sm:max-w-sm"
                                         />
                                         <Button
                                             type="button"
                                             onClick={handleUploadAttachment}
-                                            disabled={isUploadingAttachment || !attachmentFile}
+                                            disabled={isUploadingAttachment || attachmentFiles.length === 0}
                                         >
-                                            {isUploadingAttachment ? "Enviando..." : "Anexar PDF"}
+                                            {isUploadingAttachment ? "Enviando..." : "Anexar arquivos"}
                                         </Button>
                                     </div>
+                                    {attachmentFiles.length > 0 ? (
+                                        <p className="text-[11px] text-muted-foreground">
+                                            {attachmentFiles.length} arquivo(s) selecionado(s) para upload.
+                                        </p>
+                                    ) : null}
                                     <p className="text-[11px] text-muted-foreground">
-                                        Apenas PDF, até 10MB.
+                                        PDF ou PNG, até 10MB cada. Máximo de {MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa.
                                     </p>
                                     <div className="space-y-2">
                                         {attachments.map((attachment) => (
@@ -1303,7 +1355,7 @@ export function TaskDetailsDialog({
                                                     <Button type="button" variant="outline" size="sm" asChild>
                                                         <a href={attachment.signedUrl} target="_blank" rel="noreferrer" className="gap-1">
                                                             <Paperclip className="h-3.5 w-3.5" />
-                                                            Abrir PDF
+                                                            Abrir arquivo
                                                         </a>
                                                     </Button>
                                                 ) : (
@@ -1315,7 +1367,7 @@ export function TaskDetailsDialog({
                                         ))}
                                         {!isLoading && attachments.length === 0 && (
                                             <p className="text-xs text-muted-foreground">
-                                                Nenhum PDF anexado.
+                                                Nenhum documento anexado.
                                             </p>
                                         )}
                                     </div>
