@@ -61,7 +61,7 @@ export default async function TasksPage({
                 </div>
             </div>
 
-            <Tabs defaultValue="board" className="flex flex-1 min-h-0 flex-col">
+            <Tabs defaultValue="dashboard" className="flex flex-1 min-h-0 flex-col">
                 <div className="px-6 py-2 bg-gray-50/50 border-b flex items-center justify-between">
                     <TabsList>
                         <TabsTrigger value="board">Quadro Kanban</TabsTrigger>

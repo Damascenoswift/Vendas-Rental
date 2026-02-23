@@ -99,7 +99,6 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
         const { count, error } = await supabase
             .from("tasks")
             .select("id", { count: "exact", head: true })
-            .eq("status", "TODO")
             .in("department", ["cadastro", "CADASTRO"])
             .gt("created_at", seenAt)
 
@@ -108,7 +107,7 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
             return
         }
 
-        setHasUnseenCadastroAlert((count ?? 0) > 0)
+        setHasUnseenCadastroAlert((previousValue) => previousValue || (count ?? 0) > 0)
     }, [cadastroAlertSeenAt])
 
     const markCadastroAlertAsSeen = useCallback(() => {
@@ -149,24 +148,25 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
             .on(
                 "postgres_changes",
                 {
-                    event: "*",
+                    event: "INSERT",
                     schema: "public",
                     table: "tasks",
                 },
                 (payload) => {
-                    const next = (payload as { new?: { department?: string | null; status?: string | null } }).new
-                    const previous = (payload as { old?: { department?: string | null; status?: string | null } }).old
-
+                    const next = (payload as { new?: { department?: string | null; created_at?: string | null } }).new
                     const nextDepartment = normalizeDepartment(next?.department)
-                    const previousDepartment = normalizeDepartment(previous?.department)
-                    const nextStatus = (next?.status ?? "").toUpperCase()
-                    const previousStatus = (previous?.status ?? "").toUpperCase()
+                    if (nextDepartment !== "cadastro") return
 
-                    const touchesCadastro = nextDepartment === "cadastro" || previousDepartment === "cadastro"
-                    const touchesTodo = nextStatus === "TODO" || previousStatus === "TODO"
+                    const createdAtMs = new Date(next?.created_at ?? "").getTime()
+                    const seenAtMs = new Date(cadastroAlertSeenAt).getTime()
+                    if (Number.isNaN(createdAtMs) || Number.isNaN(seenAtMs)) {
+                        setHasUnseenCadastroAlert(true)
+                        return
+                    }
 
-                    if (!touchesCadastro && !touchesTodo) return
-                    void syncCadastroAlert(cadastroAlertSeenAt)
+                    if (createdAtMs > seenAtMs) {
+                        setHasUnseenCadastroAlert(true)
+                    }
                 }
             )
             .subscribe()
@@ -186,7 +186,6 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
             if (Number.isNaN(taskCreatedAtMs)) return false
             return (
                 normalizeDepartment(task.department) === "cadastro" &&
-                task.status === "TODO" &&
                 taskCreatedAtMs > seenAtMs
             )
         })
@@ -350,7 +349,7 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                             key={department.key}
                             className={
                                 department.key === "cadastro" && shouldBlinkCadastro
-                                    ? "animate-pulse border-amber-300 ring-2 ring-amber-200"
+                                    ? "cadastro-attention-card border-amber-300 ring-2 ring-amber-200"
                                     : undefined
                             }
                         >

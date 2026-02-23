@@ -120,3 +120,27 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes cadastro-attention-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.42);
+    background-color: rgba(255, 251, 235, 0.65);
+  }
+  45% {
+    transform: scale(1.012);
+    box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+    background-color: rgba(255, 247, 214, 0.92);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+    background-color: rgba(255, 251, 235, 0.65);
+  }
+}
+
+@layer utilities {
+  .cadastro-attention-card {
+    animation: cadastro-attention-pulse 1.25s ease-in-out infinite;
+  }
+}
