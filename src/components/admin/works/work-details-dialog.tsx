@@ -111,6 +111,48 @@ function formatSnapshotValue(value: unknown, format?: "number" | "integer" | "da
     return String(value)
 }
 
+function formatInverterModels(snapshot: unknown) {
+    const raw = getSnapshotValue(snapshot, "equipment.inverters")
+    if (!Array.isArray(raw) || raw.length === 0) return "-"
+
+    const labels = raw
+        .map((item) => {
+            if (!item || typeof item !== "object") return null
+            const row = item as Record<string, unknown>
+            const modelOrName = typeof row.model === "string" && row.model.trim()
+                ? row.model.trim()
+                : typeof row.name === "string" && row.name.trim()
+                    ? row.name.trim()
+                    : null
+            if (!modelOrName) return null
+
+            const kind = typeof row.inverter_type === "string" && row.inverter_type.trim()
+                ? ` (${row.inverter_type.trim().toUpperCase()})`
+                : ""
+            const quantity = Number(row.quantity)
+            const quantityLabel = Number.isFinite(quantity) && quantity > 0 ? ` x${quantity}` : ""
+
+            return `${modelOrName}${kind}${quantityLabel}`
+        })
+        .filter((value): value is string => Boolean(value))
+
+    if (labels.length === 0) return "-"
+    return labels.join(" | ")
+}
+
+function formatTotalInverterQuantity(snapshot: unknown) {
+    const raw = getSnapshotValue(snapshot, "equipment.inverters")
+    if (!Array.isArray(raw) || raw.length === 0) return "-"
+
+    const total = raw.reduce((acc, item) => {
+        if (!item || typeof item !== "object") return acc
+        const quantity = Number((item as Record<string, unknown>).quantity)
+        return Number.isFinite(quantity) ? acc + quantity : acc
+    }, 0)
+
+    return total > 0 ? total.toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "-"
+}
+
 function buildTechnicalSnapshotRows(snapshot: unknown) {
     const rows = [
         {
@@ -146,6 +188,17 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
             value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.input_dimensioning.potencia_modulo_w"), "number", "W"),
         },
         {
+            label: "Modelo do módulo",
+            value: formatSnapshotValue(
+                getSnapshotValue(snapshot, "equipment.module.model") ??
+                    getSnapshotValue(snapshot, "equipment.module.name")
+            ),
+        },
+        {
+            label: "Fabricante do módulo",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "equipment.module.manufacturer")),
+        },
+        {
             label: "Potência total",
             value: formatSnapshotValue(
                 getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWp") ??
@@ -164,6 +217,14 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
                 getSnapshotValue(snapshot, "dimensioning.inverter.tipo") ??
                     getSnapshotValue(snapshot, "dimensioning.input_dimensioning.tipo_inversor")
             ),
+        },
+        {
+            label: "Modelo(s) de inversor(es)",
+            value: formatInverterModels(snapshot),
+        },
+        {
+            label: "Qtd. inversor(es)",
+            value: formatTotalInverterQuantity(snapshot),
         },
         {
             label: "Qtd. inversor string",

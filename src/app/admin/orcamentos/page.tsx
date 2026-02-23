@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { Plus } from "lucide-react"
 import { format } from "date-fns"
@@ -24,6 +25,17 @@ function getEstimatedKwh(calculation: unknown): number | null {
     const value = dimensioning && typeof dimensioning === "object" ? dimensioning.kWh_estimado : null
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeSourceMode(value: unknown): "simple" | "complete" | "legacy" {
+    if (value === "simple" || value === "complete" || value === "legacy") return value
+    return "legacy"
+}
+
+function getSourceModeLabel(mode: "simple" | "complete" | "legacy") {
+    if (mode === "simple") return "Simples"
+    if (mode === "complete") return "Completo"
+    return "Legado"
 }
 
 interface ProposalsPageProps {
@@ -122,6 +134,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
             seller,
             cliente,
             estimated_kwh: getEstimatedKwh(proposal.calculation),
+            source_mode: normalizeSourceMode(proposal.source_mode),
         }
     })
 
@@ -154,6 +167,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                             <TableHead>Produção Estimada</TableHead>
                             <TableHead>Validade</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Modo</TableHead>
                             <TableHead className="text-right">Valor Total</TableHead>
                             <TableHead className="text-right">Ações</TableHead>
                         </TableRow>
@@ -161,13 +175,13 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                     <TableBody>
                         {proposalsError ? (
                             <TableRow>
-                                <TableCell colSpan={8} className="text-center h-24 text-destructive">
+                                <TableCell colSpan={9} className="text-center h-24 text-destructive">
                                     Erro ao carregar orçamentos: {proposalsError.message}
                                 </TableCell>
                             </TableRow>
                         ) : normalizedProposals.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={8} className="text-center h-24 text-muted-foreground">
+                                <TableCell colSpan={9} className="text-center h-24 text-muted-foreground">
                                     Nenhum orçamento encontrado.
                                 </TableCell>
                             </TableRow>
@@ -187,11 +201,21 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                     </TableCell>
                                     <TableCell>{proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}</TableCell>
                                     <TableCell className="capitalize">{proposal.status}</TableCell>
+                                    <TableCell>
+                                        <Badge variant={proposal.source_mode === "complete" ? "default" : "secondary"}>
+                                            {getSourceModeLabel(proposal.source_mode)}
+                                        </Badge>
+                                    </TableCell>
                                     <TableCell className="text-right font-medium">
                                         {proposal.total_value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
+                                            {proposal.source_mode === "simple" ? (
+                                                <Link href={`/admin/orcamentos/${proposal.id}/editar?upgrade=complete`}>
+                                                    <Button size="sm" variant="secondary">Evoluir para completo</Button>
+                                                </Link>
+                                            ) : null}
                                             <Link href={`/admin/orcamentos/${proposal.id}/editar`}>
                                                 <Button size="sm" variant="outline">Editar</Button>
                                             </Link>

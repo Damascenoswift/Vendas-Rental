@@ -377,7 +377,7 @@ export function IndicationDetailsDialog({
 
             showToast({
                 title: "Obra atualizada",
-                description: "Card criado/atualizado no módulo de Obras.",
+                description: result?.warning ?? "Card criado/atualizado no módulo de Obras.",
                 variant: "success",
             })
             router.refresh()

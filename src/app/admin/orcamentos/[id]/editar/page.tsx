@@ -9,10 +9,14 @@ interface EditProposalPageProps {
     params: Promise<{
         id: string
     }>
+    searchParams: Promise<{
+        upgrade?: string
+    }>
 }
 
-export default async function EditProposalPage({ params }: EditProposalPageProps) {
+export default async function EditProposalPage({ params, searchParams }: EditProposalPageProps) {
     const { id } = await params
+    const { upgrade } = await searchParams
 
     const [products, pricingRules, proposal] = await Promise.all([
         getProducts({ active: true }),
@@ -24,6 +28,16 @@ export default async function EditProposalPage({ params }: EditProposalPageProps
         notFound()
     }
 
+    const shouldUpgradeToComplete =
+        upgrade === "complete" &&
+        proposal.source_mode === "simple"
+
+    const initialMode = shouldUpgradeToComplete
+        ? "complete"
+        : proposal.source_mode === "complete"
+            ? "complete"
+            : "simple"
+
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
@@ -34,8 +48,9 @@ export default async function EditProposalPage({ params }: EditProposalPageProps
                 products={products}
                 pricingRules={pricingRules}
                 initialProposal={proposal}
-                initialMode={proposal.source_mode === "complete" ? "complete" : "simple"}
+                initialMode={initialMode}
                 intent="edit"
+                upgradeFromSimple={shouldUpgradeToComplete}
             />
         </div>
     )

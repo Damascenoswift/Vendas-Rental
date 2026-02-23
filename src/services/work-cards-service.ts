@@ -385,7 +385,7 @@ async function getProposalForWorkCard(params: {
             .maybeSingle()
 
         if (!error && data) {
-            const row = data as Record<string, unknown>
+            const row = data as unknown as Record<string, unknown>
             return {
                 proposal: {
                     id: String(row.id),
@@ -421,6 +421,121 @@ async function getProposalForWorkCard(params: {
     }
 }
 
+type WorkProposalEquipmentModule = {
+    product_id: string
+    name: string | null
+    model: string | null
+    manufacturer: string | null
+    power: number | null
+    quantity: number
+}
+
+type WorkProposalEquipmentInverter = {
+    product_id: string
+    name: string | null
+    model: string | null
+    manufacturer: string | null
+    inverter_type: string | null
+    quantity: number
+}
+
+type WorkProposalEquipmentSummary = {
+    module: WorkProposalEquipmentModule | null
+    inverters: WorkProposalEquipmentInverter[]
+    hasModule: boolean
+    hasInverter: boolean
+}
+
+function getProductSpecValue(specs: unknown, key: string) {
+    if (!specs || typeof specs !== "object" || Array.isArray(specs)) return null
+    const value = (specs as Record<string, unknown>)[key]
+    return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function normalizeProductRelation(raw: unknown) {
+    if (Array.isArray(raw)) {
+        const first = raw[0]
+        if (first && typeof first === "object") return first as Record<string, unknown>
+        return null
+    }
+    if (raw && typeof raw === "object") return raw as Record<string, unknown>
+    return null
+}
+
+async function getProposalEquipmentSummary(params: {
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    proposalId: string
+}): Promise<WorkProposalEquipmentSummary> {
+    const empty: WorkProposalEquipmentSummary = {
+        module: null,
+        inverters: [],
+        hasModule: false,
+        hasInverter: false,
+    }
+
+    const { data, error } = await params.supabaseAdmin
+        .from("proposal_items")
+        .select(`
+            quantity,
+            product:products(id, name, type, model, manufacturer, power, specs)
+        `)
+        .eq("proposal_id", params.proposalId)
+
+    if (error) {
+        console.error("Erro ao buscar itens/equipamentos do orçamento para obra:", error)
+        return empty
+    }
+
+    let bestModule: WorkProposalEquipmentModule | null = null
+    const inverters: WorkProposalEquipmentInverter[] = []
+
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+        const product = normalizeProductRelation(row.product)
+        if (!product) continue
+
+        const productId = typeof product.id === "string" ? product.id : null
+        const productType = typeof product.type === "string" ? product.type : null
+        if (!productId || !productType) continue
+
+        const quantityRaw = Number(row.quantity)
+        const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 0
+
+        if (productType === "module") {
+            const candidate: WorkProposalEquipmentModule = {
+                product_id: productId,
+                name: typeof product.name === "string" ? product.name : null,
+                model: typeof product.model === "string" ? product.model : null,
+                manufacturer: typeof product.manufacturer === "string" ? product.manufacturer : null,
+                power: typeof product.power === "number" ? product.power : null,
+                quantity,
+            }
+
+            if (!bestModule || candidate.quantity > bestModule.quantity) {
+                bestModule = candidate
+            }
+            continue
+        }
+
+        if (productType === "inverter") {
+            inverters.push({
+                product_id: productId,
+                name: typeof product.name === "string" ? product.name : null,
+                model: typeof product.model === "string" ? product.model : null,
+                manufacturer: typeof product.manufacturer === "string" ? product.manufacturer : null,
+                inverter_type: getProductSpecValue(product.specs, "inverter_kind"),
+                quantity,
+            })
+        }
+    }
+
+    return {
+        module: bestModule,
+        inverters,
+        hasModule: Boolean(bestModule),
+        hasInverter: inverters.length > 0,
+    }
+}
+
 function buildTechnicalSnapshotFromProposal(input: {
     proposal: {
         id: string
@@ -437,8 +552,15 @@ function buildTechnicalSnapshotFromProposal(input: {
         codigo_cliente: string | null
         unidade_consumidora: string | null
     } | null
+    equipment?: {
+        module: WorkProposalEquipmentModule | null
+        inverters: WorkProposalEquipmentInverter[]
+    } | null
 }) {
     const calculation = (input.proposal.calculation ?? null) as Record<string, any> | null
+    const hasEquipment =
+        Boolean(input.equipment?.module) ||
+        Boolean(input.equipment?.inverters?.length)
     const rawSnapshot = {
         meta: {
             source_mode: input.proposal.source_mode,
@@ -465,6 +587,12 @@ function buildTechnicalSnapshotFromProposal(input: {
                 qtd_placas_telhado: calculation?.input?.structure?.qtd_placas_telhado ?? null,
             },
         },
+        equipment: hasEquipment
+            ? {
+                module: input.equipment?.module ?? null,
+                inverters: (input.equipment?.inverters ?? []).length > 0 ? input.equipment?.inverters : null,
+            }
+            : null,
     }
 
     return stripFinancialData(rawSnapshot) as WorkTechnicalSnapshot
@@ -706,7 +834,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
         .order("sort_order", { ascending: true })
 
     if (itemsError) {
-        return { success: false, error: itemsError.message as const }
+        return { success: false, error: itemsError.message }
     }
 
     const items = (executionItems ?? []) as Array<{
@@ -743,7 +871,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
         })
 
         if (result.error) {
-            return { success: false, error: result.error as const }
+            return { success: false, error: result.error }
         }
 
         const taskId = (result as { taskId?: string | null }).taskId ?? null
@@ -795,14 +923,16 @@ export async function upsertWorkCardFromProposal(params: {
         return { skipped: true }
     }
 
-    let indicacao: {
+    type IndicacaoForWorkCard = {
         id: string
         nome: string | null
         marca: "dorata" | "rental" | null
         codigo_instalacao: string | null
         codigo_cliente: string | null
         unidade_consumidora: string | null
-    } | null = null
+    }
+
+    let indicacao: IndicacaoForWorkCard | null = null
 
     if (proposal.client_id) {
         const { data: indicacaoData, error: indicacaoError } = await supabaseAdmin
@@ -814,7 +944,7 @@ export async function upsertWorkCardFromProposal(params: {
         if (indicacaoError) {
             console.error("Erro ao buscar indicação para card de obra:", indicacaoError)
         } else if (indicacaoData) {
-            indicacao = indicacaoData as typeof indicacao
+            indicacao = indicacaoData as IndicacaoForWorkCard
         }
     }
 
@@ -828,6 +958,19 @@ export async function upsertWorkCardFromProposal(params: {
         indicacaoId: indicacao?.id ?? proposal.client_id,
         proposalId: proposal.id,
     })
+
+    const equipmentSummary = await getProposalEquipmentSummary({
+        supabaseAdmin,
+        proposalId: proposal.id,
+    })
+
+    const shouldWarnMissingTechnicalEquipment =
+        proposal.source_mode === "complete" &&
+        (!equipmentSummary.hasModule || !equipmentSummary.hasInverter)
+
+    const warningMessage = shouldWarnMissingTechnicalEquipment
+        ? "Obra enviada, mas faltam modelo de módulo/inversor no orçamento completo."
+        : null
 
     const technicalSnapshot = buildTechnicalSnapshotFromProposal({
         proposal: {
@@ -847,6 +990,10 @@ export async function upsertWorkCardFromProposal(params: {
                 unidade_consumidora: indicacao.unidade_consumidora,
             }
             : null,
+        equipment: {
+            module: equipmentSummary.module,
+            inverters: equipmentSummary.inverters,
+        },
     })
 
     const { data: existingCardRaw, error: existingCardError } = await supabaseAdmin
@@ -942,7 +1089,7 @@ export async function upsertWorkCardFromProposal(params: {
     revalidatePath("/admin/obras")
     revalidatePath("/admin/orcamentos")
 
-    return { success: true, workId }
+    return { success: true, workId, warning: warningMessage ?? undefined }
 }
 
 export async function backfillWorkCardsFromAcceptedProposals() {

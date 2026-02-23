@@ -22,6 +22,7 @@ interface ProposalCalculatorProps {
     initialMode?: ProposalMode
     initialProposal?: ProposalEditorData | null
     intent?: "create" | "edit"
+    upgradeFromSimple?: boolean
 }
 
 type ProposalMode = "simple" | "complete"
@@ -32,12 +33,35 @@ export function ProposalCalculator({
     initialMode = "simple",
     initialProposal = null,
     intent = "create",
+    upgradeFromSimple = false,
 }: ProposalCalculatorProps) {
     const [mode, setMode] = useState<ProposalMode>(initialMode)
     const modeLocked = intent === "edit"
+    const simpleInitialProposal =
+        intent === "edit"
+            ? mode === "simple"
+                ? initialProposal
+                : null
+            : initialMode === "simple"
+                ? initialProposal
+                : null
+    const completeInitialProposal =
+        intent === "edit"
+            ? mode === "complete"
+                ? initialProposal
+                : null
+            : initialMode === "complete"
+                ? initialProposal
+                : null
 
     return (
         <div className="space-y-6">
+            {upgradeFromSimple ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    Você está evoluindo este orçamento de simples para completo.
+                </div>
+            ) : null}
+
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle>Modo do orçamento</CardTitle>
@@ -55,7 +79,7 @@ export function ProposalCalculator({
                     </Select>
                     {modeLocked ? (
                         <p className="text-xs text-muted-foreground">
-                            O modo segue o tipo original deste orçamento durante a edição.
+                            O modo fica bloqueado durante a edição para evitar alterações acidentais.
                         </p>
                     ) : null}
                 </CardContent>
@@ -65,14 +89,14 @@ export function ProposalCalculator({
                 <ProposalCalculatorSimple
                     products={products}
                     pricingRules={pricingRules}
-                    initialProposal={initialMode === "simple" ? initialProposal : null}
+                    initialProposal={simpleInitialProposal}
                     intent={intent}
                 />
             ) : (
                 <ProposalCalculatorComplete
                     products={products}
                     pricingRules={pricingRules}
-                    initialProposal={initialMode === "complete" ? initialProposal : null}
+                    initialProposal={completeInitialProposal}
                     intent={intent}
                 />
             )}

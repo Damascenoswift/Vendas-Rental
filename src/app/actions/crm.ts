@@ -41,7 +41,11 @@ export async function activateWorkCardFromProposal(proposalId: string) {
     revalidatePath("/admin/indicacoes")
     revalidatePath("/admin/obras")
 
-    return { success: true, workId: result?.workId ?? null }
+    return {
+        success: true,
+        workId: result?.workId ?? null,
+        warning: "warning" in result ? result.warning : undefined,
+    }
 }
 
 export async function updateCrmCardStage(cardId: string, newStageId: string) {
@@ -454,8 +458,10 @@ export async function markDorataContractSigned(
         }
     }
 
-    if (!preferredProposalId && !proposalLookupFailed) {
-        appendWarning("Contrato assinado, mas nenhuma proposta foi encontrada para vincular em Obras.")
+    if (!preferredProposalId) {
+        if (!proposalLookupFailed) {
+            appendWarning("Contrato assinado, mas nenhuma proposta foi encontrada para vincular em Obras.")
+        }
     } else {
         const workResult = await upsertWorkCardFromProposal({
             proposalId: preferredProposalId,
