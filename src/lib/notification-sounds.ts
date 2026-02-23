@@ -15,6 +15,8 @@ type SoundStep = {
 
 const SOUND_COOLDOWN_MS = 500
 const BASE_VOLUME = 0.04
+const SOUND_GAIN_MULTIPLIER = 3
+const MAX_OUTPUT_VOLUME = 0.36
 
 const soundTimeline: Record<NotificationSoundKind, SoundStep[]> = {
     rental_indication: [
@@ -112,7 +114,11 @@ function playToneSequence(context: AudioContext, sequence: SoundStep[]) {
         oscillator.type = step.waveform ?? "sine"
         oscillator.frequency.setValueAtTime(step.frequency, cursor)
 
-        const targetVolume = Math.max(0, Math.min(step.volume ?? BASE_VOLUME, 0.12))
+        const baseStepVolume = step.volume ?? BASE_VOLUME
+        const targetVolume = Math.max(
+            0,
+            Math.min(baseStepVolume * SOUND_GAIN_MULTIPLIER, MAX_OUTPUT_VOLUME)
+        )
         gainNode.gain.setValueAtTime(0.0001, cursor)
         gainNode.gain.exponentialRampToValueAtTime(targetVolume, cursor + 0.01)
         gainNode.gain.exponentialRampToValueAtTime(0.0001, cursor + step.durationSeconds)

@@ -109,7 +109,7 @@ export function InternalChatInbox({
     const debouncedUserSearch = useDebounce(userSearch, 250)
     const selectedConversationIdRef = useRef<string | null>(selectedConversationId)
     const conversationSearchRef = useRef("")
-    const messagesEndRef = useRef<HTMLDivElement | null>(null)
+    const messagesScrollAreaRef = useRef<HTMLDivElement | null>(null)
 
     const selectedConversation = useMemo(
         () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -259,6 +259,19 @@ export function InternalChatInbox({
         }
     }, [loadConversations, loadMessages])
 
+    const scrollMessagesViewportToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+        const scrollAreaRoot = messagesScrollAreaRef.current
+        if (!scrollAreaRoot) return
+
+        const viewport = scrollAreaRoot.querySelector("[data-radix-scroll-area-viewport]") as HTMLDivElement | null
+        if (!viewport) return
+
+        viewport.scrollTo({
+            top: viewport.scrollHeight,
+            behavior,
+        })
+    }, [])
+
     useEffect(() => {
         void loadConversations({
             preserveSelection: true,
@@ -283,8 +296,8 @@ export function InternalChatInbox({
     }, [debouncedUserSearch, isNewConversationOpen, loadAvailableUsers])
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-    }, [messages, selectedConversationId])
+        scrollMessagesViewportToBottom("auto")
+    }, [messages, selectedConversationId, scrollMessagesViewportToBottom])
 
     useEffect(() => {
         const participantsChannel = supabase
@@ -631,7 +644,7 @@ export function InternalChatInbox({
 
                         <Separator />
 
-                        <ScrollArea className="h-[52vh] bg-slate-50/40 px-4 py-4">
+                        <ScrollArea ref={messagesScrollAreaRef} className="h-[52vh] bg-slate-50/40 px-4 py-4">
                             <div className="space-y-3">
                                 {isLoadingMessages && (
                                     <p className="text-center text-xs text-muted-foreground">
@@ -674,7 +687,6 @@ export function InternalChatInbox({
                                     )
                                 })}
 
-                                <div ref={messagesEndRef} />
                             </div>
                         </ScrollArea>
 
