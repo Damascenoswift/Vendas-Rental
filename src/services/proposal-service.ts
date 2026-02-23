@@ -67,6 +67,26 @@ function sanitizeText(value?: string | null) {
     return String(value).trim()
 }
 
+function normalizeEmail(value?: string | null) {
+    return sanitizeText(value).toLowerCase()
+}
+
+function onlyDigits(value?: string | null) {
+    return sanitizeText(value).replace(/\D/g, "")
+}
+
+function phonesLikelyMatch(a?: string | null, b?: string | null) {
+    const digitsA = onlyDigits(a)
+    const digitsB = onlyDigits(b)
+    if (!digitsA || !digitsB) return false
+    if (digitsA === digitsB) return true
+
+    const shortA = digitsA.slice(-8)
+    const shortB = digitsB.slice(-8)
+    if (!shortA || !shortB) return false
+    return shortA === shortB
+}
+
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
     const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
@@ -128,7 +148,7 @@ export async function createProposal(
         let contactRecord = contact
 
         const contactWhatsapp = sanitizeText(contact.whatsapp)
-        const contactEmail = sanitizeText(contact.email).toLowerCase()
+        const contactEmail = normalizeEmail(contact.email)
 
         if (!contactRecord.id) {
             let existingContact: ProposalContactInput | null = null
@@ -193,11 +213,29 @@ export async function createProposal(
         const telefone = sanitizeText(
             contactRecord.whatsapp || contactRecord.phone || contactRecord.mobile
         )
-        const email = sanitizeText(contactRecord.email)
+        const telefoneDigits = onlyDigits(telefone)
+        const email = normalizeEmail(contactRecord.email)
 
         let reusedIndicacao: { id: string } | null = null
 
-        if (telefone) {
+        if (contactId) {
+            const { data: latestProposalByContact, error: latestProposalByContactError } = await supabaseAdmin
+                .from("proposals")
+                .select("client_id, created_at")
+                .eq("contact_id", contactId)
+                .not("client_id", "is", null)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle()
+
+            if (latestProposalByContactError) {
+                console.error("Erro ao buscar histórico de proposta por contato:", latestProposalByContactError)
+            } else if (latestProposalByContact?.client_id) {
+                reusedIndicacao = { id: latestProposalByContact.client_id as string }
+            }
+        }
+
+        if (!reusedIndicacao && telefone) {
             const { data: indicacaoByPhone } = await supabaseAdmin
                 .from("indicacoes")
                 .select("id")
@@ -208,6 +246,27 @@ export async function createProposal(
                 .maybeSingle()
             if (indicacaoByPhone) {
                 reusedIndicacao = indicacaoByPhone
+            }
+        }
+
+        if (!reusedIndicacao && telefoneDigits) {
+            const { data: phoneCandidates, error: phoneCandidatesError } = await supabaseAdmin
+                .from("indicacoes")
+                .select("id, telefone")
+                .eq("marca", brand)
+                .not("telefone", "is", null)
+                .order("created_at", { ascending: false })
+                .limit(300)
+
+            if (phoneCandidatesError) {
+                console.error("Erro ao buscar candidatas por telefone normalizado:", phoneCandidatesError)
+            } else {
+                const matched = (phoneCandidates ?? []).find((candidate: { id: string; telefone: string | null }) =>
+                    phonesLikelyMatch(candidate.telefone, telefoneDigits)
+                )
+                if (matched?.id) {
+                    reusedIndicacao = { id: matched.id }
+                }
             }
         }
 
@@ -285,7 +344,8 @@ export async function createProposal(
 
         if (!contactId) {
             const indicacaoPhone = sanitizeText(existingIndicacao.telefone)
-            const indicacaoEmail = sanitizeText(existingIndicacao.email).toLowerCase()
+            const indicacaoPhoneDigits = onlyDigits(indicacaoPhone)
+            const indicacaoEmail = normalizeEmail(existingIndicacao.email)
 
             if (indicacaoPhone) {
                 const { data: contactByPhone } = await supabaseAdmin
@@ -297,6 +357,33 @@ export async function createProposal(
 
                 if (contactByPhone?.id) {
                     contactId = contactByPhone.id
+                }
+            }
+
+            if (!contactId && indicacaoPhoneDigits) {
+                const { data: contactCandidates, error: contactCandidatesError } = await supabaseAdmin
+                    .from("contacts")
+                    .select("id, whatsapp, phone, mobile")
+                    .order("created_at", { ascending: false })
+                    .limit(300)
+
+                if (contactCandidatesError) {
+                    console.error("Erro ao buscar contato por telefone normalizado:", contactCandidatesError)
+                } else {
+                    const matchedContact = (contactCandidates ?? []).find((candidate: {
+                        id: string
+                        whatsapp: string | null
+                        phone: string | null
+                        mobile: string | null
+                    }) =>
+                        phonesLikelyMatch(candidate.whatsapp, indicacaoPhoneDigits) ||
+                        phonesLikelyMatch(candidate.phone, indicacaoPhoneDigits) ||
+                        phonesLikelyMatch(candidate.mobile, indicacaoPhoneDigits)
+                    )
+
+                    if (matchedContact?.id) {
+                        contactId = matchedContact.id
+                    }
                 }
             }
 

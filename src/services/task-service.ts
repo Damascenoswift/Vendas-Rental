@@ -474,7 +474,7 @@ export async function searchTaskLeads(search?: string, brand?: Brand) {
     const supabaseAdmin = createSupabaseServiceClient()
     let query = supabaseAdmin
         .from('indicacoes')
-        .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao, marca')
+        .select('id, nome, documento, unidade_consumidora, codigo_cliente, codigo_instalacao, marca, telefone, email')
         .limit(20)
 
     if (brand) {
@@ -482,7 +482,12 @@ export async function searchTaskLeads(search?: string, brand?: Brand) {
     }
 
     if (search) {
-        query = query.ilike('nome', `%${search}%`)
+        const sanitized = search.replace(/[(),']/g, " ").trim()
+        if (sanitized) {
+            query = query.or(
+                `nome.ilike.%${sanitized}%,documento.ilike.%${sanitized}%,codigo_instalacao.ilike.%${sanitized}%,codigo_cliente.ilike.%${sanitized}%,unidade_consumidora.ilike.%${sanitized}%,telefone.ilike.%${sanitized}%,email.ilike.%${sanitized}%`
+            )
+        }
     } else {
         query = query.order('created_at', { ascending: false })
     }
