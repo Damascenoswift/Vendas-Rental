@@ -1,16 +1,19 @@
 "use client"
 
-import { useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Department, Task } from "@/services/task-service"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, Clock, CheckCircle2, CircleDashed, Building2 } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
+import { supabase } from "@/lib/supabase"
 
 interface TaskDashboardProps {
     tasks: Task[]
 }
 
 const PRODUCTIVITY_TIMEZONE = "America/Cuiaba"
+const CADASTRO_ALERT_STORAGE_KEY = "tasks:cadastro-alert:last-seen-at"
 
 const DEPARTMENT_ORDER: Department[] = [
     "vendas",
@@ -67,7 +70,130 @@ function getDateKeyInTimeZone(value: Date, timeZone: string) {
     }
 }
 
+function normalizeDepartment(value: string | null | undefined): Department | null {
+    const normalized = (value ?? "").trim().toLowerCase()
+    if (
+        normalized === "vendas" ||
+        normalized === "cadastro" ||
+        normalized === "energia" ||
+        normalized === "juridico" ||
+        normalized === "financeiro" ||
+        normalized === "ti" ||
+        normalized === "diretoria" ||
+        normalized === "outro"
+    ) {
+        return normalized
+    }
+    return null
+}
+
 export function TaskDashboard({ tasks }: TaskDashboardProps) {
+    const [cadastroAlertSeenAt, setCadastroAlertSeenAt] = useState<string | null>(null)
+    const [isCadastroAlertReady, setIsCadastroAlertReady] = useState(false)
+    const [hasUnseenCadastroAlert, setHasUnseenCadastroAlert] = useState(false)
+
+    const syncCadastroAlert = useCallback(async (seenAtOverride?: string | null) => {
+        const seenAt = seenAtOverride ?? cadastroAlertSeenAt
+        if (!seenAt) return
+
+        const { count, error } = await supabase
+            .from("tasks")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "TODO")
+            .in("department", ["cadastro", "CADASTRO"])
+            .gt("created_at", seenAt)
+
+        if (error) {
+            console.error("Erro ao sincronizar alerta de cadastro:", error)
+            return
+        }
+
+        setHasUnseenCadastroAlert((count ?? 0) > 0)
+    }, [cadastroAlertSeenAt])
+
+    const markCadastroAlertAsSeen = useCallback(() => {
+        const nowIso = new Date().toISOString()
+        setCadastroAlertSeenAt(nowIso)
+        setHasUnseenCadastroAlert(false)
+        if (typeof window !== "undefined") {
+            window.localStorage.setItem(CADASTRO_ALERT_STORAGE_KEY, nowIso)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (typeof window === "undefined") return
+
+        const storedValue = window.localStorage.getItem(CADASTRO_ALERT_STORAGE_KEY)
+        if (storedValue) {
+            setCadastroAlertSeenAt(storedValue)
+            setIsCadastroAlertReady(true)
+            return
+        }
+
+        const nowIso = new Date().toISOString()
+        window.localStorage.setItem(CADASTRO_ALERT_STORAGE_KEY, nowIso)
+        setCadastroAlertSeenAt(nowIso)
+        setIsCadastroAlertReady(true)
+    }, [])
+
+    useEffect(() => {
+        if (!isCadastroAlertReady || !cadastroAlertSeenAt) return
+        void syncCadastroAlert(cadastroAlertSeenAt)
+    }, [isCadastroAlertReady, cadastroAlertSeenAt, syncCadastroAlert])
+
+    useEffect(() => {
+        if (!isCadastroAlertReady || !cadastroAlertSeenAt) return
+
+        const channel = supabase
+            .channel("task-dashboard-cadastro-alert")
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "tasks",
+                },
+                (payload) => {
+                    const next = (payload as { new?: { department?: string | null; status?: string | null } }).new
+                    const previous = (payload as { old?: { department?: string | null; status?: string | null } }).old
+
+                    const nextDepartment = normalizeDepartment(next?.department)
+                    const previousDepartment = normalizeDepartment(previous?.department)
+                    const nextStatus = (next?.status ?? "").toUpperCase()
+                    const previousStatus = (previous?.status ?? "").toUpperCase()
+
+                    const touchesCadastro = nextDepartment === "cadastro" || previousDepartment === "cadastro"
+                    const touchesTodo = nextStatus === "TODO" || previousStatus === "TODO"
+
+                    if (!touchesCadastro && !touchesTodo) return
+                    void syncCadastroAlert(cadastroAlertSeenAt)
+                }
+            )
+            .subscribe()
+
+        return () => {
+            void supabase.removeChannel(channel)
+        }
+    }, [isCadastroAlertReady, cadastroAlertSeenAt, syncCadastroAlert])
+
+    const hasUnseenCadastroFromInitialTasks = useMemo(() => {
+        if (!cadastroAlertSeenAt) return false
+        const seenAtMs = new Date(cadastroAlertSeenAt).getTime()
+        if (Number.isNaN(seenAtMs)) return false
+
+        return tasks.some((task) => {
+            const taskCreatedAtMs = new Date(task.created_at).getTime()
+            if (Number.isNaN(taskCreatedAtMs)) return false
+            return (
+                normalizeDepartment(task.department) === "cadastro" &&
+                task.status === "TODO" &&
+                taskCreatedAtMs > seenAtMs
+            )
+        })
+    }, [tasks, cadastroAlertSeenAt])
+
+    const shouldBlinkCadastro = hasUnseenCadastroAlert || hasUnseenCadastroFromInitialTasks
+
     const metrics = useMemo(() => {
         const now = new Date()
         const todayKey = getDateKeyInTimeZone(now, PRODUCTIVITY_TIMEZONE)
@@ -92,7 +218,7 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
 
         for (const task of tasks) {
             if (task.status !== "DONE") {
-                const department = task.department
+                const department = normalizeDepartment(task.department)
                 if (department && departmentCounts[department] !== undefined) {
                     departmentCounts[department] += 1
                 } else {
@@ -220,7 +346,14 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                     {metrics.departments.map((department) => (
-                        <Card key={department.key}>
+                        <Card
+                            key={department.key}
+                            className={
+                                department.key === "cadastro" && shouldBlinkCadastro
+                                    ? "animate-pulse border-amber-300 ring-2 ring-amber-200"
+                                    : undefined
+                            }
+                        >
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">{department.label}</CardTitle>
                                 <Building2 className="h-4 w-4 text-muted-foreground" />
@@ -230,6 +363,21 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                                 <p className="text-xs text-muted-foreground">
                                     {department.isUnassigned ? "Tarefas sem setor definido" : "Tarefas pendentes do setor"}
                                 </p>
+                                {department.key === "cadastro" && shouldBlinkCadastro && (
+                                    <div className="mt-3 flex items-center justify-between gap-2">
+                                        <span className="text-[11px] font-medium text-amber-700">
+                                            Nova indicação pendente
+                                        </span>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={markCadastroAlertAsSeen}
+                                        >
+                                            Marcar como visto
+                                        </Button>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     ))}

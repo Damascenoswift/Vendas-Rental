@@ -4,7 +4,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { AlertTriangle, Paperclip, Trash2, UserPlus, X } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronUp, Paperclip, Trash2, UserPlus, X } from "lucide-react"
 
 import type { Task, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority, TaskProposalOption } from "@/services/task-service"
 import {
@@ -248,6 +248,7 @@ export function TaskDetailsDialog({
     const [editIndicacaoId, setEditIndicacaoId] = useState("")
     const [editContactId, setEditContactId] = useState("")
     const [editProposalId, setEditProposalId] = useState("")
+    const [isClientLinkExpanded, setIsClientLinkExpanded] = useState(false)
     const [attachmentFile, setAttachmentFile] = useState<File | null>(null)
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -387,6 +388,7 @@ export function TaskDetailsDialog({
         setEditIndicacaoId(task.indicacao_id ?? "")
         setEditContactId(task.contact_id ?? "")
         setEditProposalId(task.proposal_id ?? "")
+        setIsClientLinkExpanded(false)
         if (task.due_date) {
             const parsed = new Date(task.due_date)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
@@ -830,6 +832,24 @@ export function TaskDetailsDialog({
         ? "Visibilidade restrita"
         : "Visibilidade equipe"
     const linkedContactId = editContactId || task.contact_id || ""
+    const hasClientLinkData = Boolean(
+        editProposalId ||
+        editIndicacaoId ||
+        editContactId ||
+        editClientName.trim() ||
+        editCodigoInstalacao.trim()
+    )
+    const clientLinkSummary = hasClientLinkData
+        ? [
+            editClientName.trim() || null,
+            editCodigoInstalacao.trim() ? `UC ${editCodigoInstalacao.trim()}` : null,
+            editProposalId ? "Orçamento vinculado" : null,
+            editIndicacaoId ? "Indicação vinculada" : null,
+            editContactId ? "Contato vinculado" : null,
+        ]
+            .filter(Boolean)
+            .join(" • ")
+        : "Nenhum vínculo configurado."
 
     const renderChecklistItems = (items: TaskChecklistItem[]) => (
         <div className="space-y-2">
@@ -951,83 +971,178 @@ export function TaskDetailsDialog({
                                 </Select>
                             </div>
 
-                            <div className="grid gap-3 rounded-md border bg-background/70 p-3">
-                                <h5 className="text-sm font-medium">Vínculo do cliente</h5>
+                            <div className="rounded-md border bg-background/70 p-3">
+                                <button
+                                    type="button"
+                                    className="flex w-full items-start justify-between gap-3 text-left"
+                                    onClick={() => setIsClientLinkExpanded((prev) => !prev)}
+                                >
+                                    <div className="space-y-1">
+                                        <h5 className="text-sm font-medium">Vínculo do cliente</h5>
+                                        <p className="text-xs text-muted-foreground">{clientLinkSummary}</p>
+                                    </div>
+                                    <span className="mt-0.5 text-muted-foreground">
+                                        {isClientLinkExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                    </span>
+                                </button>
 
-                                <div className="grid gap-1">
-                                    <label className="text-xs text-muted-foreground">Orçamento</label>
-                                    <Select value={editProposalId || "__none__"} onValueChange={handleSelectProposal}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Selecione um orçamento" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="__none__">Sem orçamento vinculado</SelectItem>
-                                            {visibleProposalOptions.map((proposal) => {
-                                                const clientLabel = proposal.client_name || proposal.contact_name || "Cliente não identificado"
-                                                return (
-                                                    <SelectItem key={proposal.id} value={proposal.id}>
-                                                        {clientLabel} • {proposal.id.slice(0, 8)}
-                                                    </SelectItem>
-                                                )
-                                            })}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                                {isClientLinkExpanded && (
+                                    <div className="mt-3 grid gap-3">
+                                        <div className="grid gap-1">
+                                            <label className="text-xs text-muted-foreground">Orçamento</label>
+                                            <Select value={editProposalId || "__none__"} onValueChange={handleSelectProposal}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Selecione um orçamento" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="__none__">Sem orçamento vinculado</SelectItem>
+                                                    {visibleProposalOptions.map((proposal) => {
+                                                        const clientLabel = proposal.client_name || proposal.contact_name || "Cliente não identificado"
+                                                        return (
+                                                            <SelectItem key={proposal.id} value={proposal.id}>
+                                                                {clientLabel} • {proposal.id.slice(0, 8)}
+                                                            </SelectItem>
+                                                        )
+                                                    })}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
 
-                                <div className="grid gap-1">
-                                    <label className="text-xs text-muted-foreground">Indicação</label>
-                                    <LeadSelect
-                                        mode="leads"
-                                        value={editIndicacaoId || undefined}
-                                        leadBrand={task.brand}
-                                        onChange={(value) => setEditIndicacaoId(value ?? "")}
-                                        onSelectLead={(lead, source) => {
-                                            if (source === "indicacao") {
-                                                handleSelectTaskIndication(lead)
-                                            }
-                                        }}
-                                    />
-                                </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-xs text-muted-foreground">Indicação</label>
+                                            <LeadSelect
+                                                mode="leads"
+                                                value={editIndicacaoId || undefined}
+                                                leadBrand={task.brand}
+                                                onChange={(value) => setEditIndicacaoId(value ?? "")}
+                                                onSelectLead={(lead, source) => {
+                                                    if (source === "indicacao") {
+                                                        handleSelectTaskIndication(lead)
+                                                    }
+                                                }}
+                                            />
+                                        </div>
 
-                                <div className="grid gap-1">
-                                    <label className="text-xs text-muted-foreground">Contato</label>
-                                    <LeadSelect
-                                        mode="contacts"
-                                        value={editContactId || undefined}
-                                        onChange={(value) => setEditContactId(value ?? "")}
-                                        onSelectContact={handleSelectTaskContact}
-                                    />
-                                </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-xs text-muted-foreground">Contato</label>
+                                            <LeadSelect
+                                                mode="contacts"
+                                                value={editContactId || undefined}
+                                                onChange={(value) => setEditContactId(value ?? "")}
+                                                onSelectContact={handleSelectTaskContact}
+                                            />
+                                        </div>
 
-                                <div className="grid gap-1">
-                                    <label className="text-xs text-muted-foreground">Nome do cliente</label>
-                                    <Input
-                                        value={editClientName}
-                                        onChange={(event) => setEditClientName(event.target.value)}
-                                        placeholder="Nome do cliente"
-                                    />
-                                </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-xs text-muted-foreground">Nome do cliente</label>
+                                            <Input
+                                                value={editClientName}
+                                                onChange={(event) => setEditClientName(event.target.value)}
+                                                placeholder="Nome do cliente"
+                                            />
+                                        </div>
 
-                                <div className="grid gap-1">
-                                    <label className="text-xs text-muted-foreground">Código de instalação</label>
-                                    <Input
-                                        value={editCodigoInstalacao}
-                                        onChange={(event) => setEditCodigoInstalacao(event.target.value)}
-                                        placeholder="Código de instalação"
-                                    />
-                                </div>
+                                        <div className="grid gap-1">
+                                            <label className="text-xs text-muted-foreground">Código de instalação</label>
+                                            <Input
+                                                value={editCodigoInstalacao}
+                                                onChange={(event) => setEditCodigoInstalacao(event.target.value)}
+                                                placeholder="Código de instalação"
+                                            />
+                                        </div>
 
-                                {linkedContactId && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Contato vinculado:{" "}
-                                        <Link
-                                            href={`/admin/contatos/${linkedContactId}`}
-                                            className="underline underline-offset-2"
-                                        >
-                                            abrir contato 360
-                                        </Link>
-                                    </p>
+                                        {linkedContactId && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Contato vinculado:{" "}
+                                                <Link
+                                                    href={`/admin/contatos/${linkedContactId}`}
+                                                    className="underline underline-offset-2"
+                                                >
+                                                    abrir contato 360
+                                                </Link>
+                                            </p>
+                                        )}
+                                    </div>
                                 )}
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Histórico</label>
+                                <ScrollArea className="h-[360px] max-h-[52vh] rounded-md border bg-background p-3">
+                                    <div className="space-y-3">
+                                        {commentsToShow.map((comment) => {
+                                            const authorName =
+                                                comment.user?.name ||
+                                                comment.user?.email ||
+                                                (comment.user_id ? usersById.get(comment.user_id) : undefined) ||
+                                                "Usuário"
+                                            const isMe = Boolean(comment.user_id && comment.user_id === currentUserId)
+                                            const timestamp = formatDateTime(comment.created_at)
+                                            const parentAuthor =
+                                                comment.parent?.user?.name ||
+                                                comment.parent?.user?.email ||
+                                                (comment.parent?.user?.id ? usersById.get(comment.parent.user.id) : undefined) ||
+                                                "Usuário"
+                                            return (
+                                                <div key={comment.id} className="rounded-md border bg-muted/30 p-3">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span
+                                                                className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+                                                                style={{ backgroundColor: stringToHsl(authorName) }}
+                                                            >
+                                                                {getInitials(authorName)}
+                                                            </span>
+                                                            <div className="flex flex-col">
+                                                                <span className="text-xs font-medium">
+                                                                    {isMe ? "Você" : authorName}
+                                                                </span>
+                                                                {timestamp && (
+                                                                    <span className="text-[10px] text-muted-foreground">
+                                                                        {timestamp}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {comment.isLegacy && (
+                                                                <span className="text-[10px] uppercase text-muted-foreground">
+                                                                    Descrição inicial
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {!comment.isLegacy && (
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => setReplyTo(comment)}
+                                                            >
+                                                                Responder
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                    {comment.parent && (
+                                                        <div className="mt-2 rounded-md border-l-2 border-muted-foreground/30 bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                                                            <span className="font-medium text-foreground">
+                                                                Em resposta a {parentAuthor}
+                                                            </span>
+                                                            {comment.parent.content && (
+                                                                <p className="line-clamp-2">{comment.parent.content}</p>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+                                                        {comment.content}
+                                                    </p>
+                                                </div>
+                                            )
+                                        })}
+                                        {!isLoading && commentsToShow.length === 0 && (
+                                            <p className="text-xs text-muted-foreground">
+                                                Nenhum comentário registrado.
+                                            </p>
+                                        )}
+                                    </div>
+                                </ScrollArea>
                             </div>
 
                             <div className="grid gap-2">
@@ -1146,85 +1261,6 @@ export function TaskDetailsDialog({
                                         {isSendingComment ? "Enviando..." : "Enviar comentário"}
                                     </Button>
                                 </div>
-                            </div>
-
-                            <div className="grid gap-2">
-                                <label className="text-xs text-muted-foreground">Histórico</label>
-                                <ScrollArea className="h-[360px] max-h-[52vh] rounded-md border bg-background p-3">
-                                    <div className="space-y-3">
-                                        {commentsToShow.map((comment) => {
-                                            const authorName =
-                                                comment.user?.name ||
-                                                comment.user?.email ||
-                                                (comment.user_id ? usersById.get(comment.user_id) : undefined) ||
-                                                "Usuário"
-                                            const isMe = Boolean(comment.user_id && comment.user_id === currentUserId)
-                                            const timestamp = formatDateTime(comment.created_at)
-                                            const parentAuthor =
-                                                comment.parent?.user?.name ||
-                                                comment.parent?.user?.email ||
-                                                (comment.parent?.user?.id ? usersById.get(comment.parent.user.id) : undefined) ||
-                                                "Usuário"
-                                            return (
-                                                <div key={comment.id} className="rounded-md border bg-muted/30 p-3">
-                                                    <div className="flex items-start justify-between gap-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <span
-                                                                className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold text-white"
-                                                                style={{ backgroundColor: stringToHsl(authorName) }}
-                                                            >
-                                                                {getInitials(authorName)}
-                                                            </span>
-                                                            <div className="flex flex-col">
-                                                                <span className="text-xs font-medium">
-                                                                    {isMe ? "Você" : authorName}
-                                                                </span>
-                                                                {timestamp && (
-                                                                    <span className="text-[10px] text-muted-foreground">
-                                                                        {timestamp}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            {comment.isLegacy && (
-                                                                <span className="text-[10px] uppercase text-muted-foreground">
-                                                                    Descrição inicial
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        {!comment.isLegacy && (
-                                                            <Button
-                                                                type="button"
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() => setReplyTo(comment)}
-                                                            >
-                                                                Responder
-                                                            </Button>
-                                                        )}
-                                                    </div>
-                                                    {comment.parent && (
-                                                        <div className="mt-2 rounded-md border-l-2 border-muted-foreground/30 bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
-                                                            <span className="font-medium text-foreground">
-                                                                Em resposta a {parentAuthor}
-                                                            </span>
-                                                            {comment.parent.content && (
-                                                                <p className="line-clamp-2">{comment.parent.content}</p>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                    <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
-                                                        {comment.content}
-                                                    </p>
-                                                </div>
-                                            )
-                                        })}
-                                        {!isLoading && commentsToShow.length === 0 && (
-                                            <p className="text-xs text-muted-foreground">
-                                                Nenhum comentário registrado.
-                                            </p>
-                                        )}
-                                    </div>
-                                </ScrollArea>
                             </div>
 
                             <div className="grid gap-2">
