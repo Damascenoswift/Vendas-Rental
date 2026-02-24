@@ -20,10 +20,10 @@ import { DocChecklist } from "./interactions/doc-checklist"
 import { getProposalsForIndication } from "@/app/actions/proposals"
 import { activateWorkCardFromProposal, markDorataContractSigned } from "@/app/actions/crm"
 import { cn } from "@/lib/utils"
-import type { ReactNode } from "react"
+import type { ChangeEvent, ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthSession } from "@/hooks/use-auth-session"
-import { getIndicationStorageDetails } from "@/app/actions/indication-assets"
+import { getIndicationStorageDetails, uploadIndicationAssets } from "@/app/actions/indication-assets"
 
 interface IndicationDetailsDialogProps {
     indicationId: string
@@ -60,6 +60,48 @@ type ProposalSummary = {
     } | null
 }
 
+type IndicationAttachmentKey =
+    | "fatura_energia_pf"
+    | "documento_com_foto_pf"
+    | "fatura_energia_pj"
+    | "documento_com_foto_pj"
+    | "contrato_social"
+    | "cartao_cnpj"
+    | "doc_representante"
+
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+    "application/pdf",
+    "image/png",
+    "image/jpg",
+    "image/jpeg",
+])
+
+const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
+const ATTACHMENT_ACCEPT = ".pdf,.jpg,.jpeg,.png"
+
+const ATTACHMENT_LABELS: Record<IndicationAttachmentKey, string> = {
+    fatura_energia_pf: "Fatura de energia (PF)",
+    documento_com_foto_pf: "Documento com foto (PF)",
+    fatura_energia_pj: "Fatura de energia (PJ)",
+    documento_com_foto_pj: "Documento com foto (PJ)",
+    contrato_social: "Contrato social",
+    cartao_cnpj: "Cartão CNPJ",
+    doc_representante: "Documento do representante",
+}
+
+const PF_ATTACHMENT_FIELDS: Array<{ key: IndicationAttachmentKey; label: string }> = [
+    { key: "fatura_energia_pf", label: ATTACHMENT_LABELS.fatura_energia_pf },
+    { key: "documento_com_foto_pf", label: ATTACHMENT_LABELS.documento_com_foto_pf },
+]
+
+const PJ_ATTACHMENT_FIELDS: Array<{ key: IndicationAttachmentKey; label: string }> = [
+    { key: "fatura_energia_pj", label: ATTACHMENT_LABELS.fatura_energia_pj },
+    { key: "documento_com_foto_pj", label: ATTACHMENT_LABELS.documento_com_foto_pj },
+    { key: "contrato_social", label: ATTACHMENT_LABELS.contrato_social },
+    { key: "cartao_cnpj", label: ATTACHMENT_LABELS.cartao_cnpj },
+    { key: "doc_representante", label: ATTACHMENT_LABELS.doc_representante },
+]
+
 export function IndicationDetailsDialog({
     indicationId,
     userId,
@@ -76,6 +118,9 @@ export function IndicationDetailsDialog({
     const [isLoading, setIsLoading] = useState(false)
     const [metadata, setMetadata] = useState<any>(null)
     const [files, setFiles] = useState<FileItem[]>([])
+    const [storageOwnerId, setStorageOwnerId] = useState<string | null>(null)
+    const [uploadFiles, setUploadFiles] = useState<Partial<Record<IndicationAttachmentKey, File | null>>>({})
+    const [isUploadingFiles, setIsUploadingFiles] = useState(false)
     const [proposals, setProposals] = useState<ProposalSummary[]>([])
     const [proposalError, setProposalError] = useState<string | null>(null)
     const [proposalLoading, setProposalLoading] = useState(false)
@@ -103,10 +148,19 @@ export function IndicationDetailsDialog({
         const rawStatus = (initialData as any)?.doc_validation_status
         return typeof rawStatus === "string" && rawStatus.length > 0 ? rawStatus : "PENDING"
     }, [initialData])
+    const personType = useMemo<"PF" | "PJ">(() => {
+        const raw = String((metadata as any)?.tipoPessoa ?? (metadata as any)?.tipo ?? (initialData as any)?.tipo ?? "").toUpperCase()
+        return raw === "PJ" ? "PJ" : "PF"
+    }, [metadata, initialData])
+    const attachmentFields = personType === "PJ" ? PJ_ATTACHMENT_FIELDS : PF_ATTACHMENT_FIELDS
+    const selectedUploadCount = attachmentFields.filter((field) => uploadFiles[field.key] instanceof File).length
 
     useEffect(() => {
         setMetadata(null)
         setFiles([])
+        setStorageOwnerId(null)
+        setUploadFiles({})
+        setIsUploadingFiles(false)
         setProposals([])
         setProposalError(null)
         setHasLoadedProposals(false)
@@ -174,6 +228,7 @@ export function IndicationDetailsDialog({
 
             let finalMetadata: Record<string, unknown> | null = null
             let finalFiles: FileItem[] = []
+            let finalOwnerId: string | null = null
             const serverResult = await getIndicationStorageDetails({
                 indicationId,
                 ownerIds: candidateOwnerIds,
@@ -182,6 +237,7 @@ export function IndicationDetailsDialog({
             if (serverResult.success) {
                 finalMetadata = serverResult.metadata
                 finalFiles = serverResult.files
+                finalOwnerId = serverResult.ownerId
             } else {
                 // Fallback to client-side reads if server action is unavailable in current environment.
                 for (const ownerId of candidateOwnerIds) {
@@ -193,6 +249,7 @@ export function IndicationDetailsDialog({
                     if (ownerMetadata || ownerFiles.length > 0) {
                         finalMetadata = ownerMetadata
                         finalFiles = ownerFiles
+                        finalOwnerId = ownerId
                         break
                     }
                 }
@@ -200,6 +257,7 @@ export function IndicationDetailsDialog({
 
             setMetadata(toDisplayMetadata(finalMetadata ?? initialData))
             setFiles(finalFiles)
+            setStorageOwnerId(finalOwnerId)
         } catch (error) {
             console.error("Error loading details:", error)
             showToast({
@@ -209,6 +267,103 @@ export function IndicationDetailsDialog({
             })
         } finally {
             setIsLoading(false)
+        }
+    }
+
+    const formatFileLabel = (name: string) => {
+        const normalized = name as IndicationAttachmentKey
+        if (normalized in ATTACHMENT_LABELS) {
+            return ATTACHMENT_LABELS[normalized]
+        }
+        return name
+    }
+
+    const handleUploadFileChange = (key: IndicationAttachmentKey) => (event: ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = event.target.files?.[0] ?? null
+
+        if (!selectedFile) {
+            setUploadFiles((previous) => ({ ...previous, [key]: null }))
+            return
+        }
+
+        if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(selectedFile.type)) {
+            showToast({
+                title: "Arquivo inválido",
+                description: "Use PDF, JPG, JPEG ou PNG.",
+                variant: "error",
+            })
+            event.target.value = ""
+            return
+        }
+
+        if (selectedFile.size > MAX_ATTACHMENT_SIZE_BYTES) {
+            showToast({
+                title: "Arquivo grande",
+                description: "Máximo de 10MB por arquivo.",
+                variant: "error",
+            })
+            event.target.value = ""
+            return
+        }
+
+        setUploadFiles((previous) => ({ ...previous, [key]: selectedFile }))
+    }
+
+    const handleUploadAttachments = async () => {
+        if (selectedUploadCount === 0) {
+            showToast({
+                title: "Nenhum arquivo selecionado",
+                description: "Selecione ao menos um documento para anexar.",
+                variant: "error",
+            })
+            return
+        }
+
+        setIsUploadingFiles(true)
+        try {
+            const formData = new FormData()
+            formData.append("indicationId", indicationId)
+            formData.append("ownerId", storageOwnerId ?? userId)
+
+            for (const field of attachmentFields) {
+                const selectedFile = uploadFiles[field.key]
+                if (selectedFile instanceof File) {
+                    formData.append(field.key, selectedFile)
+                }
+            }
+
+            const result = await uploadIndicationAssets(formData)
+            if (!result.success) {
+                const metadataError = "metadataError" in result ? result.metadataError : null
+                const fileErrors = "fileErrors" in result && Array.isArray(result.fileErrors) ? result.fileErrors : []
+                const genericError = "error" in result ? result.error : null
+
+                const message = [genericError, metadataError, ...fileErrors].filter(Boolean).join(" | ")
+                showToast({
+                    title: "Erro ao anexar documentos",
+                    description: message || "Não foi possível concluir o upload.",
+                    variant: "error",
+                })
+                return
+            }
+
+            showToast({
+                title: "Documentos anexados",
+                description: "Arquivos salvos com sucesso.",
+                variant: "success",
+            })
+            setUploadFiles({})
+            await fetchDetails()
+            router.refresh()
+        } catch (error) {
+            console.error("Error uploading indication assets:", error)
+            showToast({
+                title: "Erro ao anexar documentos",
+                description: "Tente novamente em instantes.",
+                variant: "error",
+            })
+        } finally {
+            setIsUploadingFiles(false)
         }
     }
 
@@ -619,14 +774,14 @@ export function IndicationDetailsDialog({
                                 </TabsContent>
                             ) : null}
 
-                            <TabsContent value="arquivos" className="mt-4">
+                            <TabsContent value="arquivos" className="mt-4 space-y-4">
                                 {files.length > 0 ? (
                                     <div className="grid gap-2">
                                         {files.map((file, idx) => (
                                             <div key={idx} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
                                                 <div className="flex items-center gap-3">
                                                     <FileText className="h-5 w-5 text-blue-500" />
-                                                    <span className="text-sm font-medium">{file.name}</span>
+                                                    <span className="text-sm font-medium">{formatFileLabel(file.name)}</span>
                                                 </div>
                                                 {file.url ? (
                                                     <Button size="sm" variant="outline" asChild>
@@ -646,6 +801,66 @@ export function IndicationDetailsDialog({
                                         Nenhum arquivo anexado.
                                     </div>
                                 )}
+
+                                <div className="rounded-lg border p-4 space-y-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                            <p className="text-sm font-semibold">Anexar documentos</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Você pode anexar ou substituir os documentos da indicação sem recriar o cadastro.
+                                            </p>
+                                        </div>
+                                        <Badge variant="outline">{personType}</Badge>
+                                    </div>
+
+                                    {isSupervisorTeamReadOnly ? (
+                                        <p className="text-xs text-muted-foreground">
+                                            Supervisor possui acesso apenas de visualização para anexos da equipe.
+                                        </p>
+                                    ) : (
+                                        <>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {attachmentFields.map((field) => (
+                                                    <label key={field.key} className="space-y-1">
+                                                        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                                            {field.label}
+                                                        </span>
+                                                        <input
+                                                            type="file"
+                                                            accept={ATTACHMENT_ACCEPT}
+                                                            className="block w-full rounded-md border border-input px-3 py-2 text-sm"
+                                                            onChange={handleUploadFileChange(field.key)}
+                                                        />
+                                                        {uploadFiles[field.key] instanceof File ? (
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {(uploadFiles[field.key] as File).name}
+                                                            </span>
+                                                        ) : null}
+                                                    </label>
+                                                ))}
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    onClick={handleUploadAttachments}
+                                                    disabled={isUploadingFiles || selectedUploadCount === 0}
+                                                >
+                                                    {isUploadingFiles ? (
+                                                        <>
+                                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                            Salvando anexos...
+                                                        </>
+                                                    ) : "Salvar anexos"}
+                                                </Button>
+                                                <span className="text-xs text-muted-foreground">
+                                                    Formatos aceitos: PDF, JPG, JPEG e PNG (até 10MB por arquivo).
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
                             </TabsContent>
 
                             <TabsContent value="energisa" className="mt-4 h-full">

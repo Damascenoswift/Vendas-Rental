@@ -80,7 +80,7 @@ function canManageOtherOwners(role?: string | null, department?: UserProfile["de
 }
 
 type StorageReadResult = {
-    ownerId: string
+    ownerId: string | null
     metadata: Record<string, unknown> | null
     files: AssetFile[]
 }
@@ -138,6 +138,62 @@ async function readOwnerAssets({
 
     return {
         ownerId,
+        metadata,
+        files,
+    }
+}
+
+async function readLegacyRootAssets({
+    storage,
+    indicationId,
+}: {
+    storage: ReturnType<ReturnType<typeof createSupabaseServiceClient>["storage"]["from"]>
+    indicationId: string
+}): Promise<StorageReadResult | null> {
+    const { data: entries, error: listError } = await storage.list(indicationId, {
+        limit: 100,
+    })
+
+    if (listError || !entries || entries.length === 0) return null
+
+    const hasMetadata = entries.some((entry) => entry.name === "metadata.json")
+    let metadata: Record<string, unknown> | null = null
+
+    if (hasMetadata) {
+        const { data: metadataFile } = await storage.download(`${indicationId}/metadata.json`)
+        if (metadataFile) {
+            try {
+                const text = await metadataFile.text()
+                const parsed = JSON.parse(text)
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                    metadata = parsed as Record<string, unknown>
+                }
+            } catch {
+                metadata = null
+            }
+        }
+    }
+
+    const files = await Promise.all(
+        entries
+            .filter((entry) => entry.name !== "metadata.json")
+            .map(async (entry) => {
+                const { data: signed } = await storage.createSignedUrl(
+                    `${indicationId}/${entry.name}`,
+                    3600
+                )
+
+                return {
+                    name: entry.name,
+                    url: signed?.signedUrl ?? null,
+                } satisfies AssetFile
+            })
+    )
+
+    if (!metadata && files.length === 0) return null
+
+    return {
+        ownerId: null,
         metadata,
         files,
     }
@@ -319,6 +375,16 @@ export async function getIndicationStorageDetails(params: { indicationId: string
                 metadata: ownerData.metadata,
                 files: ownerData.files,
             }
+        }
+    }
+
+    const legacyData = await readLegacyRootAssets({ storage, indicationId })
+    if (legacyData) {
+        return {
+            success: true as const,
+            ownerId: legacyData.ownerId,
+            metadata: legacyData.metadata,
+            files: legacyData.files,
         }
     }
 
