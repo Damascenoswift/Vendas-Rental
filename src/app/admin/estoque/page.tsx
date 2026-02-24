@@ -1,5 +1,5 @@
 import { Suspense } from "react"
-import { getProducts } from "@/services/product-service"
+import { getInventoryDynamicStats, getProducts } from "@/services/product-service"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
@@ -11,7 +11,7 @@ import {
     CardHeader,
     CardTitle,
 } from "@/components/ui/card"
-import { Package, AlertTriangle, DollarSign } from "lucide-react"
+import { Package, AlertTriangle, DollarSign, TrendingDown } from "lucide-react"
 
 export const dynamic = "force-dynamic"
 
@@ -44,10 +44,16 @@ export default async function InventoryPage() {
 
 async function InventoryContent() {
     let products: Awaited<ReturnType<typeof getProducts>> = []
+    let dynamicStats: Awaited<ReturnType<typeof getInventoryDynamicStats>> = []
     let loadError: string | null = null
 
     try {
-        products = await getProducts()
+        const [loadedProducts, loadedDynamicStats] = await Promise.all([
+            getProducts(),
+            getInventoryDynamicStats(),
+        ])
+        products = loadedProducts
+        dynamicStats = loadedDynamicStats
     } catch (error) {
         console.error("Erro ao carregar produtos:", error)
         loadError = "Não foi possível carregar os produtos do estoque."
@@ -68,8 +74,16 @@ async function InventoryContent() {
 
     // Key Metrics Calculation
     const totalItems = products.length
-    const lowStockCount = products.filter(p => ((p.stock_total || 0) - (p.stock_reserved || 0)) < (p.min_stock ?? 5) && p.active).length
+    const dynamicByProductId = new Map(dynamicStats.map((entry) => [entry.product_id, entry]))
+    const lowStockCount = products.filter((product) => {
+        if (!product.active) return false
+        const stockAvailable = Number(product.stock_total || 0) - Number(product.stock_reserved || 0)
+        const soldFromWorks = dynamicByProductId.get(product.id)?.sold_from_works ?? 0
+        const projectedAvailable = stockAvailable - soldFromWorks
+        return projectedAvailable < (product.min_stock ?? 5)
+    }).length
     const totalValue = products.reduce((acc, p) => acc + (p.price * (p.stock_total || 0)), 0)
+    const totalSoldFromWorks = dynamicStats.reduce((acc, stat) => acc + stat.sold_from_works, 0)
 
     function formatVal(val: number) {
         return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val)
@@ -78,7 +92,7 @@ async function InventoryContent() {
     return (
         <div className="space-y-6">
             {/* Dashboard Cards */}
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">
@@ -121,9 +135,23 @@ async function InventoryContent() {
                         </p>
                     </CardContent>
                 </Card>
+                <Card>
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">
+                            Vendido em Obras
+                        </CardTitle>
+                        <TrendingDown className="h-4 w-4 text-blue-600" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-blue-700">{totalSoldFromWorks.toLocaleString("pt-BR")}</div>
+                        <p className="text-xs text-muted-foreground">
+                            Quantidade total vinculada ao módulo de obras
+                        </p>
+                    </CardContent>
+                </Card>
             </div>
 
-            <ProductList initialProducts={products} />
+            <ProductList initialProducts={products} dynamicStats={dynamicStats} />
         </div>
     )
 }

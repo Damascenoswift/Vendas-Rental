@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { Plus, ArrowDown, ArrowUp, Lock, Unlock } from "lucide-react"
+import { Plus, ArrowDown, ArrowUp, Lock, Unlock, Building2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -32,16 +32,26 @@ import {
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { createStockMovement, StockMovement, StockMovementType } from "@/services/product-service"
+import { createStockMovement, StockMovement, StockMovementType, type ProductWorkSale } from "@/services/product-service"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 
 interface StockMovementsProps {
     productId: string
     movements: StockMovement[]
+    workSales?: ProductWorkSale[]
 }
 
-export function StockMovements({ productId, movements }: StockMovementsProps) {
+type TimelineItem = {
+    id: string
+    created_at: string
+    type: StockMovementType | "WORK_SALE"
+    quantity: number
+    entity_name: string | null
+    reference: string | null
+}
+
+export function StockMovements({ productId, movements, workSales = [] }: StockMovementsProps) {
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [type, setType] = useState<StockMovementType>("IN")
@@ -80,7 +90,7 @@ export function StockMovements({ productId, movements }: StockMovementsProps) {
             setQuantity(1)
             setEntityName("")
             router.refresh()
-        } catch (error) {
+        } catch {
             showToast({
                 title: "Erro",
                 description: "Falha ao registrar movimentação.",
@@ -91,10 +101,33 @@ export function StockMovements({ productId, movements }: StockMovementsProps) {
         }
     }
 
+    const timeline = [
+        ...movements.map((move) => ({
+            id: move.id,
+            created_at: move.created_at ?? new Date().toISOString(),
+            type: move.type,
+            quantity: Number(move.quantity || 0),
+            entity_name: move.entity_name || null,
+            reference: null,
+        }) satisfies TimelineItem),
+        ...workSales.map((sale) => ({
+            id: sale.id,
+            created_at: sale.sold_at,
+            type: "WORK_SALE",
+            quantity: Number(sale.quantity || 0),
+            entity_name: sale.customer_name || sale.work_title || null,
+            reference: [
+                sale.work_title ? `Obra: ${sale.work_title}` : null,
+                sale.installation_code ? `Instalação: ${sale.installation_code}` : null,
+                sale.proposal_id ? `Proposta: ${sale.proposal_id.slice(0, 8)}` : null,
+            ].filter(Boolean).join(" • ") || null,
+        }) satisfies TimelineItem),
+    ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
     return (
         <div className="space-y-4">
             <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Histórico de Movimentações</h3>
+                <h3 className="text-lg font-medium">Histórico Dinâmico de Movimentações</h3>
                 <Dialog open={open} onOpenChange={setOpen}>
                     <DialogTrigger asChild>
                         <Button size="sm">
@@ -168,19 +201,20 @@ export function StockMovements({ productId, movements }: StockMovementsProps) {
                         <TableRow>
                             <TableHead>Data</TableHead>
                             <TableHead>Tipo</TableHead>
-                            <TableHead>Ref / Entidade</TableHead>
+                            <TableHead>Destino / Entidade</TableHead>
+                            <TableHead>Origem</TableHead>
                             <TableHead className="text-right">Qtd.</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {movements.length === 0 ? (
+                        {timeline.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
+                                <TableCell colSpan={5} className="text-center text-muted-foreground h-24">
                                     Nenhuma movimentação registrada.
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            movements.map((move) => (
+                            timeline.map((move) => (
                                 <TableRow key={move.id}>
                                     <TableCell>{move.created_at ? format(new Date(move.created_at), 'dd/MM/yyyy HH:mm', { locale: ptBR }) : '-'}</TableCell>
                                     <TableCell>
@@ -189,14 +223,17 @@ export function StockMovements({ productId, movements }: StockMovementsProps) {
                                             {move.type === 'OUT' && <ArrowUp className="text-red-500 h-4 w-4" />}
                                             {move.type === 'RESERVE' && <Lock className="text-orange-500 h-4 w-4" />}
                                             {move.type === 'RELEASE' && <Unlock className="text-blue-500 h-4 w-4" />}
+                                            {move.type === 'WORK_SALE' && <Building2 className="text-violet-600 h-4 w-4" />}
                                             <span className="capitalize text-sm font-medium">
                                                 {move.type === 'IN' ? 'Entrada' :
                                                     move.type === 'OUT' ? 'Saída' :
-                                                        move.type === 'RESERVE' ? 'Reserva' : 'Liberação'}
+                                                        move.type === 'RESERVE' ? 'Reserva' :
+                                                            move.type === 'RELEASE' ? 'Liberação' : 'Venda (Obra)'}
                                             </span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-muted-foreground">{move.entity_name || '-'}</TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">{move.reference || '-'}</TableCell>
                                     <TableCell className="text-right font-mono">{move.quantity}</TableCell>
                                 </TableRow>
                             ))
