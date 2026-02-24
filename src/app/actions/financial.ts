@@ -219,12 +219,19 @@ const closureSelectableTypeSchema = z.enum([
     'override_gestao',
 ])
 
+const closureBatchTransactionTypeSchema = z.enum([
+    'comissao_venda',
+    'comissao_dorata',
+    'override_gestao',
+    'despesa',
+])
+
 const closeableItemSchema = z.object({
     source_kind: z.enum(['rental_sistema', 'dorata_sistema', 'manual_elyakim']),
     source_ref_id: z.string().min(1, 'Origem inválida'),
     brand: z.enum(['rental', 'dorata']),
     beneficiary_user_id: z.string().uuid('Beneficiário inválido'),
-    transaction_type: closureSelectableTypeSchema,
+    transaction_type: closureBatchTransactionTypeSchema,
     amount: z.coerce.number().positive('Valor inválido'),
     description: z.string().max(500).optional().nullable(),
     origin_lead_id: z.union([z.string().uuid(), z.null()]).optional(),
@@ -303,12 +310,54 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         }
     }
 
+    const expenseBeneficiary = formData.get('expense_beneficiary_user_id')?.toString().trim() ?? ''
+    const expenseBrand = formData.get('expense_brand')?.toString().trim() ?? ''
+    const expenseDescription = formData.get('expense_description')?.toString().trim() ?? ''
+    const expenseAmountRaw = formData.get('expense_amount')?.toString().trim() ?? ''
+    const applyExpense = formData.get('apply_expense')?.toString() === '1'
+
+    if (applyExpense) {
+        const expenseAmount = Number(expenseAmountRaw)
+        if (
+            !expenseBeneficiary ||
+            !expenseDescription ||
+            !expenseBrand ||
+            !Number.isFinite(expenseAmount) ||
+            expenseAmount <= 0
+        ) {
+            return
+        }
+
+        const normalizedBrand = expenseBrand === 'dorata' ? 'dorata' : 'rental'
+        decodedItems.push({
+            source_kind: normalizedBrand === 'dorata' ? 'dorata_sistema' : 'rental_sistema',
+            source_ref_id: `manual_expense:${crypto.randomUUID()}`,
+            brand: normalizedBrand,
+            beneficiary_user_id: expenseBeneficiary,
+            transaction_type: 'despesa',
+            amount: Number(expenseAmount.toFixed(2)),
+            description: `Despesa fechamento - ${expenseDescription}`,
+            origin_lead_id: null,
+            client_name: 'Despesa financeira',
+        })
+    }
+
     const competencia = normalizeCompetenciaDate(formData.get('competencia')?.toString() ?? null)
     const paymentDate = normalizeDate(formData.get('payment_date')?.toString() ?? null)
     const observacaoRaw = formData.get('observacao')?.toString().trim()
     const observacao = observacaoRaw && observacaoRaw.length > 0 ? observacaoRaw : null
 
-    const totalValor = decodedItems.reduce((sum, item) => sum + Number(item.amount), 0)
+    const totalCredits = decodedItems
+        .filter((item) => item.transaction_type !== 'despesa')
+        .reduce((sum, item) => sum + Number(item.amount), 0)
+    const totalDiscounts = decodedItems
+        .filter((item) => item.transaction_type === 'despesa')
+        .reduce((sum, item) => sum + Number(item.amount), 0)
+    const totalValor = Number((totalCredits - totalDiscounts).toFixed(2))
+    if (totalValor < 0) {
+        return
+    }
+
     const supabaseAdmin = createSupabaseServiceClient()
     const salesEligibility = await getSalesEligibilityMap(
         supabaseAdmin,
@@ -376,7 +425,9 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         beneficiary_user_id: item.beneficiary_user_id,
         origin_lead_id: item.origin_lead_id ?? null,
         type: item.transaction_type,
-        amount: Number(item.amount),
+        amount: item.transaction_type === 'despesa'
+            ? -Number(item.amount)
+            : Number(item.amount),
         description: item.description || `Fechamento ${codigo}`,
         status: 'pago',
         due_date: paymentDate,

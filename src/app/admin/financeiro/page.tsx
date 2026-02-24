@@ -1107,6 +1107,82 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                             </button>
                         </div>
 
+                        <div className="rounded-md border border-dashed p-4 space-y-3">
+                            <div>
+                                <p className="text-sm font-medium">Despesa para desconto (opcional)</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Se preenchida, essa despesa entra no fechamento e é descontada do total líquido a pagar.
+                                </p>
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    name="apply_expense"
+                                    value="1"
+                                    className="h-4 w-4 rounded border-gray-300 text-primary"
+                                />
+                                Aplicar despesa neste fechamento
+                            </label>
+                            <div className="grid gap-3 md:grid-cols-4">
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="expense_beneficiary_user_id" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Beneficiário
+                                    </label>
+                                    <select
+                                        id="expense_beneficiary_user_id"
+                                        name="expense_beneficiary_user_id"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    >
+                                        <option value="">Sem despesa</option>
+                                        {sellerOptions.map((seller) => (
+                                            <option key={`expense-user-${seller.id}`} value={seller.id}>
+                                                {seller.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="expense_brand" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Marca
+                                    </label>
+                                    <select
+                                        id="expense_brand"
+                                        name="expense_brand"
+                                        defaultValue="rental"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    >
+                                        <option value="rental">Rental</option>
+                                        <option value="dorata">Dorata</option>
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1 md:col-span-2">
+                                    <label htmlFor="expense_description" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Descrição da despesa
+                                    </label>
+                                    <input
+                                        id="expense_description"
+                                        name="expense_description"
+                                        type="text"
+                                        placeholder="Ex: Seguro do veículo"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="expense_amount" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Valor (R$)
+                                    </label>
+                                    <input
+                                        id="expense_amount"
+                                        name="expense_amount"
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
