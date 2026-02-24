@@ -51,6 +51,7 @@ type DepartmentSummaryItem = {
     label: string
     count: number
     isUnassigned?: boolean
+    usesTodoOnly?: boolean
 }
 
 function getDateKeyInTimeZone(value: Date, timeZone: string) {
@@ -266,15 +267,26 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
             acc[department] = 0
             return acc
         }, {} as Record<Department, number>)
+        const departmentTodoCounts = DEPARTMENT_ORDER.reduce((acc, department) => {
+            acc[department] = 0
+            return acc
+        }, {} as Record<Department, number>)
         let unassignedDepartmentCount = 0
+        let unassignedDepartmentTodoCount = 0
 
         for (const task of tasks) {
             if (task.status !== "DONE") {
                 const department = normalizeDepartment(task.department)
                 if (department && departmentCounts[department] !== undefined) {
                     departmentCounts[department] += 1
+                    if (task.status === "TODO") {
+                        departmentTodoCounts[department] += 1
+                    }
                 } else {
                     unassignedDepartmentCount += 1
+                    if (task.status === "TODO") {
+                        unassignedDepartmentTodoCount += 1
+                    }
                 }
             }
 
@@ -317,17 +329,25 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                 return b.doneToday - a.doneToday
             })
 
-        const departments: DepartmentSummaryItem[] = DEPARTMENT_ORDER.map((department) => ({
-            key: department,
-            label: DEPARTMENT_LABELS[department],
-            count: departmentCounts[department] ?? 0,
-        }))
+        const departments: DepartmentSummaryItem[] = DEPARTMENT_ORDER.map((department) => {
+            const defaultCount = departmentCounts[department] ?? 0
+            const count = department === "cadastro"
+                ? (departmentTodoCounts[department] ?? 0)
+                : defaultCount
+
+            return {
+                key: department,
+                label: DEPARTMENT_LABELS[department],
+                count,
+                usesTodoOnly: department === "cadastro",
+            }
+        })
 
         if (unassignedDepartmentCount > 0) {
             departments.push({
                 key: "__unassigned__",
                 label: "Sem setor",
-                count: unassignedDepartmentCount,
+                count: unassignedDepartmentTodoCount,
                 isUnassigned: true,
             })
         }
@@ -413,7 +433,11 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                             <CardContent>
                                 <div className="text-2xl font-bold">{department.count}</div>
                                 <p className="text-xs text-muted-foreground">
-                                    {department.isUnassigned ? "Tarefas sem setor definido" : "Tarefas pendentes do setor"}
+                                    {department.isUnassigned
+                                        ? "Tarefas sem setor definido"
+                                        : department.usesTodoOnly
+                                            ? "Tarefas em A Fazer do setor"
+                                            : "Tarefas pendentes do setor"}
                                 </p>
                                 {department.key === "cadastro" && shouldBlinkCadastro && (
                                     <div className="mt-3 flex items-center justify-between gap-2">
