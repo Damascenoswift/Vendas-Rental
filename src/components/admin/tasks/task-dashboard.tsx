@@ -113,9 +113,20 @@ function mergeIds(base: string[], incoming: string[]) {
     return Array.from(merged)
 }
 
+function normalizeTaskIds(value: Array<{ id?: string | null }> | string[]) {
+    return value
+        .map((item) => {
+            if (typeof item === "string") return item.trim()
+            if (!item || typeof item !== "object") return ""
+            return typeof item.id === "string" ? item.id.trim() : ""
+        })
+        .filter((id) => id.length > 0)
+}
+
 export function TaskDashboard({ tasks }: TaskDashboardProps) {
     const [seenCadastroTaskIds, setSeenCadastroTaskIds] = useState<string[]>([])
     const [pendingCadastroTaskIds, setPendingCadastroTaskIds] = useState<string[]>([])
+    const [activeCadastroTaskIds, setActiveCadastroTaskIds] = useState<string[]>([])
     const [isCadastroAlertReady, setIsCadastroAlertReady] = useState(false)
 
     const seenCadastroTaskIdsSet = useMemo(() => new Set(seenCadastroTaskIds), [seenCadastroTaskIds])
@@ -147,10 +158,9 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
             return
         }
 
-        const ids = ((data ?? []) as { id?: string | null }[])
-            .map((row) => (typeof row.id === "string" ? row.id.trim() : ""))
-            .filter((id) => id.length > 0)
+        const ids = normalizeTaskIds((data ?? []) as { id?: string | null }[])
 
+        setActiveCadastroTaskIds(ids)
         addPendingCadastroTaskIds(ids)
     }, [addPendingCadastroTaskIds])
 
@@ -194,10 +204,11 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
 
         const initialCadastroTodoIds = tasks
             .filter(isCadastroTodoTask)
-            .map((task) => task.id)
-            .filter((id) => typeof id === "string" && id.trim().length > 0)
+            .map((task) => task.id ?? "")
+        const normalizedInitialIds = normalizeTaskIds(initialCadastroTodoIds)
 
-        addPendingCadastroTaskIds(initialCadastroTodoIds)
+        setActiveCadastroTaskIds(normalizedInitialIds)
+        addPendingCadastroTaskIds(normalizedInitialIds)
         void syncCadastroAlert()
     }, [isCadastroAlertReady, tasks, addPendingCadastroTaskIds, syncCadastroAlert])
 
@@ -245,7 +256,8 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
         }
     }, [isCadastroAlertReady, seenCadastroTaskIdsSet, addPendingCadastroTaskIds, syncCadastroAlert])
 
-    const shouldBlinkCadastro = pendingCadastroTaskIds.length > 0
+    const shouldBlinkCadastro = activeCadastroTaskIds.length > 0
+    const hasUnseenCadastroAlert = pendingCadastroTaskIds.length > 0
 
     const metrics = useMemo(() => {
         const now = new Date()
@@ -439,7 +451,7 @@ export function TaskDashboard({ tasks }: TaskDashboardProps) {
                                             ? "Tarefas em A Fazer do setor"
                                             : "Tarefas pendentes do setor"}
                                 </p>
-                                {department.key === "cadastro" && shouldBlinkCadastro && (
+                                {department.key === "cadastro" && hasUnseenCadastroAlert && (
                                     <div className="mt-3 flex items-center justify-between gap-2">
                                         <span className="text-[11px] font-medium text-amber-700">
                                             Nova indicação pendente
