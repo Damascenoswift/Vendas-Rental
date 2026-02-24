@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true, // Temporário para permitir deploy
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "60mb",
+    },
+  },
   async redirects() {
     return [
       {

@@ -357,9 +357,12 @@ export function IndicationDetailsDialog({
             router.refresh()
         } catch (error) {
             console.error("Error uploading indication assets:", error)
+            const message = error instanceof Error && error.message
+                ? error.message
+                : "Tente novamente em instantes."
             showToast({
                 title: "Erro ao anexar documentos",
-                description: "Tente novamente em instantes.",
+                description: message,
                 variant: "error",
             })
         } finally {
