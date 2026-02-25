@@ -71,6 +71,11 @@ function formatCurrency(value: number) {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 }
 
+function formatDecimalForInput(value: number, fractionDigits = 2) {
+    if (!Number.isFinite(value)) return ""
+    return value.toFixed(fractionDigits).replace(".", ",")
+}
+
 function buildRuleMap(rules?: PricingRule[]) {
     const map: RuleMap = {}
     ;(rules ?? []).forEach((rule) => {
@@ -230,6 +235,7 @@ export function ProposalCalculatorSimple({
     const [numParcelas, setNumParcelas] = useState(
         initialInput?.finance?.num_parcelas ?? 0
     )
+    const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
 
     const { showToast } = useToast()
     const router = useRouter()
@@ -333,6 +339,20 @@ export function ProposalCalculatorSimple({
         })
 
         setJurosMensal(monthlyRate)
+    }
+
+    const handleInstallmentInputChange = (value: string) => {
+        setInstallmentInputDraft(value)
+        if (!value.trim()) return
+        handleInstallmentChange(value)
+    }
+
+    const handleInstallmentInputBlur = () => {
+        if (installmentInputDraft === null) return
+        if (installmentInputDraft.trim()) {
+            handleInstallmentChange(installmentInputDraft)
+        }
+        setInstallmentInputDraft(null)
     }
 
     const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
@@ -892,10 +912,14 @@ export function ProposalCalculatorSimple({
                                     <div className="space-y-2">
                                         <Label>Parcela mensal (R$)</Label>
                                         <Input
-                                            type="number"
-                                            step="0.01"
-                                            value={calculated.output.finance.parcela_mensal.toFixed(2)}
-                                            onChange={(e) => handleInstallmentChange(e.target.value)}
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={
+                                                installmentInputDraft ??
+                                                formatDecimalForInput(calculated.output.finance.parcela_mensal)
+                                            }
+                                            onChange={(e) => handleInstallmentInputChange(e.target.value)}
+                                            onBlur={handleInstallmentInputBlur}
                                         />
                                     </div>
                                     <div className="space-y-2">
