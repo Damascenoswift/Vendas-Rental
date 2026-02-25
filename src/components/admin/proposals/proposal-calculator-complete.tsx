@@ -131,6 +131,13 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
+function roundByMode(value: number, mode: ProposalCalcParams["micro_rounding_mode"]) {
+    if (!Number.isFinite(value)) return 0
+    if (mode === "FLOOR") return Math.floor(value)
+    if (mode === "ROUND") return Math.round(value)
+    return Math.ceil(value)
+}
+
 function normalizeStatusForForm(status: ProposalStatus | null | undefined): "draft" | "sent" {
     return status === "draft" ? "draft" : "sent"
 }
@@ -436,6 +443,11 @@ export function ProposalCalculatorComplete({
     const router = useRouter()
     const [loading, setLoading] = useState(false)
     const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
+    const [kitGeradorValor, setKitGeradorValor] = useState<number>(() => {
+        const fromOutput = Number(initialProposal?.calculation?.output?.kit?.custo_kit ?? 0)
+        if (Number.isFinite(fromOutput) && fromOutput > 0) return fromOutput
+        return 0
+    })
 
     const normalizedStringInverters = useMemo<ProposalStringInverterInput[]>(
         () =>
@@ -463,6 +475,59 @@ export function ProposalCalculatorComplete({
         () => normalizedStringInverters.reduce((acc, row) => acc + row.quantity, 0),
         [normalizedStringInverters]
     )
+    const microInverterQuantityForCost = useMemo(() => {
+        const informedMicroQuantity = Number(input.dimensioning.qtd_inversor_micro || 0)
+        if (Number.isFinite(informedMicroQuantity) && informedMicroQuantity > 0) {
+            return informedMicroQuantity
+        }
+
+        const modulesQuantity = Number(input.dimensioning.qtd_modulos || 0)
+        if (!Number.isFinite(modulesQuantity) || modulesQuantity <= 0) return 0
+
+        const divisor = Number(params.micro_per_modules_divisor || 0)
+        if (!Number.isFinite(divisor) || divisor <= 0) return 0
+
+        return roundByMode(modulesQuantity / divisor, params.micro_rounding_mode)
+    }, [
+        input.dimensioning.qtd_inversor_micro,
+        input.dimensioning.qtd_modulos,
+        params.micro_per_modules_divisor,
+        params.micro_rounding_mode,
+    ])
+    const microInverterTotalCost = useMemo(
+        () => microInverterQuantityForCost * normalizePositive(Number(input.kit.micro_unit_cost || 0)),
+        [input.kit.micro_unit_cost, microInverterQuantityForCost]
+    )
+    const inverterTotalCostForKit = useMemo(
+        () =>
+            input.dimensioning.tipo_inversor === "MICRO"
+                ? microInverterTotalCost
+                : stringInverterTotalCost,
+        [input.dimensioning.tipo_inversor, microInverterTotalCost, stringInverterTotalCost]
+    )
+    const derivedModuleCostPerWatt = useMemo(() => {
+        const modulesQuantity = Number(input.dimensioning.qtd_modulos || 0)
+        const modulePowerW = Number(input.dimensioning.potencia_modulo_w || 0)
+        const cablingUnitCost = normalizePositive(Number(input.kit.cabling_unit_cost || 0))
+        const targetKitValue = normalizePositive(Number(kitGeradorValor || 0))
+
+        if (!Number.isFinite(modulesQuantity) || modulesQuantity <= 0) return 0
+        if (!Number.isFinite(modulePowerW) || modulePowerW <= 0) return 0
+
+        const moduleBudget = targetKitValue - inverterTotalCostForKit
+        const moduleUnitTarget = moduleBudget / modulesQuantity
+        const costPerWatt = (moduleUnitTarget - cablingUnitCost) / modulePowerW
+
+        if (!Number.isFinite(costPerWatt)) return 0
+        return costPerWatt > 0 ? costPerWatt : 0
+    }, [
+        input.dimensioning.qtd_modulos,
+        input.dimensioning.potencia_modulo_w,
+        input.kit.cabling_unit_cost,
+        inverterTotalCostForKit,
+        kitGeradorValor,
+    ])
+    const isKitValueBelowInverterCost = kitGeradorValor > 0 && kitGeradorValor < inverterTotalCostForKit
 
     const calculationInput = useMemo<ProposalCalcInput>(
         () => ({
@@ -474,10 +539,11 @@ export function ProposalCalculatorComplete({
             },
             kit: {
                 ...input.kit,
+                module_cost_per_watt: derivedModuleCostPerWatt,
                 string_inverter_total_cost: stringInverterTotalCost,
             },
         }),
-        [input, normalizedStringInverters, stringInverterTotalCost, stringInverterTotalQty]
+        [derivedModuleCostPerWatt, input, normalizedStringInverters, stringInverterTotalCost, stringInverterTotalQty]
     )
 
     const calculated = useMemo(() => calculateProposal(calculationInput), [calculationInput])
@@ -723,6 +789,22 @@ export function ProposalCalculatorComplete({
                 variant: "error",
                 title: "Dados incompletos",
                 description: "Informe a quantidade de módulos para gerar o orçamento.",
+            })
+            return
+        }
+        if (kitGeradorValor <= 0) {
+            showToast({
+                variant: "error",
+                title: "Valor do kit obrigatório",
+                description: "Informe o valor total do kit gerador para salvar o orçamento.",
+            })
+            return
+        }
+        if (isKitValueBelowInverterCost) {
+            showToast({
+                variant: "error",
+                title: "Valor do kit inválido",
+                description: `O valor do kit (${formatCurrency(kitGeradorValor)}) não pode ser menor que o total dos inversores (${formatCurrency(inverterTotalCostForKit)}).`,
             })
             return
         }
@@ -1176,20 +1258,36 @@ export function ProposalCalculatorComplete({
                                 </Select>
                             </div>
                             <div className="space-y-2">
-                                <Label>Custo base módulo (R$/W)</Label>
+                                <Label>Valor do kit gerador (R$)</Label>
                                 <Input
                                     type="number"
-                                    step="0.0001"
-                                    value={input.kit.module_cost_per_watt}
-                                    onChange={(e) => updateKit({ module_cost_per_watt: toNumber(e.target.value) })}
+                                    min="0"
+                                    step="0.01"
+                                    value={kitGeradorValor}
+                                    onChange={(e) => setKitGeradorValor(toNumber(e.target.value))}
                                 />
                             </div>
                         </div>
 
-                        <div className="space-y-2">
-                            <Label>Custo unitário módulo (calculado)</Label>
-                            <Input value={formatCurrency(moduleUnitCost)} disabled />
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label>Custo unitário módulo (calculado)</Label>
+                                <Input value={formatCurrency(moduleUnitCost)} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Custo base módulo (R$/W) calculado</Label>
+                                <Input value={derivedModuleCostPerWatt.toFixed(4)} disabled />
+                            </div>
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                            O modo completo usa o valor total do kit para o preço final, mantendo os itens do estoque para composição.
+                        </p>
+                        {isKitValueBelowInverterCost ? (
+                            <p className="text-xs text-red-600">
+                                O valor do kit está menor que o total dos inversores ({formatCurrency(inverterTotalCostForKit)}).
+                                Ajuste o kit para manter o cálculo válido.
+                            </p>
+                        ) : null}
 
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
