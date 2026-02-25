@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import type { Brand } from "@/lib/auth"
+import { hasSalesAccess } from "@/lib/sales-access"
 import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { QuickIndicationDialog } from "@/components/forms/quick-indication-dialog"
@@ -185,6 +186,10 @@ export default function DashboardPage() {
 
   const userId = session?.user.id
   const allowedBrands = useMemo(() => profile?.allowedBrands ?? ["rental"], [profile])
+  const canAccessTutorials = hasSalesAccess({
+    role: profile?.role,
+    sales_access: profile?.salesAccess ?? null,
+  })
 
   useEffect(() => {
     return () => {
@@ -549,27 +554,34 @@ export default function DashboardPage() {
         <p className="text-muted-foreground">
           Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
         </p>
-        <div className="pt-2 flex gap-2">
-          {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '') && (
-            <Link href="/admin/indicacoes">
-              <Button variant="outline" size="sm">
-                Painel Admin
-              </Button>
+        <div className="pt-2 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '') && (
+              <Link href="/admin/indicacoes">
+                <Button variant="outline" size="sm">
+                  Painel Admin
+                </Button>
+              </Link>
+            )}
+            <Link href="/indicacoes">
+              <Button size="sm">Nova indicação</Button>
             </Link>
-          )}
-          <Link href="/indicacoes">
-            <Button size="sm">Nova indicação</Button>
-          </Link>
-          <Link
-            href={
-              ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')
-                ? "/admin/orcamentos/novo"
-                : "/dashboard/orcamentos/novo"
-            }
-          >
-            <Button variant="secondary" size="sm">Solicitar Orçamento</Button>
-          </Link>
-          <QuickIndicationDialog />
+            <Link
+              href={
+                ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '')
+                  ? "/admin/orcamentos/novo"
+                  : "/dashboard/orcamentos/novo"
+              }
+            >
+              <Button variant="secondary" size="sm">Solicitar Orçamento</Button>
+            </Link>
+            <QuickIndicationDialog />
+          </div>
+          {canAccessTutorials ? (
+            <Link href="/dashboard/tutorials" className="sm:ml-auto">
+              <Button variant="outline" size="sm">Tutoriais</Button>
+            </Link>
+          ) : null}
         </div>
       </header>
 
