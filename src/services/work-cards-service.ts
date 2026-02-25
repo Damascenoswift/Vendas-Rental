@@ -226,6 +226,11 @@ function parseMissingColumnError(message?: string | null) {
     return { column: match[1], table: match[2] }
 }
 
+function isMissingWorkCommentAttachmentsColumn(message?: string | null) {
+    const missing = parseMissingColumnError(message)
+    return missing?.table === "obra_comments" && missing.column === "attachments"
+}
+
 function normalizeWorkCardsError(message?: string | null) {
     const raw = (message ?? "").trim()
     if (!raw) return "Falha ao processar card de obra."
@@ -1872,9 +1877,7 @@ export async function getWorkComments(workId: string) {
     if (!user || !role) return [] as WorkComment[]
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { data, error } = await supabaseAdmin
-        .from("obra_comments" as any)
-        .select(`
+    const selectWithAttachments = `
             id,
             obra_id,
             user_id,
@@ -1884,9 +1887,34 @@ export async function getWorkComments(workId: string) {
             attachments,
             created_at,
             user:users(name, email)
-        `)
+        `
+    const selectWithoutAttachments = `
+            id,
+            obra_id,
+            user_id,
+            comment_type,
+            phase,
+            content,
+            created_at,
+            user:users(name, email)
+        `
+
+    let { data, error } = await supabaseAdmin
+        .from("obra_comments" as any)
+        .select(selectWithAttachments)
         .eq("obra_id", workId)
         .order("created_at", { ascending: false })
+
+    if (error && isMissingWorkCommentAttachmentsColumn(error.message)) {
+        const fallbackResult = await supabaseAdmin
+            .from("obra_comments" as any)
+            .select(selectWithoutAttachments)
+            .eq("obra_id", workId)
+            .order("created_at", { ascending: false })
+
+        data = fallbackResult.data
+        error = fallbackResult.error
+    }
 
     if (error) {
         console.error("Erro ao buscar comentários da obra:", error)
@@ -1920,17 +1948,14 @@ export async function addWorkComment(input: {
     const attachments = normalizeStoredWorkCommentAttachments(input.attachments ?? [])
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { data, error } = await supabaseAdmin
-        .from("obra_comments" as any)
-        .insert({
-            obra_id: input.workId,
-            user_id: user.id,
-            comment_type: commentType,
-            phase: input.phase ?? null,
-            content,
-            attachments,
-        })
-        .select(`
+    const insertPayload = {
+        obra_id: input.workId,
+        user_id: user.id,
+        comment_type: commentType,
+        phase: input.phase ?? null,
+        content,
+    }
+    const selectWithAttachments = `
             id,
             obra_id,
             user_id,
@@ -1940,11 +1965,50 @@ export async function addWorkComment(input: {
             attachments,
             created_at,
             user:users(name, email)
-        `)
-        .single()
+        `
+    const selectWithoutAttachments = `
+            id,
+            obra_id,
+            user_id,
+            comment_type,
+            phase,
+            content,
+            created_at,
+            user:users(name, email)
+        `
+
+    let data: WorkCommentRow | null = null
+    let error: { message?: string | null } | null = null
+
+    if (attachments.length > 0) {
+        const insertResult = await supabaseAdmin
+            .from("obra_comments" as any)
+            .insert({
+                ...insertPayload,
+                attachments,
+            })
+            .select(selectWithAttachments)
+            .single()
+
+        data = (insertResult.data as WorkCommentRow | null) ?? null
+        error = insertResult.error
+
+        if (error && isMissingWorkCommentAttachmentsColumn(error.message)) {
+            return { error: normalizeWorkCardsError(error.message) }
+        }
+    } else {
+        const insertResult = await supabaseAdmin
+            .from("obra_comments" as any)
+            .insert(insertPayload)
+            .select(selectWithoutAttachments)
+            .single()
+
+        data = (insertResult.data as WorkCommentRow | null) ?? null
+        error = insertResult.error
+    }
 
     if (error || !data) {
-        return { error: error?.message ?? "Falha ao criar comentário." }
+        return { error: normalizeWorkCardsError(error?.message ?? "Falha ao criar comentário.") }
     }
 
     if (commentType === "ENERGISA_RESPOSTA") {
