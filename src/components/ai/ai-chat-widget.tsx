@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react"
 import { useAiChat } from "@/contexts/ai-chat-context"
 import { useAuthSession } from "@/hooks/use-auth-session"
+import { hasSalesAccess } from "@/lib/sales-access"
 import { MessageSquare, X, Send, Bot, User } from "lucide-react"
 
 export function AiChatWidget() {
@@ -11,7 +12,11 @@ export function AiChatWidget() {
     const [inputValue, setInputValue] = useState("")
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const isAuthorized =
-        status === "authenticated" && (profile?.role === "adm_mestre" || profile?.role === "adm_dorata")
+        status === "authenticated" &&
+        hasSalesAccess({
+            role: profile?.role,
+            sales_access: profile?.salesAccess ?? null,
+        })
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
