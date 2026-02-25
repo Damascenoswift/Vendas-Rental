@@ -187,12 +187,17 @@ export function ProposalCalculatorComplete({
         }),
         [rules]
     )
+    const defaultMonthlyInterestRate = normalizePercent(rules.juros_mensal ?? 0.019, 0.019)
 
     const isEditMode = intent === "edit" && Boolean(initialProposal?.id)
     const initialCalculationInput =
         initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
             ? (initialProposal.calculation.input as Partial<ProposalCalcInput>)
             : null
+    const minimumMonthlyInterestRate = useMemo(() => {
+        const rawRate = Number(initialCalculationInput?.finance?.juros_mensal ?? defaultMonthlyInterestRate)
+        return normalizePercent(rawRate, defaultMonthlyInterestRate)
+    }, [defaultMonthlyInterestRate, initialCalculationInput?.finance?.juros_mensal])
 
     const productById = useMemo(() => {
         const map = new Map<string, Product>()
@@ -368,7 +373,7 @@ export function ProposalCalculatorComplete({
                 enabled: false,
                 entrada_valor: 0,
                 carencia_meses: 0,
-                juros_mensal: normalizePercent(rules.juros_mensal ?? 0.019, 0.019),
+                juros_mensal: defaultMonthlyInterestRate,
                 num_parcelas: 0,
                 baloes: [],
             },
@@ -527,7 +532,7 @@ export function ProposalCalculatorComplete({
             installments: input.finance.num_parcelas,
         })
 
-        updateFinance({ juros_mensal: monthlyRate })
+        updateFinance({ juros_mensal: Math.max(monthlyRate, minimumMonthlyInterestRate) })
     }
 
     const handleInstallmentInputChange = (value: string) => {

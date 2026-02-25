@@ -133,6 +133,10 @@ export function ProposalCalculatorSimple({
         initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
             ? (initialProposal.calculation.input as ProposalCalcInput)
             : null
+    const minimumMonthlyInterestRate = useMemo(() => {
+        const rawRate = Number(initialInput?.finance?.juros_mensal ?? defaultInterest)
+        return normalizePercent(rawRate, defaultInterest)
+    }, [defaultInterest, initialInput?.finance?.juros_mensal])
     const initialOutput =
         initialProposal?.calculation?.output && typeof initialProposal.calculation.output === "object"
             ? initialProposal.calculation.output
@@ -338,7 +342,7 @@ export function ProposalCalculatorSimple({
             installments: numParcelas,
         })
 
-        setJurosMensal(monthlyRate)
+        setJurosMensal(Math.max(monthlyRate, minimumMonthlyInterestRate))
     }
 
     const handleInstallmentInputChange = (value: string) => {
