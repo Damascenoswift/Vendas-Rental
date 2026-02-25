@@ -144,6 +144,116 @@ function pmt(rate: number, nper: number, pv: number) {
     return (rate * pv) / (1 - Math.pow(1 + rate, -nper))
 }
 
+export function calculateFinancedBalanceAfterGrace(params: {
+    financed_value: number
+    monthly_rate: number
+    grace_months: number
+    grace_interest_mode: GraceInterestMode
+}) {
+    const financedValue = Number(params.financed_value || 0)
+    const monthlyRate = Number(params.monthly_rate || 0)
+    const graceMonths = Number(params.grace_months || 0)
+
+    if (!Number.isFinite(financedValue) || financedValue <= 0) return 0
+    if (!Number.isFinite(monthlyRate) || monthlyRate < 0) return financedValue
+    if (!Number.isFinite(graceMonths) || graceMonths <= 0) return financedValue
+
+    return params.grace_interest_mode === "COMPOUND"
+        ? financedValue * Math.pow(1 + monthlyRate, graceMonths)
+        : financedValue * (1 + monthlyRate * graceMonths)
+}
+
+export function calculateInstallmentFromRate(params: {
+    financed_value: number
+    monthly_rate: number
+    grace_months: number
+    grace_interest_mode: GraceInterestMode
+    installments: number
+}) {
+    const installments = Number(params.installments || 0)
+    if (!Number.isFinite(installments) || installments <= 0) return 0
+
+    const balanceAfterGrace = calculateFinancedBalanceAfterGrace({
+        financed_value: params.financed_value,
+        monthly_rate: params.monthly_rate,
+        grace_months: params.grace_months,
+        grace_interest_mode: params.grace_interest_mode,
+    })
+
+    return pmt(Number(params.monthly_rate || 0), installments, balanceAfterGrace)
+}
+
+export function solveMonthlyRateFromInstallment(params: {
+    desired_installment: number
+    financed_value: number
+    grace_months: number
+    grace_interest_mode: GraceInterestMode
+    installments: number
+}) {
+    const desiredInstallment = Number(params.desired_installment || 0)
+    const financedValue = Number(params.financed_value || 0)
+    const installments = Number(params.installments || 0)
+
+    if (!Number.isFinite(desiredInstallment) || desiredInstallment <= 0) return 0
+    if (!Number.isFinite(financedValue) || financedValue <= 0) return 0
+    if (!Number.isFinite(installments) || installments <= 0) return 0
+
+    const installmentAtZeroRate = calculateInstallmentFromRate({
+        financed_value: financedValue,
+        monthly_rate: 0,
+        grace_months: params.grace_months,
+        grace_interest_mode: params.grace_interest_mode,
+        installments,
+    })
+
+    if (desiredInstallment <= installmentAtZeroRate) return 0
+
+    let lowRate = 0
+    let highRate = 0.05
+    let installmentAtHighRate = calculateInstallmentFromRate({
+        financed_value: financedValue,
+        monthly_rate: highRate,
+        grace_months: params.grace_months,
+        grace_interest_mode: params.grace_interest_mode,
+        installments,
+    })
+
+    const maxRate = 3
+    while (installmentAtHighRate < desiredInstallment && highRate < maxRate) {
+        highRate *= 2
+        installmentAtHighRate = calculateInstallmentFromRate({
+            financed_value: financedValue,
+            monthly_rate: highRate,
+            grace_months: params.grace_months,
+            grace_interest_mode: params.grace_interest_mode,
+            installments,
+        })
+    }
+
+    if (installmentAtHighRate < desiredInstallment) {
+        return highRate
+    }
+
+    for (let i = 0; i < 80; i += 1) {
+        const midRate = (lowRate + highRate) / 2
+        const installmentAtMidRate = calculateInstallmentFromRate({
+            financed_value: financedValue,
+            monthly_rate: midRate,
+            grace_months: params.grace_months,
+            grace_interest_mode: params.grace_interest_mode,
+            installments,
+        })
+
+        if (installmentAtMidRate >= desiredInstallment) {
+            highRate = midRate
+        } else {
+            lowRate = midRate
+        }
+    }
+
+    return highRate
+}
+
 export function calculateProposal(input: ProposalCalcInput): ProposalCalculation {
     const params: ProposalCalcParams = {
         ...DEFAULT_PARAMS,
@@ -240,10 +350,21 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
 
     const entradaPercentual = totalAVista > 0 ? entradaValor / totalAVista : 0
     const valorFinanciado = totalAVista - entradaValor - totalBaloes
-    const saldoPosCarencia = params.grace_interest_mode === "COMPOUND"
-        ? valorFinanciado * Math.pow(1 + jurosMensal, carenciaMeses)
-        : valorFinanciado * (1 + jurosMensal * carenciaMeses)
-    const parcelaMensal = input.finance.enabled ? pmt(jurosMensal, numParcelas, saldoPosCarencia) : 0
+    const saldoPosCarencia = calculateFinancedBalanceAfterGrace({
+        financed_value: valorFinanciado,
+        monthly_rate: jurosMensal,
+        grace_months: carenciaMeses,
+        grace_interest_mode: params.grace_interest_mode,
+    })
+    const parcelaMensal = input.finance.enabled
+        ? calculateInstallmentFromRate({
+            financed_value: valorFinanciado,
+            monthly_rate: jurosMensal,
+            grace_months: carenciaMeses,
+            grace_interest_mode: params.grace_interest_mode,
+            installments: numParcelas,
+        })
+        : 0
     const totalPago = input.finance.enabled
         ? entradaValor + (parcelaMensal * numParcelas) + totalBaloes
         : totalAVista

@@ -4,7 +4,12 @@ import { useMemo, useState } from "react"
 import type { Product } from "@/services/product-service"
 import { createProposal, updateProposal } from "@/services/proposal-service"
 import type { PricingRule, ProposalInsert, ProposalEditorData, ProposalStatus } from "@/services/proposal-service"
-import { calculateProposal, type ProposalCalcInput, type ProposalCalcParams } from "@/lib/proposal-calculation"
+import {
+    calculateProposal,
+    solveMonthlyRateFromInstallment,
+    type ProposalCalcInput,
+    type ProposalCalcParams
+} from "@/lib/proposal-calculation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -50,7 +55,15 @@ type ManualContactState = {
 }
 
 function toNumber(value: string) {
-    const parsed = Number(value)
+    const raw = (value ?? "").trim()
+    if (!raw) return 0
+
+    const sanitized = raw.replace(/\s/g, "")
+    const normalized = sanitized.includes(",")
+        ? sanitized.replace(/\./g, "").replace(",", ".")
+        : sanitized
+
+    const parsed = Number(normalized)
     return Number.isFinite(parsed) ? parsed : 0
 }
 
@@ -294,6 +307,33 @@ export function ProposalCalculatorSimple({
     const usesInventory = products.length > 0
     const kitDuplicado = calculated.output.kit.custo_kit * 2
     const estruturaDuplicada = calculated.output.structure.valor_estrutura_solo * 2
+
+    const handleTotalUsinaChange = (value: string) => {
+        const targetTotal = toNumber(value)
+        const baseValue = calculated.output.totals.soma_com_estrutura
+        const extrasValue = calculated.output.extras.extras_total
+
+        if (!Number.isFinite(baseValue) || baseValue <= 0) {
+            setMargemPercentual(0)
+            return
+        }
+
+        const nextMarginPercent = (targetTotal - extrasValue - baseValue) / baseValue
+        setMargemPercentual(Number.isFinite(nextMarginPercent) ? nextMarginPercent : 0)
+    }
+
+    const handleInstallmentChange = (value: string) => {
+        const targetInstallment = toNumber(value)
+        const monthlyRate = solveMonthlyRateFromInstallment({
+            desired_installment: targetInstallment,
+            financed_value: calculated.output.finance.valor_financiado,
+            grace_months: carenciaMeses,
+            grace_interest_mode: params.grace_interest_mode,
+            installments: numParcelas,
+        })
+
+        setJurosMensal(monthlyRate)
+    }
 
     const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
         const safeName = (fullName ?? "").trim()
@@ -773,18 +813,21 @@ export function ProposalCalculatorSimple({
                     <CardContent className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                                <Label>Margem (%)</Label>
+                                <Label>Total da usina (R$)</Label>
                                 <Input
                                     type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={(margemPercentual * 100).toFixed(2)}
-                                    onChange={(e) => setMargemPercentual(toNumber(e.target.value) / 100)}
+                                    step="0.01"
+                                    value={calculated.output.totals.total_a_vista.toFixed(2)}
+                                    onChange={(e) => handleTotalUsinaChange(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label>Margem calculada</Label>
                                 <Input value={formatCurrency(calculated.output.margin.margem_valor)} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Margem (%) calculada</Label>
+                                <Input value={(margemPercentual * 100).toFixed(4)} disabled />
                             </div>
                             <div className="space-y-2">
                                 <Label>Valor adicional (R$)</Label>
@@ -847,13 +890,12 @@ export function ProposalCalculatorSimple({
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Juros mensal (%)</Label>
+                                        <Label>Parcela mensal (R$)</Label>
                                         <Input
                                             type="number"
                                             step="0.01"
-                                            min="0"
-                                            value={(jurosMensal * 100).toFixed(2)}
-                                            onChange={(e) => setJurosMensal(toNumber(e.target.value) / 100)}
+                                            value={calculated.output.finance.parcela_mensal.toFixed(2)}
+                                            onChange={(e) => handleInstallmentChange(e.target.value)}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -864,6 +906,10 @@ export function ProposalCalculatorSimple({
                                             value={numParcelas}
                                             onChange={(e) => setNumParcelas(toNumber(e.target.value))}
                                         />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Juros mensal (%) calculado</Label>
+                                        <Input value={(jurosMensal * 100).toFixed(4)} disabled />
                                     </div>
                                 </div>
                             </div>

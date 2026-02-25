@@ -12,6 +12,7 @@ import type {
 } from "@/services/proposal-service"
 import {
     calculateProposal,
+    solveMonthlyRateFromInstallment,
     type ProposalCalcInput,
     type ProposalCalcParams,
     type ProposalStringInverterInput,
@@ -94,7 +95,15 @@ function toPowerKwFromProduct(product?: Product | null) {
 }
 
 function toNumber(value: string) {
-    const parsed = Number(value)
+    const raw = (value ?? "").trim()
+    if (!raw) return 0
+
+    const sanitized = raw.replace(/\s/g, "")
+    const normalized = sanitized.includes(",")
+        ? sanitized.replace(/\./g, "").replace(",", ".")
+        : sanitized
+
+    const parsed = Number(normalized)
     return Number.isFinite(parsed) ? parsed : 0
 }
 
@@ -484,6 +493,35 @@ export function ProposalCalculatorComplete({
 
     const updateFinance = (patch: Partial<ProposalCalcInput["finance"]>) => {
         setInput((prev) => ({ ...prev, finance: { ...prev.finance, ...patch } }))
+    }
+
+    const handleTotalUsinaChange = (value: string) => {
+        const targetTotal = toNumber(value)
+        const baseValue = calculated.output.totals.soma_com_estrutura
+        const extrasValue = calculated.output.extras.extras_total
+
+        if (!Number.isFinite(baseValue) || baseValue <= 0) {
+            updateMargin({ margem_percentual: 0 })
+            return
+        }
+
+        const marginPercent = (targetTotal - extrasValue - baseValue) / baseValue
+        updateMargin({
+            margem_percentual: Number.isFinite(marginPercent) ? marginPercent : 0,
+        })
+    }
+
+    const handleInstallmentChange = (value: string) => {
+        const targetInstallment = toNumber(value)
+        const monthlyRate = solveMonthlyRateFromInstallment({
+            desired_installment: targetInstallment,
+            financed_value: calculated.output.finance.valor_financiado,
+            grace_months: input.finance.carencia_meses,
+            grace_interest_mode: params.grace_interest_mode,
+            installments: input.finance.num_parcelas,
+        })
+
+        updateFinance({ juros_mensal: monthlyRate })
     }
 
     const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
@@ -1390,17 +1428,21 @@ export function ProposalCalculatorComplete({
                     <CardContent className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
-                                <Label>Margem (%)</Label>
+                                <Label>Total da usina (R$)</Label>
                                 <Input
                                     type="number"
-                                    step="0.1"
-                                    value={(input.margin.margem_percentual * 100).toFixed(2)}
-                                    onChange={(e) => updateMargin({ margem_percentual: toNumber(e.target.value) / 100 })}
+                                    step="0.01"
+                                    value={calculated.output.totals.total_a_vista.toFixed(2)}
+                                    onChange={(e) => handleTotalUsinaChange(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label>Margem calculada</Label>
                                 <Input value={formatCurrency(calculated.output.margin.margem_valor)} disabled />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Margem (%) calculada</Label>
+                                <Input value={(input.margin.margem_percentual * 100).toFixed(4)} disabled />
                             </div>
                         </div>
 
@@ -1504,12 +1546,12 @@ export function ProposalCalculatorComplete({
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label>Juros mensal</Label>
+                                <Label>Parcela mensal (R$)</Label>
                                 <Input
                                     type="number"
                                     step="0.01"
-                                    value={(input.finance.juros_mensal * 100).toFixed(2)}
-                                    onChange={(e) => updateFinance({ juros_mensal: toNumber(e.target.value) / 100 })}
+                                    value={calculated.output.finance.parcela_mensal.toFixed(2)}
+                                    onChange={(e) => handleInstallmentChange(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -1520,6 +1562,10 @@ export function ProposalCalculatorComplete({
                                     value={input.finance.num_parcelas}
                                     onChange={(e) => updateFinance({ num_parcelas: toNumber(e.target.value) })}
                                 />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Juros mensal (%) calculado</Label>
+                                <Input value={(input.finance.juros_mensal * 100).toFixed(4)} disabled />
                             </div>
                         </div>
 
