@@ -1,8 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react"
-import { Loader2, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import { Loader2, Paperclip, Trash2 } from "lucide-react"
 import {
     addWorkComment,
     addWorkImage,
@@ -27,6 +27,11 @@ import {
     type WorkProposalLink,
 } from "@/services/work-cards-service"
 import { uploadWorkImage, validateWorkImageAttachment } from "@/lib/work-images"
+import {
+    MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT,
+    uploadWorkCommentAttachments,
+    validateWorkCommentAttachmentFiles
+} from "@/lib/work-comment-attachments"
 import { useToast } from "@/hooks/use-toast"
 import {
     Dialog,
@@ -74,6 +79,13 @@ function formatDateTime(value?: string | null) {
         hour: "2-digit",
         minute: "2-digit",
     }).format(parsed)
+}
+
+function formatAttachmentSize(size: number | null | undefined) {
+    if (!size || size <= 0) return "0 B"
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function getSnapshotValue(snapshot: unknown, path: string): unknown {
@@ -489,10 +501,13 @@ export function WorkDetailsDialog({
     const [newProjectItem, setNewProjectItem] = useState("")
     const [newExecutionItem, setNewExecutionItem] = useState("")
     const [newEnergisaComment, setNewEnergisaComment] = useState("")
+    const [newGeneralComment, setNewGeneralComment] = useState("")
+    const [commentAttachmentFiles, setCommentAttachmentFiles] = useState<File[]>([])
 
     const [uploadType, setUploadType] = useState<WorkImageType>("ANTES")
     const [uploadCaption, setUploadCaption] = useState("")
     const [uploadFile, setUploadFile] = useState<File | null>(null)
+    const commentAttachmentInputRef = useRef<HTMLInputElement>(null)
 
     const [viewerOpen, setViewerOpen] = useState(false)
     const [viewerLoading, setViewerLoading] = useState(false)
@@ -530,6 +545,11 @@ export function WorkDetailsDialog({
 
     const energisaHistory = useMemo(
         () => comments.filter((item) => item.comment_type === "ENERGISA_RESPOSTA"),
+        [comments]
+    )
+
+    const generalComments = useMemo(
+        () => comments.filter((item) => item.comment_type === "GERAL"),
         [comments]
     )
 
@@ -677,6 +697,82 @@ export function WorkDetailsDialog({
             }
 
             setNewEnergisaComment("")
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    function handleGeneralCommentAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+        setCommentAttachmentFiles(Array.from(event.target.files ?? []))
+    }
+
+    async function handleAddGeneralComment() {
+        if (!workId) return
+        if (!newGeneralComment.trim()) return
+
+        const validationError = validateWorkCommentAttachmentFiles(commentAttachmentFiles, {
+            maxCount: MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT,
+        })
+        if (validationError) {
+            showToast({ title: "Anexo inválido", description: validationError, variant: "error" })
+            return
+        }
+
+        setIsSaving(true)
+        try {
+            let uploadedAttachments: Array<{
+                path: string
+                name: string
+                size: number | null
+                content_type: string | null
+            }> = []
+            let uploadFailedCount = 0
+
+            if (commentAttachmentFiles.length > 0) {
+                const uploadResult = await uploadWorkCommentAttachments(workId, commentAttachmentFiles, {
+                    maxCount: MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT,
+                })
+                uploadFailedCount = uploadResult.failed.length
+
+                if (uploadResult.error && uploadResult.uploaded.length === 0) {
+                    showToast({ title: "Erro no upload", description: uploadResult.error, variant: "error" })
+                    return
+                }
+
+                uploadedAttachments = uploadResult.uploaded
+            }
+
+            const result = await addWorkComment({
+                workId,
+                content: newGeneralComment,
+                commentType: "GERAL",
+                phase: work?.projeto_liberado_at ? "EXECUCAO" : "PROJETO",
+                attachments: uploadedAttachments,
+            })
+
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
+
+            setNewGeneralComment("")
+            setCommentAttachmentFiles([])
+            if (commentAttachmentInputRef.current) {
+                commentAttachmentInputRef.current.value = ""
+            }
+
+            if (uploadFailedCount > 0) {
+                showToast({
+                    title: "Comentário salvo com ressalvas",
+                    description: `${uploadFailedCount} anexo(s) não foram enviados.`,
+                    variant: "error",
+                })
+            } else {
+                showToast({ title: "Comentário salvo", variant: "success" })
+            }
+
             await loadData()
             onChanged?.()
         } finally {
@@ -991,6 +1087,88 @@ export function WorkDetailsDialog({
                                         ) : null}
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 rounded-md border p-4">
+                            <p className="text-sm font-semibold">Comentários da obra</p>
+                            <Textarea
+                                value={newGeneralComment}
+                                onChange={(event) => setNewGeneralComment(event.target.value)}
+                                placeholder="Escreva um comentário técnico, atualização de andamento ou observação da obra."
+                            />
+                            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                                <Input
+                                    ref={commentAttachmentInputRef}
+                                    type="file"
+                                    multiple
+                                    accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                                    onChange={handleGeneralCommentAttachmentChange}
+                                />
+                                <Button
+                                    variant="outline"
+                                    onClick={handleAddGeneralComment}
+                                    disabled={isSaving || !newGeneralComment.trim()}
+                                >
+                                    Salvar comentário
+                                </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Até {MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT} anexos por comentário (PDF, imagens, DOC/DOCX, XLS/XLSX; máximo 10MB por arquivo).
+                            </p>
+                            {commentAttachmentFiles.length > 0 ? (
+                                <div className="rounded-md border bg-slate-50 p-2 text-xs text-muted-foreground">
+                                    {commentAttachmentFiles.length} arquivo(s) selecionado(s):
+                                    <span className="ml-1">
+                                        {commentAttachmentFiles.map((file) => file.name).join(", ")}
+                                    </span>
+                                </div>
+                            ) : null}
+                            <div className="max-h-64 space-y-2 overflow-auto rounded-md border p-2">
+                                {generalComments.map((comment) => {
+                                    const author = comment.user?.name || comment.user?.email || "Usuário interno"
+                                    return (
+                                        <div key={comment.id} className="rounded-md bg-slate-50 p-2">
+                                            <p className="text-xs text-muted-foreground">
+                                                {author} • {formatDateTime(comment.created_at)}
+                                            </p>
+                                            <p className="mt-1 text-sm whitespace-pre-wrap">{comment.content}</p>
+                                            {comment.attachments.length > 0 ? (
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    {comment.attachments.map((attachment) => (
+                                                        attachment.signed_url ? (
+                                                            <a
+                                                                key={attachment.path}
+                                                                href={attachment.signed_url}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+                                                            >
+                                                                <Paperclip className="h-3.5 w-3.5" />
+                                                                <span>{attachment.name}</span>
+                                                                <span className="text-muted-foreground">
+                                                                    ({formatAttachmentSize(attachment.size)})
+                                                                </span>
+                                                            </a>
+                                                        ) : (
+                                                            <span
+                                                                key={attachment.path}
+                                                                className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs text-muted-foreground"
+                                                            >
+                                                                <Paperclip className="h-3.5 w-3.5" />
+                                                                <span>{attachment.name}</span>
+                                                                <span>({formatAttachmentSize(attachment.size)})</span>
+                                                            </span>
+                                                        )
+                                                    ))}
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                    )
+                                })}
+                                {generalComments.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Nenhum comentário registrado.</p>
+                                ) : null}
                             </div>
                         </div>
 

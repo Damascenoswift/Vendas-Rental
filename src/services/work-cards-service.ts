@@ -101,12 +101,21 @@ export interface WorkComment {
     comment_type: WorkCommentType
     phase: WorkPhase | null
     content: string
+    attachments: WorkCommentAttachment[]
     created_at: string
     user?: {
         id?: string
         name: string | null
         email: string | null
     } | null
+}
+
+export interface WorkCommentAttachment {
+    path: string
+    name: string
+    size: number | null
+    content_type: string | null
+    signed_url: string | null
 }
 
 export interface WorkImage {
@@ -133,10 +142,12 @@ const INTERNAL_WORK_ROLES = new Set([
 ])
 
 const WORK_IMAGES_BUCKET = "obra-images"
+const WORK_COMMENT_ATTACHMENTS_BUCKET = "obra-comment-attachments"
 const WORK_IMAGE_PREVIEW_WIDTH = 720
 const WORK_IMAGE_PREVIEW_QUALITY = 55
 const WORK_IMAGE_PREVIEW_TTL_SECONDS = 60 * 60
 const WORK_IMAGE_FULL_TTL_SECONDS = 60 * 10
+const WORK_COMMENT_ATTACHMENT_TTL_SECONDS = 60 * 60
 
 const PROJECT_TEMPLATE = [
     { sort_order: 1, title: "Validar dados técnicos do orçamento" },
@@ -242,6 +253,13 @@ function normalizeWorkCardsError(message?: string | null) {
     }
 
     if (
+        normalized.includes("obra_comments") &&
+        normalized.includes("attachments")
+    ) {
+        return "Banco desatualizado: execute a migração 094_work_comments_attachments.sql."
+    }
+
+    if (
         normalized.includes("permission denied for table obra_cards") ||
         normalized.includes("permission denied for table obra_card_proposals") ||
         normalized.includes("permission denied for table obra_process_items") ||
@@ -249,6 +267,13 @@ function normalizeWorkCardsError(message?: string | null) {
         normalized.includes("permission denied for table obra_images")
     ) {
         return "Permissões do banco desatualizadas: execute a migração 088_work_cards_service_role_grants.sql."
+    }
+
+    if (
+        normalized.includes("obra-comment-attachments") &&
+        normalized.includes("permission")
+    ) {
+        return "Permissões do storage desatualizadas: execute a migração 094_work_comments_attachments.sql."
     }
 
     return raw
@@ -1747,6 +1772,101 @@ export async function releaseProjectForExecution(workId: string) {
     return { success: true }
 }
 
+type StoredWorkCommentAttachment = {
+    path: string
+    name: string
+    size: number | null
+    content_type: string | null
+}
+
+type WorkCommentRow = {
+    id: string
+    obra_id: string
+    user_id: string | null
+    comment_type: WorkCommentType
+    phase: WorkPhase | null
+    content: string
+    attachments?: unknown
+    created_at: string
+    user?: unknown
+}
+
+function normalizeStoredWorkCommentAttachments(value: unknown): StoredWorkCommentAttachment[] {
+    if (!Array.isArray(value)) return []
+
+    return value
+        .map((item) => {
+            if (!item || typeof item !== "object") return null
+            const row = item as Record<string, unknown>
+            const path = typeof row.path === "string" ? row.path.trim() : ""
+            if (!path) return null
+
+            const name = typeof row.name === "string" && row.name.trim()
+                ? row.name.trim()
+                : path.split("/").pop() || "anexo"
+            const parsedSize = Number(row.size)
+            const size = Number.isFinite(parsedSize) && parsedSize >= 0 ? parsedSize : null
+            const contentType =
+                typeof row.content_type === "string" && row.content_type.trim()
+                    ? row.content_type.trim()
+                    : null
+
+            return {
+                path,
+                name,
+                size,
+                content_type: contentType,
+            } satisfies StoredWorkCommentAttachment
+        })
+        .filter((item): item is StoredWorkCommentAttachment => Boolean(item))
+}
+
+async function buildWorkCommentAttachmentsWithSignedUrl(
+    supabaseAdmin: any,
+    attachments: StoredWorkCommentAttachment[]
+) {
+    const results = await Promise.all(
+        attachments.map(async (attachment) => {
+            const signedResult = await supabaseAdmin.storage
+                .from(WORK_COMMENT_ATTACHMENTS_BUCKET)
+                .createSignedUrl(attachment.path, WORK_COMMENT_ATTACHMENT_TTL_SECONDS, { download: true })
+
+            return {
+                ...attachment,
+                signed_url: signedResult.data?.signedUrl ?? null,
+            } satisfies WorkCommentAttachment
+        })
+    )
+
+    return results
+}
+
+async function mapWorkCommentRow(
+    supabaseAdmin: any,
+    row: WorkCommentRow
+) {
+    const joinedUser = Array.isArray(row.user) ? (row.user[0] ?? null) : (row.user ?? null)
+    const attachments = normalizeStoredWorkCommentAttachments(row.attachments)
+    const attachmentsWithSignedUrl = await buildWorkCommentAttachmentsWithSignedUrl(supabaseAdmin, attachments)
+
+    return {
+        id: row.id,
+        obra_id: row.obra_id,
+        user_id: row.user_id ?? null,
+        comment_type: row.comment_type,
+        phase: row.phase ?? null,
+        content: row.content,
+        attachments: attachmentsWithSignedUrl,
+        created_at: row.created_at,
+        user: joinedUser
+            ? {
+                name: (joinedUser as { name?: string | null }).name ?? null,
+                email: (joinedUser as { email?: string | null }).email ?? null,
+            }
+            : null,
+    } satisfies WorkComment
+}
+
 export async function getWorkComments(workId: string) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return [] as WorkComment[]
@@ -1761,6 +1881,7 @@ export async function getWorkComments(workId: string) {
             comment_type,
             phase,
             content,
+            attachments,
             created_at,
             user:users(name, email)
         `)
@@ -1772,25 +1893,9 @@ export async function getWorkComments(workId: string) {
         return [] as WorkComment[]
     }
 
-    return ((data ?? []) as any[]).map((row) => {
-        const joinedUser = Array.isArray(row.user) ? (row.user[0] ?? null) : (row.user ?? null)
-
-        return {
-            id: row.id,
-            obra_id: row.obra_id,
-            user_id: row.user_id ?? null,
-            comment_type: row.comment_type,
-            phase: row.phase ?? null,
-            content: row.content,
-            created_at: row.created_at,
-            user: joinedUser
-                ? {
-                    name: joinedUser.name ?? null,
-                    email: joinedUser.email ?? null,
-                }
-                : null,
-        } satisfies WorkComment
-    })
+    const rows = (data ?? []) as WorkCommentRow[]
+    const mapped = await Promise.all(rows.map((row) => mapWorkCommentRow(supabaseAdmin, row)))
+    return mapped
 }
 
 export async function addWorkComment(input: {
@@ -1798,6 +1903,12 @@ export async function addWorkComment(input: {
     content: string
     commentType?: WorkCommentType
     phase?: WorkPhase | null
+    attachments?: Array<{
+        path: string
+        name: string
+        size?: number | null
+        content_type?: string | null
+    }>
 }) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return { error: "Sem permissão." }
@@ -1806,6 +1917,7 @@ export async function addWorkComment(input: {
     if (!content) return { error: "Comentário obrigatório." }
 
     const commentType = input.commentType ?? "GERAL"
+    const attachments = normalizeStoredWorkCommentAttachments(input.attachments ?? [])
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
@@ -1816,6 +1928,7 @@ export async function addWorkComment(input: {
             comment_type: commentType,
             phase: input.phase ?? null,
             content,
+            attachments,
         })
         .select(`
             id,
@@ -1824,6 +1937,7 @@ export async function addWorkComment(input: {
             comment_type,
             phase,
             content,
+            attachments,
             created_at,
             user:users(name, email)
         `)
@@ -1845,28 +1959,10 @@ export async function addWorkComment(input: {
     }
 
     revalidatePath("/admin/obras")
-
-    const joinedUser = Array.isArray((data as any).user)
-        ? ((data as any).user[0] ?? null)
-        : ((data as any).user ?? null)
-
+    const mappedComment = await mapWorkCommentRow(supabaseAdmin, data as WorkCommentRow)
     return {
         success: true,
-        comment: {
-            id: data.id,
-            obra_id: data.obra_id,
-            user_id: data.user_id ?? null,
-            comment_type: data.comment_type,
-            phase: data.phase ?? null,
-            content: data.content,
-            created_at: data.created_at,
-            user: joinedUser
-                ? {
-                    name: joinedUser.name ?? null,
-                    email: joinedUser.email ?? null,
-                }
-                : null,
-        } satisfies WorkComment,
+        comment: mappedComment,
     }
 }
 
