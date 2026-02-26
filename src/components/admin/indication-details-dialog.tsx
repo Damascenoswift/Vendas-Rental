@@ -18,7 +18,11 @@ import { LeadInteractions } from "./interactions/lead-interactions"
 import { EnergisaActions } from "./interactions/energisa-actions"
 import { DocChecklist } from "./interactions/doc-checklist"
 import { getProposalsForIndication } from "@/app/actions/proposals"
-import { activateWorkCardFromProposal, markDorataContractSigned } from "@/app/actions/crm"
+import {
+    activateWorkCardFromProposal,
+    markDorataContractSigned,
+    setContractProposalForIndication,
+} from "@/app/actions/crm"
 import { cn } from "@/lib/utils"
 import type { ChangeEvent, ReactNode } from "react"
 import { useRouter } from "next/navigation"
@@ -44,6 +48,7 @@ interface FileItem {
 
 type ProposalSummary = {
     id: string
+    client_id: string | null
     created_at: string
     status: string | null
     total_value: number | null
@@ -125,6 +130,8 @@ export function IndicationDetailsDialog({
     const [proposalError, setProposalError] = useState<string | null>(null)
     const [proposalLoading, setProposalLoading] = useState(false)
     const [hasLoadedProposals, setHasLoadedProposals] = useState(false)
+    const [contractProposalId, setContractProposalId] = useState<string | null>((initialData as any)?.contract_proposal_id ?? null)
+    const [updatingContractProposalId, setUpdatingContractProposalId] = useState<string | null>(null)
     const [isMarkingContractSigned, setIsMarkingContractSigned] = useState(false)
     const [activatingProposalId, setActivatingProposalId] = useState<string | null>(null)
     const [signedAt, setSignedAt] = useState<string | null>((initialData as any)?.assinada_em ?? null)
@@ -164,6 +171,7 @@ export function IndicationDetailsDialog({
         setProposals([])
         setProposalError(null)
         setHasLoadedProposals(false)
+        setContractProposalId((initialData as any)?.contract_proposal_id ?? null)
         setSignedAt((initialData as any)?.assinada_em ?? null)
     }, [indicationId, userId, initialData])
 
@@ -424,13 +432,14 @@ export function IndicationDetailsDialog({
             } else {
                 setProposalError(null)
                 setProposals((result as any).data ?? [])
+                setContractProposalId((result as any).selectedProposalId ?? (initialData as any)?.contract_proposal_id ?? null)
             }
             setProposalLoading(false)
             setHasLoadedProposals(true)
         }
 
         void loadProposals()
-    }, [isOpen, isDorata, indicationId, proposalLoading, hasLoadedProposals])
+    }, [isOpen, isDorata, indicationId, proposalLoading, hasLoadedProposals, initialData])
 
     const formatLabel = (key: string) => {
         return key.replace(/([A-Z])/g, ' $1').replace(/^./, (str) => str.toUpperCase())
@@ -471,7 +480,11 @@ export function IndicationDetailsDialog({
                 sent: 1,
                 draft: 2,
             }
-            const preferredProposal = proposals
+            const directProposals = proposals.filter((proposal) => proposal.client_id === indicationId)
+            const selectedContractProposal = contractProposalId
+                ? directProposals.find((proposal) => proposal.id === contractProposalId)
+                : null
+            const preferredProposal = selectedContractProposal ?? directProposals
                 .slice()
                 .sort((a, b) => {
                     const rankA = statusPriority[a.status ?? ""] ?? 99
@@ -515,6 +528,53 @@ export function IndicationDetailsDialog({
             })
         } finally {
             setIsMarkingContractSigned(false)
+        }
+    }
+
+    const handleSetContractProposal = async (proposalId: string) => {
+        if (updatingContractProposalId) return
+
+        const shouldClearSelection = contractProposalId === proposalId
+        setUpdatingContractProposalId(proposalId)
+        try {
+            const result = await setContractProposalForIndication(
+                indicationId,
+                shouldClearSelection ? null : proposalId,
+            )
+
+            if (result?.error) {
+                showToast({
+                    title: "Erro ao definir orçamento",
+                    description: result.error,
+                    variant: "error",
+                })
+                return
+            }
+
+            const nextContractProposalId =
+                "contractProposalId" in (result ?? {})
+                    ? result.contractProposalId ?? null
+                    : shouldClearSelection
+                        ? null
+                        : proposalId
+
+            setContractProposalId(nextContractProposalId)
+            showToast({
+                title: shouldClearSelection ? "Orçamento desmarcado" : "Orçamento marcado para contrato",
+                description: shouldClearSelection
+                    ? "A indicação voltou para seleção automática de orçamento."
+                    : `Orçamento #${proposalId.slice(0, 8)} será usado como base do contrato.`,
+                variant: "success",
+            })
+            router.refresh()
+        } catch {
+            showToast({
+                title: "Erro inesperado",
+                description: "Não foi possível atualizar o orçamento para contrato.",
+                variant: "error",
+            })
+        } finally {
+            setUpdatingContractProposalId(null)
         }
     }
 
@@ -567,6 +627,7 @@ export function IndicationDetailsDialog({
                     `Card criado/atualizado no módulo de Obras. Prazo definido: ${executionBusinessDays} dia(s) úteis.`,
                 variant: "success",
             })
+            setContractProposalId(proposalId)
             router.refresh()
         } finally {
             setActivatingProposalId(null)
@@ -712,9 +773,17 @@ export function IndicationDetailsDialog({
                                                 const statusLabel = proposal.status
                                                     ? proposalStatusLabels[proposal.status] ?? proposal.status
                                                     : "—"
+                                                const isContractProposal = contractProposalId === proposal.id
+                                                const isDirectMatch = proposal.client_id === indicationId
 
                                                 return (
-                                                    <div key={proposal.id} className="rounded-lg border p-4 space-y-2">
+                                                    <div
+                                                        key={proposal.id}
+                                                        className={cn(
+                                                            "rounded-lg border p-4 space-y-2",
+                                                            isContractProposal ? "border-primary bg-primary/5" : null,
+                                                        )}
+                                                    >
                                                         <div className="flex flex-wrap items-center justify-between gap-2">
                                                             <div>
                                                                 <p className="text-sm font-semibold">
@@ -726,6 +795,28 @@ export function IndicationDetailsDialog({
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <Badge variant="secondary">{statusLabel}</Badge>
+                                                                {isContractProposal ? (
+                                                                    <Badge variant="success">Orçamento para contrato</Badge>
+                                                                ) : null}
+                                                                {!isDirectMatch ? (
+                                                                    <Badge variant="outline">Outra indicação</Badge>
+                                                                ) : null}
+                                                                {!isSupervisorTeamReadOnly ? (
+                                                                    <Button
+                                                                        type="button"
+                                                                        size="sm"
+                                                                        variant={isContractProposal ? "default" : "outline"}
+                                                                        disabled={updatingContractProposalId === proposal.id || !isDirectMatch}
+                                                                        onClick={() => handleSetContractProposal(proposal.id)}
+                                                                    >
+                                                                        {updatingContractProposalId === proposal.id ? (
+                                                                            <>
+                                                                                <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                                                                                Salvando...
+                                                                            </>
+                                                                        ) : isContractProposal ? "Marcado no contrato" : "Orçamento p/ contrato"}
+                                                                    </Button>
+                                                                ) : null}
                                                                 {!isSupervisorTeamReadOnly ? (
                                                                     <Button
                                                                         type="button"

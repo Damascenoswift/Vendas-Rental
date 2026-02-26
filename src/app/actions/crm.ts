@@ -39,6 +39,8 @@ export async function activateWorkCardFromProposal(
         return { error: "Informe o prazo de execução em dias úteis (inteiro maior que zero)." }
     }
 
+    const supabaseAdmin = createSupabaseServiceClient()
+
     const result = await upsertWorkCardFromProposal({
         proposalId,
         actorId: user.id,
@@ -54,6 +56,33 @@ export async function activateWorkCardFromProposal(
         return { error: "Orçamento não elegível para Obras (fora da marca Dorata)." }
     }
 
+    let activationWarning: string | null =
+        "warning" in result && typeof result.warning === "string" ? result.warning : null
+    const appendActivationWarning = (message: string) => {
+        activationWarning = activationWarning ? `${activationWarning} ${message}` : message
+    }
+
+    const { data: proposalContext, error: proposalContextError } = await supabaseAdmin
+        .from("proposals")
+        .select("id, client_id")
+        .eq("id", proposalId)
+        .maybeSingle()
+
+    if (proposalContextError) {
+        console.error("Erro ao buscar proposta para marcar fonte de contrato:", proposalContextError)
+        appendActivationWarning("Obra criada, mas falhou ao marcar este orçamento para contrato.")
+    } else if (proposalContext?.client_id) {
+        const { error: contractSourceError } = await supabaseAdmin
+            .from("indicacoes")
+            .update({ contract_proposal_id: proposalId })
+            .eq("id", proposalContext.client_id)
+
+        if (contractSourceError) {
+            console.error("Erro ao salvar orçamento do contrato ao enviar para Obras:", contractSourceError)
+            appendActivationWarning("Obra criada, mas falhou ao marcar este orçamento para contrato.")
+        }
+    }
+
     revalidatePath("/admin/crm")
     revalidatePath("/admin/indicacoes")
     revalidatePath("/admin/obras")
@@ -61,7 +90,97 @@ export async function activateWorkCardFromProposal(
     return {
         success: true,
         workId: result?.workId ?? null,
-        warning: "warning" in result ? result.warning : undefined,
+        warning: activationWarning ?? undefined,
+    }
+}
+
+export async function setContractProposalForIndication(
+    indicacaoId: string,
+    proposalId: string | null,
+) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        return { error: "Não autorizado" }
+    }
+
+    const profile = await getProfile(supabase, user.id)
+    const role = profile?.role
+
+    if (!role || !crmAllowedRoles.includes(role)) {
+        return { error: "Sem permissão para selecionar orçamento de contrato." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: indicacao, error: indicacaoError } = await supabaseAdmin
+        .from("indicacoes")
+        .select("id, marca")
+        .eq("id", indicacaoId)
+        .maybeSingle()
+
+    if (indicacaoError || !indicacao) {
+        return { error: indicacaoError?.message ?? "Indicação não encontrada." }
+    }
+
+    if (indicacao.marca !== "dorata") {
+        return { error: "Ação disponível apenas para indicações Dorata." }
+    }
+
+    const normalizedProposalId = proposalId?.trim() || null
+    if (!normalizedProposalId) {
+        const { error: clearError } = await supabaseAdmin
+            .from("indicacoes")
+            .update({ contract_proposal_id: null })
+            .eq("id", indicacaoId)
+
+        if (clearError) {
+            return { error: clearError.message }
+        }
+
+        revalidatePath("/admin/crm")
+        revalidatePath("/admin/indicacoes")
+        revalidatePath("/admin/obras")
+        revalidatePath("/dashboard")
+
+        return {
+            success: true,
+            contractProposalId: null as string | null,
+        }
+    }
+
+    const { data: proposal, error: proposalError } = await supabaseAdmin
+        .from("proposals")
+        .select("id, client_id")
+        .eq("id", normalizedProposalId)
+        .maybeSingle()
+
+    if (proposalError) {
+        return { error: proposalError.message }
+    }
+
+    if (!proposal || proposal.client_id !== indicacaoId) {
+        return { error: "Orçamento não pertence a esta indicação." }
+    }
+
+    const { error: updateError } = await supabaseAdmin
+        .from("indicacoes")
+        .update({ contract_proposal_id: normalizedProposalId })
+        .eq("id", indicacaoId)
+
+    if (updateError) {
+        return { error: updateError.message }
+    }
+
+    revalidatePath("/admin/crm")
+    revalidatePath("/admin/indicacoes")
+    revalidatePath("/admin/obras")
+    revalidatePath("/dashboard")
+
+    return {
+        success: true,
+        contractProposalId: normalizedProposalId,
     }
 }
 
@@ -194,7 +313,7 @@ export async function markDorataContractSigned(
 
     const { data: indicacao, error: indicacaoError } = await supabaseAdmin
         .from("indicacoes")
-        .select("id, nome, marca, status, valor, assinada_em, contrato_enviado_em")
+        .select("id, nome, marca, status, valor, assinada_em, contrato_enviado_em, contract_proposal_id")
         .eq("id", indicacaoId)
         .maybeSingle()
 
@@ -426,7 +545,8 @@ export async function markDorataContractSigned(
             : message
     }
 
-    let preferredProposalId: string | null = options?.proposalId?.trim() || null
+    let preferredProposalId: string | null =
+        options?.proposalId?.trim() || indicacao.contract_proposal_id || null
 
     if (preferredProposalId) {
         const { data: preferredProposal, error: preferredProposalError } = await supabaseAdmin

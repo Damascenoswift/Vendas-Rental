@@ -16,6 +16,17 @@ interface ContractValues {
     preco_kwh_final: number
 }
 
+type ProposalContractSource = {
+    id: string
+    client_id: string | null
+    status: string | null
+    total_value: number | null
+    total_power: number | null
+    notes: string | null
+    created_at: string
+    calculation: Record<string, any> | null
+}
+
 // 1. Helper to load and fill template
 async function fillDocxTemplate(templateName: string, data: any): Promise<Buffer> {
     const content = await loadTemplateDocx(templateName)
@@ -53,6 +64,50 @@ export async function generateContractFromIndication(indicacaoId: string) {
         .single()
 
     if (indError || !indicacao) return { success: false, message: "Indicação não encontrada." }
+
+    const statusPriority: Record<string, number> = {
+        accepted: 0,
+        sent: 1,
+        draft: 2,
+    }
+
+    let selectedProposal: ProposalContractSource | null = null
+    const selectedProposalId = (indicacao as any)?.contract_proposal_id as string | null | undefined
+
+    if (selectedProposalId) {
+        const { data: proposalBySelection, error: proposalSelectionError } = await supabaseAdmin
+            .from("proposals")
+            .select("id, client_id, status, total_value, total_power, notes, created_at, calculation")
+            .eq("id", selectedProposalId)
+            .maybeSingle()
+
+        if (proposalSelectionError) {
+            console.error("Erro ao carregar orçamento selecionado para contrato:", proposalSelectionError)
+        } else if (proposalBySelection && proposalBySelection.client_id === indicacaoId) {
+            selectedProposal = proposalBySelection as ProposalContractSource
+        }
+    }
+
+    if (!selectedProposal) {
+        const { data: proposalCandidates, error: proposalsError } = await supabaseAdmin
+            .from("proposals")
+            .select("id, client_id, status, total_value, total_power, notes, created_at, calculation")
+            .eq("client_id", indicacaoId)
+            .order("created_at", { ascending: false })
+            .limit(50)
+
+        if (proposalsError) {
+            console.error("Erro ao buscar orçamento para gerar contrato:", proposalsError)
+        } else {
+            const sorted = (proposalCandidates ?? []).slice().sort((a, b) => {
+                const rankA = statusPriority[a.status ?? ""] ?? 99
+                const rankB = statusPriority[b.status ?? ""] ?? 99
+                if (rankA !== rankB) return rankA - rankB
+                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            })
+            selectedProposal = (sorted[0] as ProposalContractSource | undefined) ?? null
+        }
+    }
 
     // B. Fetch Metadata (JSON) from Storage
     // Path format: "{userId}/{indicacaoId}/metadata.json"
@@ -130,6 +185,25 @@ export async function generateContractFromIndication(indicacaoId: string) {
     const valorLocacaoExtenso = numberToWordsPtBr(valorLocacaoTotal)
     const cmTotalFormatado = cmTotal.toFixed(0)
     const outrasUcs = Array.isArray(metadata.outrasUcs) ? metadata.outrasUcs : []
+    const proposalStatus = selectedProposal?.status ?? ""
+    const proposalCreatedAt = selectedProposal?.created_at
+        ? new Date(selectedProposal.created_at).toLocaleDateString("pt-BR")
+        : ""
+    const proposalTotalValue = Number(selectedProposal?.total_value ?? 0)
+    const proposalTotalValueFormatted = proposalTotalValue > 0
+        ? proposalTotalValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+        : ""
+    const proposalTotalPower = Number(selectedProposal?.total_power ?? 0)
+    const proposalTotalPowerFormatted = proposalTotalPower > 0
+        ? `${proposalTotalPower.toFixed(2)} kWp`
+        : ""
+    const proposalNotes = selectedProposal?.notes ?? ""
+    const proposalCalculation = (selectedProposal?.calculation ?? null) as Record<string, any> | null
+    const proposalEstimatedKwh = Number(proposalCalculation?.output?.dimensioning?.kWh_estimado ?? 0)
+    const proposalKwpOutput = Number(proposalCalculation?.output?.dimensioning?.kWp ?? 0)
+    const proposalTotalAvista = Number(proposalCalculation?.output?.totals?.total_a_vista ?? 0)
+    const proposalCommissionValue = Number(proposalCalculation?.commission?.value ?? 0)
+    const proposalCommissionPercent = Number(proposalCalculation?.commission?.percent ?? 0)
 
     const templateData = {
         // --- Lowercase (standard) ---
@@ -215,6 +289,31 @@ export async function generateContractFromIndication(indicacaoId: string) {
         LOCALUC8: outrasUcs[6]?.localizacaoUC || "",
         LOCALUC9: outrasUcs[7]?.localizacaoUC || "",
         LOCALUC10: outrasUcs[8]?.localizacaoUC || "",
+
+        // --- Contract source proposal ---
+        ORCAMENTO_ID: selectedProposal?.id ?? "",
+        ORCAMENTO_STATUS: proposalStatus,
+        ORCAMENTO_CRIADO_EM: proposalCreatedAt,
+        ORCAMENTO_VALOR_TOTAL: proposalTotalValueFormatted,
+        ORCAMENTO_POTENCIA_TOTAL: proposalTotalPowerFormatted,
+        ORCAMENTO_OBSERVACOES: proposalNotes,
+        ORCAMENTO_KWH_ESTIMADO: proposalEstimatedKwh > 0 ? proposalEstimatedKwh.toFixed(2) : "",
+        ORCAMENTO_KWP_ESTIMADO: proposalKwpOutput > 0 ? proposalKwpOutput.toFixed(2) : "",
+        ORCAMENTO_TOTAL_A_VISTA: proposalTotalAvista > 0
+            ? proposalTotalAvista.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+            : "",
+        ORCAMENTO_COMISSAO_VALOR: proposalCommissionValue > 0
+            ? proposalCommissionValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+            : "",
+        ORCAMENTO_COMISSAO_PERCENTUAL: proposalCommissionPercent > 0
+            ? `${(proposalCommissionPercent * 100).toFixed(2)}%`
+            : "",
+
+        // aliases
+        PROPOSTA_ID: selectedProposal?.id ?? "",
+        PROPOSTA_STATUS: proposalStatus,
+        PROPOSTA_VALOR_TOTAL: proposalTotalValueFormatted,
+        PROPOSTA_POTENCIA_TOTAL: proposalTotalPowerFormatted,
     }
 
     // G. Generate DOCX
@@ -259,7 +358,15 @@ export async function generateContractFromIndication(indicacaoId: string) {
             doc: indicacao.documento
         },
         calculation_data: {
-            cmTotal, valorLocacaoTotal, placasTotal, priceKwh, discountPercent
+            cmTotal,
+            valorLocacaoTotal,
+            placasTotal,
+            priceKwh,
+            discountPercent,
+            proposalId: selectedProposal?.id ?? null,
+            proposalStatus: selectedProposal?.status ?? null,
+            proposalTotalValue: selectedProposal?.total_value ?? null,
+            proposalTotalPower: selectedProposal?.total_power ?? null,
         },
         docx_url: publicUrl,
         created_by: user.id,

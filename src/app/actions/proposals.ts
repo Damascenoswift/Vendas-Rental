@@ -37,7 +37,7 @@ export async function getProposalsForIndication(indicacaoId: string) {
   const supabaseAdmin = createSupabaseServiceClient()
   let indicacaoQuery = supabaseAdmin
     .from("indicacoes")
-    .select("id, nome, email, telefone, documento, marca, user_id")
+    .select("id, nome, email, telefone, documento, marca, user_id, contract_proposal_id")
     .eq("id", indicacaoId)
 
   if (role === "supervisor") {
@@ -143,7 +143,7 @@ export async function getProposalsForIndication(indicacaoId: string) {
 
   const { data, error } = await supabaseAdmin
     .from("proposals")
-    .select("id, created_at, status, total_value, total_power, calculation, seller:users(name, email)")
+    .select("id, client_id, created_at, status, total_value, total_power, calculation, seller:users(name, email)")
     .in("client_id", Array.from(candidateIds))
     .order("created_at", { ascending: false })
 
@@ -151,5 +151,8 @@ export async function getProposalsForIndication(indicacaoId: string) {
     return { error: error.message }
   }
 
-  return { data: data ?? [] }
+  return {
+    data: data ?? [],
+    selectedProposalId: (indicacao as any)?.contract_proposal_id ?? null,
+  }
 }
