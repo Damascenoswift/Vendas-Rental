@@ -54,7 +54,7 @@ export function LeadInteractions({ indicacaoId, readOnly = false }: LeadInteract
             showToast({ variant: "error", title: "Erro ao enviar", description: result.error })
         } else {
             setNewComment("")
-            fetchInteractions()
+            await fetchInteractions()
         }
         setLoading(false)
     }
@@ -76,7 +76,7 @@ export function LeadInteractions({ indicacaoId, readOnly = false }: LeadInteract
                     )}
 
                     {interactions.map((item) => {
-                        const isMe = item.user.email === currentUserEmail
+                        const isMe = (item.user?.email ?? null) === currentUserEmail
                         const isSystem = item.type !== 'COMMENT'
 
                         if (isSystem) {
@@ -93,13 +93,13 @@ export function LeadInteractions({ indicacaoId, readOnly = false }: LeadInteract
                             <div key={item.id} className={`flex gap-3 ${isMe ? 'flex-row-reverse' : ''}`}>
                                 <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                                     <span className="text-xs font-bold text-primary">
-                                        {item.user.name?.charAt(0).toUpperCase() || 'U'}
-                                    </span>
-                                </div>
+                                            {item.user?.name?.charAt(0).toUpperCase() || 'U'}
+                                        </span>
+                                    </div>
                                 <div className={`flex flex-col max-w-[80%] ${isMe ? 'items-end' : 'items-start'}`}>
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-xs font-medium text-foreground">
-                                            {isMe ? 'Você' : item.user.name || item.user.email}
+                                            {isMe ? 'Você' : item.user?.name || item.user?.email || 'Usuário interno'}
                                         </span>
                                         <span className="text-[10px] text-muted-foreground">
                                             {formatDistanceToNow(new Date(item.created_at), { locale: ptBR })}

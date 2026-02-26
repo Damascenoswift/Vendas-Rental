@@ -14,21 +14,20 @@ type DocValidationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'INCOMPLETE'
 export interface Interaction {
     id: string
     indicacao_id: string
-    user_id: string
+    user_id: string | null
     type: InteractionType
     content: string
     metadata: any
     created_at: string
     user: {
-        name: string
-        email: string
-    }
+        name: string | null
+        email: string | null
+    } | null
 }
 
 export async function getInteractions(indicacaoId: string) {
     const supabase = await createClient()
-
-    const { data, error } = await supabase
+    const withJoin = await supabase
         .from('indicacao_interactions')
         .select(`
             *,
@@ -37,16 +36,65 @@ export async function getInteractions(indicacaoId: string) {
         .eq('indicacao_id', indicacaoId)
         .order('created_at', { ascending: true })
 
-    if (error) {
-        console.error("Error fetching interactions:", error)
+    if (!withJoin.error) {
+        return (withJoin.data as any[]).map(item => {
+            const rawUser = item.user
+            const normalizedUser = Array.isArray(rawUser) ? rawUser[0] ?? null : rawUser ?? null
+            return {
+                ...item,
+                user: normalizedUser,
+            }
+        }) as Interaction[]
+    }
+
+    console.warn("Error fetching interactions with users join; retrying fallback:", withJoin.error)
+
+    const baseResult = await supabase
+        .from("indicacao_interactions")
+        .select("id, indicacao_id, user_id, type, content, metadata, created_at")
+        .eq("indicacao_id", indicacaoId)
+        .order("created_at", { ascending: true })
+
+    if (baseResult.error) {
+        console.error("Error fetching interactions:", baseResult.error)
         return []
     }
 
-    // Cast the user join result manually
-    return (data as any[]).map(item => ({
-        ...item,
-        user: item.user
-    })) as Interaction[]
+    const baseRows = (baseResult.data ?? []) as {
+        id: string
+        indicacao_id: string
+        user_id: string | null
+        type: InteractionType
+        content: string
+        metadata: any
+        created_at: string
+    }[]
+
+    const userIds = Array.from(new Set(baseRows.map((row) => row.user_id).filter((value): value is string => Boolean(value))))
+    const usersById = new Map<string, { name: string | null; email: string | null }>()
+
+    if (userIds.length > 0) {
+        const usersResult = await supabase
+            .from("users")
+            .select("id, name, email")
+            .in("id", userIds)
+
+        if (usersResult.error) {
+            console.error("Error fetching users for interactions:", usersResult.error)
+        } else {
+            ;((usersResult.data ?? []) as { id: string; name: string | null; email: string | null }[]).forEach((row) => {
+                usersById.set(row.id, {
+                    name: row.name ?? null,
+                    email: row.email ?? null,
+                })
+            })
+        }
+    }
+
+    return baseRows.map((row) => ({
+        ...row,
+        user: row.user_id ? usersById.get(row.user_id) ?? null : null,
+    }))
 }
 
 export async function addInteraction(
@@ -57,9 +105,14 @@ export async function addInteraction(
 ) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
+    const normalizedContent = content.trim()
 
     if (!user) {
         return { error: "User not authenticated" }
+    }
+
+    if (!normalizedContent) {
+        return { error: "Comentário vazio." }
     }
     const profile = await getProfile(supabase, user.id)
     if (profile?.role === 'supervisor') {
@@ -85,7 +138,7 @@ export async function addInteraction(
             indicacao_id: indicacaoId,
             user_id: user.id,
             type,
-            content,
+            content: normalizedContent,
             metadata
         })
 
@@ -94,7 +147,9 @@ export async function addInteraction(
         return { error: error.message }
     }
 
-    revalidatePath(`/admin/leads`) // Revalidate main lists
+    revalidatePath(`/admin/leads`)
+    revalidatePath(`/admin/crm`)
+    revalidatePath(`/admin/indicacoes`)
     return { success: true }
 }
 
