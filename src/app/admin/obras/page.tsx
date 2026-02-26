@@ -4,6 +4,7 @@ import { getProfile } from "@/lib/auth"
 import { getWorkCards, type WorkCardStatus } from "@/services/work-cards-service"
 import { WorkFilters } from "@/components/admin/works/work-filters"
 import { WorkBoard } from "@/components/admin/works/work-board"
+import { hasWorksOnlyScope } from "@/lib/department-access"
 
 export const dynamic = "force-dynamic"
 
@@ -38,7 +39,8 @@ export default async function AdminWorksPage({
     }
 
     const profile = await getProfile(supabase, user.id)
-    if (!profile?.role || !ALLOWED_ROLES.includes(profile.role)) {
+    const canAccessByDepartment = hasWorksOnlyScope(profile?.department)
+    if (!profile?.role || (!ALLOWED_ROLES.includes(profile.role) && !canAccessByDepartment)) {
         redirect("/dashboard")
     }
 

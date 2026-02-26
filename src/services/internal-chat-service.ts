@@ -59,6 +59,7 @@ type CurrentInternalChatUser = {
     name: string | null
     email: string | null
     role: string | null
+    department?: string | null
     status: string | null
     internal_chat_access?: boolean | null
 }
@@ -105,6 +106,7 @@ type UnreadCountRow = {
 
 type ChatUsersLookupRow = BasicUserRow & {
     role: string | null
+    department?: string | null
     status: string | null
     internal_chat_access?: boolean | null
 }
@@ -191,14 +193,14 @@ async function requireChatSession(): Promise<ChatSessionSuccess | ChatSessionFai
 
     let { data: currentUserRow, error: currentUserError } = await supabaseAdmin
         .from("users")
-        .select("id, name, email, role, status, internal_chat_access")
+        .select("id, name, email, role, department, status, internal_chat_access")
         .eq("id", user.id)
         .maybeSingle()
 
     if (currentUserError && isMissingInternalChatAccessColumnError(currentUserError)) {
         const fallback = await supabaseAdmin
             .from("users")
-            .select("id, name, email, role, status")
+            .select("id, name, email, role, department, status")
             .eq("id", user.id)
             .maybeSingle()
 
@@ -306,14 +308,14 @@ export async function getOrCreateDirectConversation(otherUserId: string) {
 
     let { data: otherUserRow, error: otherUserError } = await supabaseAdmin
         .from("users")
-        .select("id, role, status, internal_chat_access")
+        .select("id, role, department, status, internal_chat_access")
         .eq("id", sanitizedOtherUserId)
         .maybeSingle()
 
     if (otherUserError && isMissingInternalChatAccessColumnError(otherUserError)) {
         const fallback = await supabaseAdmin
             .from("users")
-            .select("id, role, status")
+            .select("id, role, department, status")
             .eq("id", sanitizedOtherUserId)
             .maybeSingle()
 
@@ -328,6 +330,7 @@ export async function getOrCreateDirectConversation(otherUserId: string) {
     const otherUser = otherUserRow as {
         id: string
         role?: string | null
+        department?: string | null
         status?: string | null
         internal_chat_access?: boolean | null
     }
@@ -884,9 +887,8 @@ export async function listChatUsers(search?: string) {
 
     let query = supabaseAdmin
         .from("users")
-        .select("id, name, email, role, status, internal_chat_access")
+        .select("id, name, email, role, department, status, internal_chat_access")
         .neq("id", user.id)
-        .eq("internal_chat_access", true)
         .order("name", { ascending: true })
         .limit(30)
 
@@ -899,7 +901,7 @@ export async function listChatUsers(search?: string) {
     if (error && isMissingInternalChatAccessColumnError(error)) {
         let fallbackQuery = supabaseAdmin
             .from("users")
-            .select("id, name, email, role, status")
+            .select("id, name, email, role, department, status")
             .neq("id", user.id)
             .order("name", { ascending: true })
             .limit(30)

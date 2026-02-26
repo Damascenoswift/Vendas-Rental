@@ -6,6 +6,8 @@ import { Sidebar } from "@/components/layout/sidebar" // Import Sidebar
 import { ToastContainer } from "@/components/ui/toaster"
 import { Bell } from "lucide-react"
 import { NotificationSoundListener } from "@/components/layout/notification-sound-listener"
+import { getProfile } from "@/lib/auth"
+import { hasWorksOnlyScope } from "@/lib/department-access"
 
 export default async function AdminLayout({
     children,
@@ -19,17 +21,22 @@ export default async function AdminLayout({
         redirect("/login")
     }
 
-    let unreadNotifications = 0
-    const { count: unreadCount, error: unreadError } = await supabase
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("recipient_user_id", user.id)
-        .eq("is_read", false)
+    const profile = await getProfile(supabase, user.id)
+    const worksOnlyScope = hasWorksOnlyScope(profile?.department)
 
-    if (unreadError) {
-        console.error("Erro ao buscar notificações não lidas:", unreadError)
-    } else {
-        unreadNotifications = unreadCount ?? 0
+    let unreadNotifications = 0
+    if (!worksOnlyScope) {
+        const { count: unreadCount, error: unreadError } = await supabase
+            .from("notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("recipient_user_id", user.id)
+            .eq("is_read", false)
+
+        if (unreadError) {
+            console.error("Erro ao buscar notificações não lidas:", unreadError)
+        } else {
+            unreadNotifications = unreadCount ?? 0
+        }
     }
 
     return (
@@ -46,22 +53,39 @@ export default async function AdminLayout({
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Link href="/admin/notificacoes">
-                                <Button variant="outline" size="sm">
-                                    <Bell className="mr-2 h-4 w-4" />
-                                    Notificações
-                                    {unreadNotifications > 0 && (
-                                        <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                                            {unreadNotifications}
-                                        </span>
-                                    )}
-                                </Button>
-                            </Link>
-                            <Link href="/dashboard">
-                                <Button variant="outline" size="sm">
-                                    Voltar ao Dashboard
-                                </Button>
-                            </Link>
+                            {!worksOnlyScope ? (
+                                <>
+                                    <Link href="/admin/notificacoes">
+                                        <Button variant="outline" size="sm">
+                                            <Bell className="mr-2 h-4 w-4" />
+                                            Notificações
+                                            {unreadNotifications > 0 && (
+                                                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                                                    {unreadNotifications}
+                                                </span>
+                                            )}
+                                        </Button>
+                                    </Link>
+                                    <Link href="/dashboard">
+                                        <Button variant="outline" size="sm">
+                                            Voltar ao Dashboard
+                                        </Button>
+                                    </Link>
+                                </>
+                            ) : (
+                                <>
+                                    <Link href="/admin/chat">
+                                        <Button variant="outline" size="sm">
+                                            Chat Interno
+                                        </Button>
+                                    </Link>
+                                    <Link href="/admin/obras">
+                                        <Button variant="outline" size="sm">
+                                            Voltar ao Obras
+                                        </Button>
+                                    </Link>
+                                </>
+                            )}
                         </div>
                     </div>
                 </header>

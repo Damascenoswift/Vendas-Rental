@@ -67,6 +67,11 @@ function toNumber(value: string) {
     return Number.isFinite(parsed) ? parsed : 0
 }
 
+function roundCurrencyValue(value: number) {
+    if (!Number.isFinite(value)) return 0
+    return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
 function formatCurrency(value: number) {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 }
@@ -204,7 +209,7 @@ export function ProposalCalculatorSimple({
             0
     )
     const [kitGeradorValor, setKitGeradorValor] = useState(
-        initialProposal?.calculation?.output?.kit?.custo_kit ?? 0
+        roundCurrencyValue(Number(initialProposal?.calculation?.output?.kit?.custo_kit ?? 0))
     )
     const [margemPercentual, setMargemPercentual] = useState(
         initialInput?.margin?.margem_percentual ?? defaultMargin

@@ -107,6 +107,11 @@ function toNumber(value: string) {
     return Number.isFinite(parsed) ? parsed : 0
 }
 
+function roundCurrencyValue(value: number) {
+    if (!Number.isFinite(value)) return 0
+    return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
 function formatCurrency(value: number) {
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 }
@@ -445,7 +450,7 @@ export function ProposalCalculatorComplete({
     const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
     const [kitGeradorValor, setKitGeradorValor] = useState<number>(() => {
         const fromOutput = Number(initialProposal?.calculation?.output?.kit?.custo_kit ?? 0)
-        if (Number.isFinite(fromOutput) && fromOutput > 0) return fromOutput
+        if (Number.isFinite(fromOutput) && fromOutput > 0) return roundCurrencyValue(fromOutput)
         return 0
     })
 

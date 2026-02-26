@@ -7,6 +7,7 @@ import {
     addWorkComment,
     addWorkImage,
     addWorkProcessItem,
+    deleteWorkComment,
     deleteWorkImage,
     deleteWorkProcessItem,
     getWorkCardById,
@@ -33,6 +34,7 @@ import {
     validateWorkCommentAttachmentFiles
 } from "@/lib/work-comment-attachments"
 import { useToast } from "@/hooks/use-toast"
+import { useAuthSession } from "@/hooks/use-auth-session"
 import {
     Dialog,
     DialogContent,
@@ -488,6 +490,8 @@ export function WorkDetailsDialog({
     onChanged?: () => void
 }) {
     const { showToast } = useToast()
+    const { session } = useAuthSession()
+    const currentUserId = session?.user?.id ?? null
 
     const [isLoading, setIsLoading] = useState(false)
     const [isSaving, setIsSaving] = useState(false)
@@ -773,6 +777,31 @@ export function WorkDetailsDialog({
                 showToast({ title: "Comentário salvo", variant: "success" })
             }
 
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    async function handleDeleteComment(comment: WorkComment) {
+        if (!comment.user_id || comment.user_id !== currentUserId) {
+            showToast({ title: "Sem permissão", description: "Você só pode excluir seus próprios comentários.", variant: "error" })
+            return
+        }
+
+        const confirmed = window.confirm("Deseja excluir este comentário?")
+        if (!confirmed) return
+
+        setIsSaving(true)
+        try {
+            const result = await deleteWorkComment(comment.id)
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
+
+            showToast({ title: "Comentário excluído", variant: "success" })
             await loadData()
             onChanged?.()
         } finally {
@@ -1073,11 +1102,27 @@ export function WorkDetailsDialog({
                                     <div className="max-h-52 space-y-2 overflow-auto">
                                         {energisaHistory.map((comment) => {
                                             const author = comment.user?.name || comment.user?.email || "Usuário interno"
+                                            const isOwnComment = Boolean(comment.user_id && comment.user_id === currentUserId)
                                             return (
                                                 <div key={comment.id} className="rounded-md bg-slate-50 p-2">
-                                                    <p className="text-xs text-muted-foreground">
-                                                        {author} • {formatDateTime(comment.created_at)}
-                                                    </p>
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <p className="text-xs text-muted-foreground">
+                                                            {author} • {formatDateTime(comment.created_at)}
+                                                        </p>
+                                                        {isOwnComment ? (
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                                                                onClick={() => handleDeleteComment(comment)}
+                                                                disabled={isSaving}
+                                                            >
+                                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                                Excluir
+                                                            </Button>
+                                                        ) : null}
+                                                    </div>
                                                     <p className="mt-1 text-sm">{comment.content}</p>
                                                 </div>
                                             )
@@ -1127,11 +1172,27 @@ export function WorkDetailsDialog({
                             <div className="max-h-64 space-y-2 overflow-auto rounded-md border p-2">
                                 {generalComments.map((comment) => {
                                     const author = comment.user?.name || comment.user?.email || "Usuário interno"
+                                    const isOwnComment = Boolean(comment.user_id && comment.user_id === currentUserId)
                                     return (
                                         <div key={comment.id} className="rounded-md bg-slate-50 p-2">
-                                            <p className="text-xs text-muted-foreground">
-                                                {author} • {formatDateTime(comment.created_at)}
-                                            </p>
+                                            <div className="flex items-center justify-between gap-2">
+                                                <p className="text-xs text-muted-foreground">
+                                                    {author} • {formatDateTime(comment.created_at)}
+                                                </p>
+                                                {isOwnComment ? (
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                                                        onClick={() => handleDeleteComment(comment)}
+                                                        disabled={isSaving}
+                                                    >
+                                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                        Excluir
+                                                    </Button>
+                                                ) : null}
+                                            </div>
                                             <p className="mt-1 text-sm whitespace-pre-wrap">{comment.content}</p>
                                             {comment.attachments.length > 0 ? (
                                                 <div className="mt-2 flex flex-wrap gap-2">

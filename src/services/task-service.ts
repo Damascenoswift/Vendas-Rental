@@ -11,7 +11,7 @@ import { revalidatePath } from "next/cache"
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro'
+export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro'
 export type Brand = 'rental' | 'dorata'
 export type TaskVisibilityScope = 'TEAM' | 'RESTRICTED'
 export type TaskChecklistPhase = 'cadastro' | 'energisa' | 'geral'

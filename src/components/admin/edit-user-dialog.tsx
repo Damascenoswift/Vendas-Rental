@@ -253,6 +253,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                             <option value="financeiro">Financeiro</option>
                             <option value="ti">TI</option>
                             <option value="diretoria">Diretoria</option>
+                            <option value="obras">Obras</option>
                             <option value="outro">Outro</option>
                         </select>
                         {state.errors?.department && <p className="text-red-500 text-xs">{state.errors.department[0]}</p>}

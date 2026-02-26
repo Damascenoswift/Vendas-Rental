@@ -1,6 +1,6 @@
 import type { User, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
-import { roleHasInternalChatAccessByDefault } from '@/lib/internal-chat-access'
+import { hasInternalChatAccess } from '@/lib/internal-chat-access'
 
 export type UserRole =
   | 'vendedor_externo'
@@ -23,7 +23,7 @@ export type UserProfile = {
   supervisedCompanyName: string | null
   salesAccess?: boolean | null
   internalChatAccess?: boolean | null
-  department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'outro' | null
+  department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
   phone?: string
@@ -75,10 +75,11 @@ export function buildUserProfile(user: User | null): UserProfile | null {
   const allowedBrands = getAllowedBrands(normalizedRole)
   const salesAccess = (user.user_metadata?.sales_access as boolean | undefined) ?? null
   const internalChatAccessMeta = user.user_metadata?.internal_chat_access as boolean | undefined
-  const internalChatAccess =
-    typeof internalChatAccessMeta === 'boolean'
-      ? internalChatAccessMeta
-      : roleHasInternalChatAccessByDefault(normalizedRole)
+  const internalChatAccess = hasInternalChatAccess({
+    role: normalizedRole,
+    department,
+    internal_chat_access: typeof internalChatAccessMeta === "boolean" ? internalChatAccessMeta : null,
+  })
 
   return {
     id: user.id,
@@ -169,10 +170,11 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     companyName: row.company_name ?? null,
     supervisedCompanyName: row.supervised_company_name ?? null,
     salesAccess: row.sales_access ?? null,
-    internalChatAccess:
-      typeof row.internal_chat_access === 'boolean'
-        ? row.internal_chat_access
-        : roleHasInternalChatAccessByDefault(normalizedRole),
+    internalChatAccess: hasInternalChatAccess({
+      role: normalizedRole,
+      department,
+      internal_chat_access: typeof row.internal_chat_access === "boolean" ? row.internal_chat_access : null,
+    }),
     department,
     allowedBrands,
     name: row.name || undefined,

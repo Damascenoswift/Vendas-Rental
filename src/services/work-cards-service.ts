@@ -7,6 +7,7 @@ import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { createTask, type TaskStatus } from "@/services/task-service"
 import { addBusinessDays } from "@/lib/business-days"
+import { hasWorksOnlyScope } from "@/lib/department-access"
 
 export type WorkCardStatus = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
 export type WorkPhase = "PROJETO" | "EXECUCAO"
@@ -765,8 +766,9 @@ async function ensureUserCanAccessWorkModule() {
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role ?? null
+    const canAccessByDepartment = hasWorksOnlyScope(profile?.department)
 
-    if (!role || !INTERNAL_WORK_ROLES.has(role)) {
+    if (!role || (!INTERNAL_WORK_ROLES.has(role) && !canAccessByDepartment)) {
         return { supabase, user, role: null, profile } as const
     }
 
@@ -2028,6 +2030,84 @@ export async function addWorkComment(input: {
         success: true,
         comment: mappedComment,
     }
+}
+
+export async function deleteWorkComment(commentId: string) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return { error: "Sem permissão." }
+
+    const normalizedCommentId = commentId.trim()
+    if (!normalizedCommentId) return { error: "Comentário inválido." }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const selectWithAttachments = `
+            id,
+            obra_id,
+            user_id,
+            attachments
+        `
+    const selectWithoutAttachments = `
+            id,
+            obra_id,
+            user_id
+        `
+
+    let row: { id: string; obra_id: string; user_id: string | null; attachments?: unknown } | null = null
+    let rowError: { message?: string | null } | null = null
+
+    const rowResultWithAttachments = await supabaseAdmin
+        .from("obra_comments" as any)
+        .select(selectWithAttachments)
+        .eq("id", normalizedCommentId)
+        .maybeSingle()
+
+    row = (rowResultWithAttachments.data as { id: string; obra_id: string; user_id: string | null; attachments?: unknown } | null) ?? null
+    rowError = rowResultWithAttachments.error
+
+    if (rowError && isMissingWorkCommentAttachmentsColumn(rowError.message)) {
+        const fallbackResult = await supabaseAdmin
+            .from("obra_comments" as any)
+            .select(selectWithoutAttachments)
+            .eq("id", normalizedCommentId)
+            .maybeSingle()
+
+        row = (fallbackResult.data as { id: string; obra_id: string; user_id: string | null } | null) ?? null
+        rowError = fallbackResult.error
+    }
+
+    if (rowError || !row) {
+        return { error: normalizeWorkCardsError(rowError?.message ?? "Comentário não encontrado.") }
+    }
+
+    if (!row.user_id || row.user_id !== user.id) {
+        return { error: "Somente quem criou o comentário pode excluir." }
+    }
+
+    const attachments = normalizeStoredWorkCommentAttachments(row.attachments)
+    const attachmentPaths = attachments.map((attachment) => attachment.path).filter(Boolean)
+
+    const { error: deleteError } = await supabaseAdmin
+        .from("obra_comments" as any)
+        .delete()
+        .eq("id", normalizedCommentId)
+        .eq("user_id", user.id)
+
+    if (deleteError) {
+        return { error: normalizeWorkCardsError(deleteError.message) }
+    }
+
+    if (attachmentPaths.length > 0) {
+        const { error: storageError } = await supabaseAdmin.storage
+            .from(WORK_COMMENT_ATTACHMENTS_BUCKET)
+            .remove(attachmentPaths)
+
+        if (storageError) {
+            console.error("Erro ao remover anexos do comentário da obra:", storageError)
+        }
+    }
+
+    revalidatePath("/admin/obras")
+    return { success: true }
 }
 
 export async function getWorkImages(workId: string) {

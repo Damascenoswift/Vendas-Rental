@@ -23,6 +23,7 @@ const DEPARTMENT_ORDER: Department[] = [
     "financeiro",
     "ti",
     "diretoria",
+    "obras",
     "outro",
 ]
 
@@ -34,6 +35,7 @@ const DEPARTMENT_LABELS: Record<Department, string> = {
     financeiro: "Financeiro",
     ti: "TI",
     diretoria: "Diretoria",
+    obras: "Obras",
     outro: "Outro",
 }
 
@@ -81,6 +83,7 @@ function normalizeDepartment(value: string | null | undefined): Department | nul
         normalized === "financeiro" ||
         normalized === "ti" ||
         normalized === "diretoria" ||
+        normalized === "obras" ||
         normalized === "outro"
     ) {
         return normalized

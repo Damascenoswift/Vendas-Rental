@@ -48,7 +48,7 @@ const taskSchema = z
         title: z.string().min(3, "Título deve ter pelo menos 3 caracteres"),
         description: z.string().optional(),
         priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
-        department: z.enum(["vendas", "cadastro", "energia", "juridico", "financeiro", "ti", "diretoria", "outro"]),
+        department: z.enum(["vendas", "cadastro", "energia", "juridico", "financeiro", "ti", "diretoria", "obras", "outro"]),
         due_date: z.string().optional(), // YYYY-MM-DD
         assignee_id: z.string().optional(),
         visibility_scope: z.enum(["TEAM", "RESTRICTED"]),
@@ -343,6 +343,7 @@ export function TaskDialog() {
                                                 <SelectItem value="financeiro">Financeiro</SelectItem>
                                                 <SelectItem value="ti">TI</SelectItem>
                                                 <SelectItem value="diretoria">Diretoria</SelectItem>
+                                                <SelectItem value="obras">Obras</SelectItem>
                                                 <SelectItem value="outro">Outro</SelectItem>
                                             </SelectContent>
                                         </Select>

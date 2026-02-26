@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
+import { hasWorksOnlyScope } from "@/lib/department-access"
 
 type SidebarProps = React.HTMLAttributes<HTMLDivElement>
 
@@ -51,6 +52,7 @@ export function Sidebar({ className }: SidebarProps) {
 
     const role = profile?.role ?? ""
     const department = profile?.department ?? null
+    const worksOnlyScope = hasWorksOnlyScope(department)
     const canAccessInternalChat = Boolean(profile?.internalChatAccess)
     const canAccessIndicacoes =
         Boolean(role) && (
@@ -139,38 +141,55 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
 
                     <div className="space-y-1">
-                        <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
+                        {worksOnlyScope ? (
+                            <>
+                                <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
+                                {canAccessInternalChat && (
+                                    <NavItem
+                                        href="/admin/chat"
+                                        label="Chat Interno"
+                                        icon={MessageSquareText}
+                                        badgeCount={unreadChatCount}
+                                    />
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
 
-                        {canAccessIndicacoes && (
-                            <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
-                        )}
+                                {canAccessIndicacoes && (
+                                    <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
+                                )}
 
-                        {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'vendedor_interno', 'vendedor_externo', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                            <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
-                        )}
+                                {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'vendedor_interno', 'vendedor_externo', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                                    <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
+                                )}
 
-                        {canAccessInternalChat && (
-                            <NavItem
-                                href="/admin/chat"
-                                label="Chat Interno"
-                                icon={MessageSquareText}
-                                badgeCount={unreadChatCount}
-                            />
-                        )}
+                                {canAccessInternalChat && (
+                                    <NavItem
+                                        href="/admin/chat"
+                                        label="Chat Interno"
+                                        icon={MessageSquareText}
+                                        badgeCount={unreadChatCount}
+                                    />
+                                )}
 
-                        <NavItem href="/admin/notificacoes" label="Notificações" icon={Bell} />
+                                <NavItem href="/admin/notificacoes" label="Notificações" icon={Bell} />
 
-                        {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                            <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />
-                        )}
+                                {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                                    <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />
+                                )}
 
-                        {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                            <NavItem href="/investidor" label="Portal Investidor" icon={PieChart} />
+                                {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                                    <NavItem href="/investidor" label="Portal Investidor" icon={PieChart} />
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
 
-                <div className="px-3 py-2">
+                {!worksOnlyScope && (
+                    <div className="px-3 py-2">
                     <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                         Gestão
                     </h2>
@@ -196,8 +215,9 @@ export function Sidebar({ className }: SidebarProps) {
                         )}
                     </div>
                 </div>
+                )}
 
-                {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                {!worksOnlyScope && ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                             Rental
@@ -214,7 +234,7 @@ export function Sidebar({ className }: SidebarProps) {
                     </div>
                 )}
 
-                {['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                {!worksOnlyScope && ['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
                             Dorata Solar
