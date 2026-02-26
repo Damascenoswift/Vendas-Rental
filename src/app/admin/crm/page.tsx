@@ -8,6 +8,11 @@ import { CrmToolbar } from "@/components/admin/crm/crm-toolbar"
 
 export const dynamic = "force-dynamic"
 
+function hasMissingContractProposalColumn(message?: string | null) {
+    if (!message) return false
+    return message.includes("contract_proposal_id")
+}
+
 export default async function AdminCrmPage() {
     const supabase = await createClient()
     const {
@@ -120,47 +125,91 @@ export default async function AdminCrmPage() {
     let cards: any[] = []
     let cardsData: any[] = []
     let cardsError: { message: string } | null = null
+    let cardsIncludeContractProposal = true
     if (role === "supervisor" && (!scopedIndicacaoIds || scopedIndicacaoIds.length === 0)) {
         cardsData = []
     } else {
-        let cardsQuery = supabaseAdmin
-            .from("crm_cards")
-            .select(`
-                id,
-                stage_id,
-                indicacao_id,
-                title,
-                created_at,
-                indicacoes!inner (
+        const runCardsQuery = async (includeContractProposal: boolean) => {
+            let cardsQuery = supabaseAdmin
+                .from("crm_cards")
+                .select(`
                     id,
-                    tipo,
-                    nome,
-                    email,
-                    telefone,
-                    status,
-                    doc_validation_status,
-                    assinada_em,
-                    documento,
-                    unidade_consumidora,
-                    codigo_cliente,
-                    codigo_instalacao,
-                    valor,
-                    marca,
-                    user_id,
-                    created_by_supervisor_id
-                )
-            `)
-            .eq("pipeline_id", pipeline.id)
-            .eq("indicacoes.marca", "dorata")
-            .order("created_at", { ascending: false })
+                    stage_id,
+                    indicacao_id,
+                    title,
+                    created_at,
+                    indicacoes!inner (
+                        id,
+                        tipo,
+                        nome,
+                        email,
+                        telefone,
+                        status,
+                        doc_validation_status,
+                        assinada_em,
+                        documento,
+                        unidade_consumidora,
+                        codigo_cliente,
+                        codigo_instalacao,
+                        valor,
+                        marca,
+                        user_id,
+                        created_by_supervisor_id${includeContractProposal ? ", contract_proposal_id" : ""}
+                    )
+                `)
+                .eq("pipeline_id", pipeline.id)
+                .eq("indicacoes.marca", "dorata")
+                .order("created_at", { ascending: false })
 
-        if (role === "supervisor") {
-            cardsQuery = cardsQuery.in("indicacao_id", scopedIndicacaoIds ?? [])
+            if (role === "supervisor") {
+                cardsQuery = cardsQuery.in("indicacao_id", scopedIndicacaoIds ?? [])
+            }
+
+            return cardsQuery
         }
 
-        const cardsResult = await cardsQuery
+        const cardsResult = await runCardsQuery(true)
         cardsData = cardsResult.data ?? []
         cardsError = cardsResult.error as { message: string } | null
+
+        if (cardsError && hasMissingContractProposalColumn(cardsError.message)) {
+            cardsIncludeContractProposal = false
+            const retryResult = await runCardsQuery(false)
+            cardsData = retryResult.data ?? []
+            cardsError = retryResult.error as { message: string } | null
+        }
+    }
+
+    if (!cardsError && cardsIncludeContractProposal && cardsData.length > 0) {
+        const proposalIds = Array.from(
+            new Set(
+                cardsData
+                    .map((card) => (card as any)?.indicacoes?.contract_proposal_id)
+                    .filter((value): value is string => typeof value === "string" && value.length > 0)
+            )
+        )
+
+        if (proposalIds.length > 0) {
+            const { data: contractProposals, error: contractProposalsError } = await supabaseAdmin
+                .from("proposals")
+                .select("id, client_id, status, total_value, total_power, created_at, calculation")
+                .in("id", proposalIds)
+
+            if (contractProposalsError) {
+                console.error("Erro ao carregar propostas marcadas para contrato no CRM:", contractProposalsError)
+            } else if (contractProposals) {
+                const contractProposalById = new Map(contractProposals.map((proposal) => [proposal.id, proposal]))
+                cardsData = cardsData.map((card) => {
+                    const contractProposalId = (card as any)?.indicacoes?.contract_proposal_id as string | null | undefined
+                    const proposal = contractProposalId ? contractProposalById.get(contractProposalId) ?? null : null
+                    const validProposal = proposal && proposal.client_id === card.indicacao_id ? proposal : null
+                    return {
+                        ...card,
+                        contract_proposal: validProposal,
+                    }
+                })
+            }
+        }
     }
 
     if (cardsError) {

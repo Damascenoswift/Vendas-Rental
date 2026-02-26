@@ -53,12 +53,7 @@ type ProposalSummary = {
     status: string | null
     total_value: number | null
     total_power: number | null
-    calculation?: {
-        commission?: {
-            percent?: number
-            value?: number
-        }
-    } | null
+    calculation?: Record<string, any> | null
     seller?: {
         name?: string | null
         email?: string | null
@@ -106,6 +101,14 @@ const PJ_ATTACHMENT_FIELDS: Array<{ key: IndicationAttachmentKey; label: string 
     { key: "cartao_cnpj", label: ATTACHMENT_LABELS.cartao_cnpj },
     { key: "doc_representante", label: ATTACHMENT_LABELS.doc_representante },
 ]
+
+const PROPOSAL_STATUS_LABELS: Record<string, string> = {
+    draft: "Rascunho",
+    sent: "Enviado",
+    accepted: "Aceito",
+    rejected: "Rejeitado",
+    expired: "Expirado",
+}
 
 export function IndicationDetailsDialog({
     indicationId,
@@ -390,6 +393,16 @@ export function IndicationDetailsDialog({
         return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
     }
 
+    const formatPercent = (value?: number | null) => {
+        if (typeof value !== "number") return "—"
+        return `${(value * 100).toFixed(2)}%`
+    }
+
+    const toFiniteNumber = (value: unknown): number | null => {
+        const parsed = typeof value === "number" ? value : Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+    }
+
     const formatDateTime = (value?: string | null) => {
         if (!value) return "—"
         try {
@@ -405,13 +418,106 @@ export function IndicationDetailsDialog({
         }
     }
 
-    const proposalStatusLabels: Record<string, string> = {
-        draft: "Rascunho",
-        sent: "Enviado",
-        accepted: "Aceito",
-        rejected: "Rejeitado",
-        expired: "Expirado",
-    }
+    const selectedContractProposal = useMemo(() => {
+        if (!contractProposalId) return null
+        return proposals.find((proposal) => (
+            proposal.id === contractProposalId &&
+            proposal.client_id === indicationId
+        )) ?? null
+    }, [contractProposalId, proposals, indicationId])
+
+    const contractFinanceRows = useMemo(() => {
+        if (!selectedContractProposal) return []
+
+        const calculation = selectedContractProposal.calculation ?? null
+        const financeInput = (calculation as any)?.input?.finance ?? null
+        const financeOutput = (calculation as any)?.output?.finance ?? null
+        const totalsOutput = (calculation as any)?.output?.totals ?? null
+        const financeEnabled = Boolean(financeInput?.enabled)
+
+        const rows: Array<{ label: string; value: string }> = [
+            {
+                label: "Orçamento",
+                value: `#${selectedContractProposal.id.slice(0, 8)}`,
+            },
+            {
+                label: "Status",
+                value: selectedContractProposal.status
+                    ? PROPOSAL_STATUS_LABELS[selectedContractProposal.status] ?? selectedContractProposal.status
+                    : "—",
+            },
+            {
+                label: "Valor do orçamento",
+                value: formatCurrency(selectedContractProposal.total_value),
+            },
+            {
+                label: "Potência total",
+                value:
+                    typeof selectedContractProposal.total_power === "number"
+                        ? `${selectedContractProposal.total_power.toFixed(2)} kWp`
+                        : "—",
+            },
+            {
+                label: "Forma de pagamento",
+                value: financeEnabled ? "Financiado" : "À vista",
+            },
+        ]
+
+        if (!financeEnabled) {
+            const cashTotal = toFiniteNumber(totalsOutput?.total_a_vista) ?? selectedContractProposal.total_value ?? null
+            rows.push({
+                label: "Total à vista",
+                value: formatCurrency(cashTotal),
+            })
+            return rows
+        }
+
+        const entryValue = toFiniteNumber(financeInput?.entrada_valor)
+        const graceMonths = toFiniteNumber(financeInput?.carencia_meses)
+        const monthlyRate = toFiniteNumber(financeInput?.juros_mensal)
+        const installments = toFiniteNumber(financeInput?.num_parcelas)
+        const installmentValue = toFiniteNumber(financeOutput?.parcela_mensal)
+        const totalPaid = toFiniteNumber(financeOutput?.total_pago)
+        const totalInterest = toFiniteNumber(financeOutput?.juros_pagos)
+        const financedAmount = toFiniteNumber(financeOutput?.valor_financiado)
+
+        rows.push(
+            {
+                label: "Entrada",
+                value: formatCurrency(entryValue),
+            },
+            {
+                label: "Parcelamento",
+                value: installments ? `${installments} parcelas` : "—",
+            },
+            {
+                label: "Parcela mensal",
+                value: formatCurrency(installmentValue),
+            },
+            {
+                label: "Juros mensal",
+                value: formatPercent(monthlyRate),
+            },
+            {
+                label: "Carência",
+                value: graceMonths && graceMonths > 0 ? `${graceMonths} meses` : "Sem carência",
+            },
+            {
+                label: "Valor financiado",
+                value: formatCurrency(financedAmount),
+            },
+            {
+                label: "Total pago",
+                value: formatCurrency(totalPaid),
+            },
+            {
+                label: "Total de juros",
+                value: formatCurrency(totalInterest),
+            },
+        )
+
+        return rows
+    }, [selectedContractProposal])
 
     useEffect(() => {
         if (!isOpen) return
@@ -751,6 +857,41 @@ export function IndicationDetailsDialog({
                                         </div>
                                     </div>
 
+                                    <div className="rounded-lg border p-4 space-y-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                                <p className="text-sm font-semibold">Rastreamento financeiro do contrato</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    Mostra os dados do orçamento marcado para contrato. O valor do card no CRM usa este orçamento.
+                                                </p>
+                                            </div>
+                                            <Badge variant={selectedContractProposal ? "success" : "outline"}>
+                                                {selectedContractProposal ? "Fonte ativa" : "Sem fonte selecionada"}
+                                            </Badge>
+                                        </div>
+
+                                        {selectedContractProposal ? (
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm border rounded-md overflow-hidden">
+                                                    <tbody>
+                                                        {contractFinanceRows.map((row) => (
+                                                            <tr key={row.label} className="border-b last:border-b-0">
+                                                                <td className="px-3 py-2 text-xs font-medium text-muted-foreground w-[40%] bg-muted/30">
+                                                                    {row.label}
+                                                                </td>
+                                                                <td className="px-3 py-2 font-medium">{row.value}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-muted-foreground">
+                                                Marque um orçamento com <span className="font-medium">Orçamento p/ contrato</span> para visualizar o resumo financeiro.
+                                            </p>
+                                        )}
+                                    </div>
+
                                     {proposalLoading ? (
                                         <div className="flex justify-center py-8">
                                             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -771,7 +912,7 @@ export function IndicationDetailsDialog({
                                                 const commissionValue = proposal.calculation?.commission?.value
                                                 const commissionPercent = proposal.calculation?.commission?.percent
                                                 const statusLabel = proposal.status
-                                                    ? proposalStatusLabels[proposal.status] ?? proposal.status
+                                                    ? PROPOSAL_STATUS_LABELS[proposal.status] ?? proposal.status
                                                     : "—"
                                                 const isContractProposal = contractProposalId === proposal.id
                                                 const isDirectMatch = proposal.client_id === indicationId

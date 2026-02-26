@@ -17,6 +17,35 @@ export type CrmCardData = {
     indicacao_id: string
     title: string | null
     created_at?: string
+    contract_proposal?: {
+        id: string
+        status?: string | null
+        total_value?: number | null
+        total_power?: number | null
+        created_at?: string
+        calculation?: {
+            input?: {
+                finance?: {
+                    enabled?: boolean
+                    entrada_valor?: number
+                    carencia_meses?: number
+                    juros_mensal?: number
+                    num_parcelas?: number
+                }
+            }
+            output?: {
+                finance?: {
+                    entrada_percentual?: number
+                    parcela_mensal?: number
+                    total_pago?: number
+                    juros_pagos?: number
+                }
+                totals?: {
+                    total_a_vista?: number
+                }
+            }
+        } | null
+    } | null
     indicacoes?: {
         id?: string
         tipo?: string | null
@@ -32,12 +61,18 @@ export type CrmCardData = {
         marca?: string | null
         user_id?: string | null
         created_by_supervisor_id?: string | null
+        contract_proposal_id?: string | null
     } | null
 }
 
 function formatCurrency(value?: number | null) {
     if (typeof value !== "number") return "-"
     return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
+}
+
+function formatPercent(value?: number | null) {
+    if (typeof value !== "number") return "-"
+    return `${(value * 100).toFixed(2)}%`
 }
 
 export function CrmCard({
@@ -77,6 +112,49 @@ export function CrmCard({
         item.title ||
         `Indicacao ${item.indicacao_id.slice(0, 8)}`
     const isRental = (item.indicacoes?.marca ?? "dorata") === "rental"
+    const contractProposal = item.contract_proposal ?? null
+    const contractValue =
+        typeof contractProposal?.total_value === "number"
+            ? contractProposal.total_value
+            : null
+    const displayedValue =
+        contractValue ??
+        (typeof item.indicacoes?.valor === "number" ? item.indicacoes.valor : null)
+
+    const financeInput = contractProposal?.calculation?.input?.finance
+    const financeOutput = contractProposal?.calculation?.output?.finance
+    const financeTotals = contractProposal?.calculation?.output?.totals
+    const financeEnabled = Boolean(financeInput?.enabled)
+
+    const paymentSummary = (() => {
+        if (!contractProposal) return null
+        if (!financeEnabled) {
+            const cashValue =
+                typeof financeTotals?.total_a_vista === "number"
+                    ? financeTotals.total_a_vista
+                    : contractProposal.total_value ?? null
+            return `À vista: ${formatCurrency(cashValue)}`
+        }
+
+        const installments = typeof financeInput?.num_parcelas === "number" ? financeInput.num_parcelas : null
+        const monthlyInstallment = typeof financeOutput?.parcela_mensal === "number" ? financeOutput.parcela_mensal : null
+        if (installments && monthlyInstallment) {
+            return `${installments}x de ${formatCurrency(monthlyInstallment)}`
+        }
+        return "Financiado"
+    })()
+
+    const paymentDetails = (() => {
+        if (!contractProposal || !financeEnabled) return null
+        const interest = typeof financeInput?.juros_mensal === "number" ? formatPercent(financeInput.juros_mensal) : null
+        const grace = typeof financeInput?.carencia_meses === "number" && financeInput.carencia_meses > 0
+            ? `${financeInput.carencia_meses}m carência`
+            : null
+        const entry = typeof financeInput?.entrada_valor === "number" && financeInput.entrada_valor > 0
+            ? `Entrada ${formatCurrency(financeInput.entrada_valor)}`
+            : null
+        return [entry, interest ? `Juros ${interest} a.m.` : null, grace].filter(Boolean).join(" • ")
+    })()
 
     const handleGenerateContract = async (event: MouseEvent<HTMLButtonElement>) => {
         event.preventDefault()
@@ -140,7 +218,7 @@ export function CrmCard({
                 </CardHeader>
                 <CardContent className="p-3 pt-2">
                     <div className="text-xs font-medium text-green-600">
-                        {formatCurrency(item.indicacoes?.valor)}
+                        {formatCurrency(displayedValue)}
                     </div>
                 </CardContent>
             </Card>
@@ -201,8 +279,21 @@ export function CrmCard({
             </CardHeader>
             <CardContent className="p-3 pt-2">
                 <div className="text-xs font-medium text-green-600">
-                    {formatCurrency(item.indicacoes?.valor)}
+                    {formatCurrency(displayedValue)}
                 </div>
+                {contractProposal ? (
+                    <div className="mt-1 space-y-1 text-[10px] text-muted-foreground">
+                        <div className="font-medium text-emerald-700">
+                            Orcamento contrato #{contractProposal.id.slice(0, 8)}
+                        </div>
+                        <div>
+                            Pagamento: {paymentSummary}
+                        </div>
+                        {paymentDetails ? (
+                            <div>{paymentDetails}</div>
+                        ) : null}
+                    </div>
+                ) : null}
                 {stageOptions && onStageChange ? (
                     <div
                         className="mt-2"

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
     DndContext,
     DragOverlay,
@@ -41,6 +41,10 @@ export function CrmBoard({ stages, cards, brand, canEdit = true }: Props) {
     const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
     const [isDetailsOpen, setIsDetailsOpen] = useState(false)
     const { showToast } = useToast()
+
+    useEffect(() => {
+        setItems(cards)
+    }, [cards])
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
