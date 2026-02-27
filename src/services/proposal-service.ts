@@ -585,7 +585,7 @@ export async function getProposalEditorData(proposalId: string): Promise<Proposa
             "calculation",
             "total_power",
             "total_value",
-            "cliente:indicacoes(id, nome)",
+            "cliente:indicacoes!proposals_client_id_fkey(id, nome)",
             "contato:contacts(id, full_name, first_name, last_name, email, whatsapp, phone, mobile)",
         ]
         if (includeSourceMode) columns.splice(8, 0, "source_mode")

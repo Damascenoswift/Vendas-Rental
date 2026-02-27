@@ -148,7 +148,7 @@ async function resolveDorataSaleReference(
     const [proposalResult, indicationResult] = await Promise.all([
         supabaseClient
             .from('proposals')
-            .select('id, cliente:indicacoes(id, nome, marca)')
+            .select('id, cliente:indicacoes!proposals_client_id_fkey(id, nome, marca)')
             .eq('id', saleId)
             .maybeSingle(),
         supabaseClient

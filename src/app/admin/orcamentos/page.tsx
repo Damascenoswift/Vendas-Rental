@@ -108,7 +108,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
             .select(`
                 *,
                 seller:users(name, email),
-                cliente:indicacoes(id, nome)
+                cliente:indicacoes!proposals_client_id_fkey(id, nome)
             `)
             .order('created_at', { ascending: false })
 

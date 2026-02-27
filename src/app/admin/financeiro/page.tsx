@@ -154,7 +154,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     ] = await Promise.all([
         supabaseAdmin
             .from('proposals')
-            .select('id, created_at, total_value, calculation, seller_id, seller:users(id, name, email), cliente:indicacoes(id, nome, marca, status, assinada_em)')
+            .select('id, created_at, total_value, calculation, seller_id, seller:users(id, name, email), cliente:indicacoes!proposals_client_id_fkey(id, nome, marca, status, assinada_em)')
             .eq('status', 'sent')
             .order('created_at', { ascending: false }),
         supabaseAdmin

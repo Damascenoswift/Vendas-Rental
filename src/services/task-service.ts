@@ -628,7 +628,7 @@ export async function getTaskProposalOptions(brand?: Brand) {
         created_at,
         client_id,
         contact_id,
-        cliente:indicacoes(nome, codigo_instalacao, marca)
+        cliente:indicacoes!proposals_client_id_fkey(nome, codigo_instalacao, marca)
     `
 
     let { data, error } = await proposalsClient
@@ -646,7 +646,7 @@ export async function getTaskProposalOptions(brand?: Brand) {
                 total_value,
                 created_at,
                 client_id,
-                cliente:indicacoes(nome, codigo_instalacao, marca)
+                cliente:indicacoes!proposals_client_id_fkey(nome, codigo_instalacao, marca)
             `
 
             const fallback = await proposalsClient
@@ -769,7 +769,7 @@ export async function createTask(data: {
                 id,
                 client_id,
                 contact_id,
-                cliente:indicacoes(nome, codigo_instalacao, marca)
+                cliente:indicacoes!proposals_client_id_fkey(nome, codigo_instalacao, marca)
             `)
             .eq('id', taskData.proposal_id)
             .maybeSingle()
@@ -782,7 +782,7 @@ export async function createTask(data: {
                     .select(`
                         id,
                         client_id,
-                        cliente:indicacoes(nome, codigo_instalacao, marca)
+                        cliente:indicacoes!proposals_client_id_fkey(nome, codigo_instalacao, marca)
                     `)
                     .eq('id', taskData.proposal_id)
                     .maybeSingle()
