@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, type ChangeEvent } from "react"
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -75,7 +75,7 @@ type TaskFormValues = z.infer<typeof taskSchema>
 export function TaskDialog() {
     const [open, setOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
-    const [users, setUsers] = useState<{ id: string, name: string, department: string | null }[]>([])
+    const [users, setUsers] = useState<{ id: string, name: string, department: string | null, role?: string | null }[]>([])
     const [observerIds, setObserverIds] = useState<string[]>([])
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
@@ -101,6 +101,20 @@ export function TaskDialog() {
         if (!proposal.brand) return true
         return proposal.brand === selectedBrand
     })
+    const responsibleUsers = useMemo(() => {
+        return users.filter((user) => {
+            const role = (user.role ?? "").trim().toLowerCase()
+            if (!role) return false
+            if (role.startsWith("vendedor")) return false
+            if (role === "investidor") return false
+            return (
+                role.startsWith("adm_")
+                || role.startsWith("funcionario_")
+                || role.startsWith("suporte")
+                || role === "supervisor"
+            )
+        })
+    }, [users])
 
     // Fetch dependencies when opening
     useEffect(() => {
@@ -143,7 +157,8 @@ export function TaskDialog() {
         setUsers((data ?? []).map(u => ({
             id: u.id,
             name: u.name || "Sem Nome",
-            department: u.department
+            department: u.department,
+            role: u.role ?? null,
         })))
     }
 
@@ -392,12 +407,12 @@ export function TaskDialog() {
                                             </FormControl>
                                             <SelectContent>
                                                 {Object.entries(
-                                                    users.reduce((acc, user) => {
+                                                    responsibleUsers.reduce((acc, user) => {
                                                         const dept = user.department ? user.department.toUpperCase() : "OUTROS"
                                                         if (!acc[dept]) acc[dept] = []
                                                         acc[dept].push(user)
                                                         return acc
-                                                    }, {} as Record<string, typeof users>)
+                                                    }, {} as Record<string, typeof responsibleUsers>)
                                                 ).map(([dept, deptUsers]) => (
                                                     <SelectGroup key={dept}>
                                                         <SelectLabel>{dept}</SelectLabel>
@@ -406,6 +421,9 @@ export function TaskDialog() {
                                                         ))}
                                                     </SelectGroup>
                                                 ))}
+                                                {responsibleUsers.length === 0 ? (
+                                                    <SelectItem value="__no-users__" disabled>Nenhum responsável disponível</SelectItem>
+                                                ) : null}
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />

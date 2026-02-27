@@ -326,6 +326,7 @@ export interface TaskUserOption {
     name: string
     department: string | null
     email: string | null
+    role?: string | null
 }
 
 export interface TaskLeadOption {
@@ -468,7 +469,7 @@ export async function getTaskAssignableUsers() {
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
         .from('users')
-        .select('id, name, email, department, status')
+        .select('id, name, email, department, status, role')
         .order('name')
 
     if (error) {
@@ -482,6 +483,7 @@ export async function getTaskAssignableUsers() {
         email: row.email ?? null,
         department: row.department ?? null,
         status: row.status ?? null,
+        role: row.role ?? null,
     })) as TaskUserOption[]
 }
 

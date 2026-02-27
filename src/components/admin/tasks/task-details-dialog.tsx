@@ -74,6 +74,7 @@ type UserOption = {
     name: string
     email: string | null
     department: string | null
+    role?: string | null
 }
 
 type TaskCommentDisplay = TaskComment & {
@@ -303,6 +304,20 @@ export function TaskDetailsDialog({
         })
         return map
     }, [users])
+    const responsibleUsers = useMemo(() => {
+        return users.filter((user) => {
+            const role = (user.role ?? "").trim().toLowerCase()
+            if (!role) return false
+            if (role.startsWith("vendedor")) return false
+            if (role === "investidor") return false
+            return (
+                role.startsWith("adm_")
+                || role.startsWith("funcionario_")
+                || role.startsWith("suporte")
+                || role === "supervisor"
+            )
+        })
+    }, [users])
 
     const mentionCandidates = useMemo<MentionCandidate[]>(() => {
         const query = activeMentionContext?.query ?? ""
@@ -463,6 +478,7 @@ export function TaskDetailsDialog({
                     name: user.name || "Sem Nome",
                     email: user.email,
                     department: user.department,
+                    role: user.role ?? null,
                 }))
             )
             setProposalOptions(proposalData ?? [])
@@ -1414,7 +1430,7 @@ export function TaskDetailsDialog({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="__unassigned__">Sem responsável</SelectItem>
-                                        {users.map((user) => (
+                                        {responsibleUsers.map((user) => (
                                             <SelectItem key={user.id} value={user.id}>
                                                 {user.name}
                                             </SelectItem>
@@ -1525,7 +1541,7 @@ export function TaskDetailsDialog({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="__unassigned__">Sem responsável</SelectItem>
-                                        {users.map((user) => (
+                                        {responsibleUsers.map((user) => (
                                             <SelectItem key={user.id} value={user.id}>
                                                 {user.name}
                                             </SelectItem>
