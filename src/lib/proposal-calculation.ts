@@ -19,6 +19,8 @@ export type ProposalStringInverterInput = {
     purchase_required: boolean
 }
 
+export type ProposalTradeMode = "TOTAL_VALUE" | "INSTALLMENTS"
+
 export type ProposalCalcInput = {
     dimensioning: {
         qtd_modulos: number
@@ -58,6 +60,11 @@ export type ProposalCalcInput = {
         juros_mensal: number
         num_parcelas: number
         baloes: { balao_valor: number; balao_mes: number }[]
+    }
+    trade?: {
+        enabled: boolean
+        mode: ProposalTradeMode
+        value: number
     }
     params?: Partial<ProposalCalcParams>
 }
@@ -107,6 +114,13 @@ export type ProposalCalcOutput = {
         parcela_mensal: number
         total_pago: number
         juros_pagos: number
+    }
+    trade: {
+        enabled: boolean
+        mode: ProposalTradeMode
+        value: number
+        applied_total_value: number
+        applied_installments_value: number
     }
 }
 
@@ -340,7 +354,17 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
         Number(input.extras.valor_adequacao_padrao || 0) +
         (input.extras.outros_extras || []).reduce((sum, extra) => sum + Number(extra.value || 0), 0)
 
-    const totalAVista = somaComEstrutura + margemValor + extrasTotal
+    const totalBrutoAVista = somaComEstrutura + margemValor + extrasTotal
+
+    const tradeMode: ProposalTradeMode = input.trade?.mode === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
+    const tradeEnabled = Boolean(input.trade?.enabled)
+    const tradeValueRaw = Number(input.trade?.value || 0)
+    const tradeValue = Number.isFinite(tradeValueRaw) && tradeValueRaw > 0 ? tradeValueRaw : 0
+
+    const appliedTradeOnTotal = tradeEnabled && tradeMode === "TOTAL_VALUE"
+        ? Math.min(tradeValue, Math.max(totalBrutoAVista, 0))
+        : 0
+    const totalAVista = totalBrutoAVista - appliedTradeOnTotal
 
     const entradaValor = Number(input.finance.entrada_valor || 0)
     const carenciaMeses = Number(input.finance.carencia_meses || 0)
@@ -348,8 +372,13 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const numParcelas = Number(input.finance.num_parcelas || 0)
     const totalBaloes = (input.finance.baloes || []).reduce((sum, b) => sum + Number(b.balao_valor || 0), 0)
 
+    const maxInstallmentTrade = Math.max(totalAVista - entradaValor - totalBaloes, 0)
+    const appliedTradeOnInstallments = tradeEnabled && tradeMode === "INSTALLMENTS" && input.finance.enabled
+        ? Math.min(tradeValue, maxInstallmentTrade)
+        : 0
+
     const entradaPercentual = totalAVista > 0 ? entradaValor / totalAVista : 0
-    const valorFinanciado = totalAVista - entradaValor - totalBaloes
+    const valorFinanciado = Math.max(totalAVista - entradaValor - totalBaloes - appliedTradeOnInstallments, 0)
     const saldoPosCarencia = calculateFinancedBalanceAfterGrace({
         financed_value: valorFinanciado,
         monthly_rate: jurosMensal,
@@ -368,7 +397,8 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const totalPago = input.finance.enabled
         ? entradaValor + (parcelaMensal * numParcelas) + totalBaloes
         : totalAVista
-    const jurosPagos = totalPago - totalAVista
+    const jurosBase = totalAVista - appliedTradeOnInstallments
+    const jurosPagos = Math.max(totalPago - jurosBase, 0)
 
     const output: ProposalCalcOutput = {
         dimensioning: {
@@ -415,6 +445,13 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             parcela_mensal: parcelaMensal,
             total_pago: totalPago,
             juros_pagos: jurosPagos
+        },
+        trade: {
+            enabled: tradeEnabled,
+            mode: tradeMode,
+            value: tradeValue,
+            applied_total_value: appliedTradeOnTotal,
+            applied_installments_value: appliedTradeOnInstallments,
         }
     }
 

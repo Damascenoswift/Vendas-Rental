@@ -32,6 +32,11 @@ export type CrmCardData = {
                     juros_mensal?: number
                     num_parcelas?: number
                 }
+                trade?: {
+                    enabled?: boolean
+                    mode?: "TOTAL_VALUE" | "INSTALLMENTS"
+                    value?: number
+                }
             }
             output?: {
                 finance?: {
@@ -39,6 +44,10 @@ export type CrmCardData = {
                     parcela_mensal?: number
                     total_pago?: number
                     juros_pagos?: number
+                }
+                trade?: {
+                    applied_total_value?: number
+                    applied_installments_value?: number
                 }
                 totals?: {
                     total_a_vista?: number
@@ -124,6 +133,8 @@ export function CrmCard({
     const financeInput = contractProposal?.calculation?.input?.finance
     const financeOutput = contractProposal?.calculation?.output?.finance
     const financeTotals = contractProposal?.calculation?.output?.totals
+    const tradeInput = contractProposal?.calculation?.input?.trade
+    const tradeOutput = contractProposal?.calculation?.output?.trade
     const financeEnabled = Boolean(financeInput?.enabled)
 
     const paymentSummary = (() => {
@@ -153,7 +164,15 @@ export function CrmCard({
         const entry = typeof financeInput?.entrada_valor === "number" && financeInput.entrada_valor > 0
             ? `Entrada ${formatCurrency(financeInput.entrada_valor)}`
             : null
-        return [entry, interest ? `Juros ${interest} a.m.` : null, grace].filter(Boolean).join(" • ")
+        const tradeMode = tradeInput?.mode === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
+        const tradeApplied = tradeMode === "TOTAL_VALUE"
+            ? Number(tradeOutput?.applied_total_value ?? 0)
+            : Number(tradeOutput?.applied_installments_value ?? 0)
+        const tradeDetail =
+            Boolean(tradeInput?.enabled) && tradeApplied > 0
+                ? `Permuta ${tradeMode === "TOTAL_VALUE" ? "total" : "parcelas"} ${formatCurrency(tradeApplied)}`
+                : null
+        return [entry, tradeDetail, interest ? `Juros ${interest} a.m.` : null, grace].filter(Boolean).join(" • ")
     })()
 
     const handleGenerateContract = async (event: MouseEvent<HTMLButtonElement>) => {

@@ -96,6 +96,10 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
+function normalizeTradeMode(value: string | null | undefined): NonNullable<ProposalCalcInput["trade"]>["mode"] {
+    return value === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
+}
+
 function normalizeStatusForForm(status: ProposalStatus | null | undefined): "draft" | "sent" {
     return status === "draft" ? "draft" : "sent"
 }
@@ -243,6 +247,15 @@ export function ProposalCalculatorSimple({
     const [numParcelas, setNumParcelas] = useState(
         initialInput?.finance?.num_parcelas ?? 0
     )
+    const [tradeEnabled, setTradeEnabled] = useState(
+        initialInput?.trade?.enabled ?? false
+    )
+    const [tradeMode, setTradeMode] = useState<NonNullable<ProposalCalcInput["trade"]>["mode"]>(
+        normalizeTradeMode(initialInput?.trade?.mode)
+    )
+    const [tradeValue, setTradeValue] = useState(
+        initialInput?.trade?.value ?? 0
+    )
     const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
 
     const { showToast } = useToast()
@@ -292,6 +305,11 @@ export function ProposalCalculatorSimple({
                 num_parcelas: numParcelas,
                 baloes: [],
             },
+            trade: {
+                enabled: tradeEnabled,
+                mode: tradeMode,
+                value: tradeValue,
+            },
             params,
         }
     }, [
@@ -312,10 +330,15 @@ export function ProposalCalculatorSimple({
         carenciaMeses,
         jurosMensal,
         numParcelas,
+        tradeEnabled,
+        tradeMode,
+        tradeValue,
         params,
     ])
 
     const calculated = useMemo(() => calculateProposal(calculationInput), [calculationInput])
+    const tradeOutput = calculated.output.trade
+    const hasInstallmentTradeWithoutFinance = tradeEnabled && tradeMode === "INSTALLMENTS" && !financeEnabled
     const selectedContactPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
     const isContactPhoneLocked = Boolean(selectedContact && selectedContactPhone)
     const usesInventory = products.length > 0
@@ -326,13 +349,14 @@ export function ProposalCalculatorSimple({
         const targetTotal = toNumber(value)
         const baseValue = calculated.output.totals.soma_com_estrutura
         const extrasValue = calculated.output.extras.extras_total
+        const tradeAdjustment = tradeEnabled && tradeMode === "TOTAL_VALUE" ? Math.max(tradeValue, 0) : 0
 
         if (!Number.isFinite(baseValue) || baseValue <= 0) {
             setMargemPercentual(0)
             return
         }
 
-        const nextMarginPercent = (targetTotal - extrasValue - baseValue) / baseValue
+        const nextMarginPercent = (targetTotal + tradeAdjustment - extrasValue - baseValue) / baseValue
         setMargemPercentual(Number.isFinite(nextMarginPercent) ? nextMarginPercent : 0)
     }
 
@@ -948,6 +972,70 @@ export function ProposalCalculatorSimple({
                         )}
                     </CardContent>
                 </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Permuta</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                checked={tradeEnabled}
+                                onChange={(e) => setTradeEnabled(e.target.checked)}
+                            />
+                            <Label>Ativar permuta</Label>
+                        </div>
+
+                        {tradeEnabled && (
+                            <div className="space-y-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Tipo de abatimento</Label>
+                                        <Select
+                                            value={tradeMode}
+                                            onValueChange={(value) =>
+                                                setTradeMode(value as NonNullable<ProposalCalcInput["trade"]>["mode"])
+                                            }
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="TOTAL_VALUE">Abater no valor total da obra</SelectItem>
+                                                <SelectItem value="INSTALLMENTS">Abater nas parcelas</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Valor da permuta (R$)</Label>
+                                        <Input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={tradeValue}
+                                            onChange={(e) => setTradeValue(toNumber(e.target.value))}
+                                        />
+                                    </div>
+                                </div>
+
+                                {hasInstallmentTradeWithoutFinance ? (
+                                    <p className="text-xs text-muted-foreground">
+                                        Para aplicar abatimento nas parcelas, ative o financiamento.
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground">
+                                        Abatimento aplicado:{" "}
+                                        {formatCurrency(
+                                            tradeMode === "TOTAL_VALUE"
+                                                ? tradeOutput.applied_total_value
+                                                : tradeOutput.applied_installments_value
+                                        )}
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
             </div>
 
             <div className="lg:col-span-1">
@@ -988,6 +1076,20 @@ export function ProposalCalculatorSimple({
                                 <span className="text-muted-foreground">Valor adicional</span>
                                 <span>{formatCurrency(calculated.output.extras.extras_total)}</span>
                             </div>
+                            {tradeEnabled && (
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">
+                                        Permuta ({tradeMode === "TOTAL_VALUE" ? "total" : "parcelas"})
+                                    </span>
+                                    <span>
+                                        {formatCurrency(
+                                            tradeMode === "TOTAL_VALUE"
+                                                ? tradeOutput.applied_total_value
+                                                : tradeOutput.applied_installments_value
+                                        )}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                         <Separator />
                         <div className="flex items-center justify-between">

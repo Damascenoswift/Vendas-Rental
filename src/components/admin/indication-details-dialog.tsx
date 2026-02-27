@@ -432,8 +432,14 @@ export function IndicationDetailsDialog({
         const calculation = selectedContractProposal.calculation ?? null
         const financeInput = (calculation as any)?.input?.finance ?? null
         const financeOutput = (calculation as any)?.output?.finance ?? null
+        const tradeInput = (calculation as any)?.input?.trade ?? null
+        const tradeOutput = (calculation as any)?.output?.trade ?? null
         const totalsOutput = (calculation as any)?.output?.totals ?? null
         const financeEnabled = Boolean(financeInput?.enabled)
+        const tradeMode = tradeInput?.mode === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
+        const tradeApplied = tradeMode === "TOTAL_VALUE"
+            ? toFiniteNumber(tradeOutput?.applied_total_value)
+            : toFiniteNumber(tradeOutput?.applied_installments_value)
 
         const rows: Array<{ label: string; value: string }> = [
             {
@@ -469,6 +475,12 @@ export function IndicationDetailsDialog({
                 label: "Total à vista",
                 value: formatCurrency(cashTotal),
             })
+            if (Boolean(tradeInput?.enabled) && (tradeApplied ?? 0) > 0) {
+                rows.push({
+                    label: "Permuta",
+                    value: `${tradeMode === "TOTAL_VALUE" ? "Total da obra" : "Parcelas"} • ${formatCurrency(tradeApplied)}`,
+                })
+            }
             return rows
         }
 
@@ -515,6 +527,13 @@ export function IndicationDetailsDialog({
                 value: formatCurrency(totalInterest),
             },
         )
+
+        if (Boolean(tradeInput?.enabled) && (tradeApplied ?? 0) > 0) {
+            rows.push({
+                label: "Permuta",
+                value: `${tradeMode === "TOTAL_VALUE" ? "Total da obra" : "Parcelas"} • ${formatCurrency(tradeApplied)}`,
+            })
+        }
 
         return rows
     }, [selectedContractProposal])
