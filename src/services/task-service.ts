@@ -282,6 +282,7 @@ export interface TaskChecklistItem {
     due_date: string | null
     completed_at: string | null
     completed_by: string | null
+    responsible_user_id?: string | null
     phase: string | null
     completed_by_user?: {
         name: string | null
@@ -1464,23 +1465,93 @@ export async function deleteTask(taskId: string) {
 export async function getTaskChecklists(taskId: string) {
     const supabase = await createClient()
 
-    let { data, error } = await supabase
-        .from('task_checklists')
-        .select('id, task_id, title, event_key, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase, completed_by_user:users!task_checklists_completed_by_fkey(name, email)')
-        .eq('task_id', taskId)
-        .order('sort_order', { ascending: true })
-        .order('created_at', { ascending: true })
+    let data: any[] | null = null
+    let error: { message?: string | null } | null = null
+    let includeResponsibleUserId = true
 
-    if (error && /relationship between 'task_checklists' and 'users'/i.test(error.message ?? '')) {
-        const fallback = await supabase
+    while (true) {
+        const checklistColumns = [
+            'id',
+            'task_id',
+            'title',
+            'event_key',
+            'is_done',
+            'sort_order',
+            'created_at',
+            'due_date',
+            'completed_at',
+            'completed_by',
+            'phase',
+            includeResponsibleUserId ? 'responsible_user_id' : null,
+            'completed_by_user:users!task_checklists_completed_by_fkey(name, email)',
+        ]
+            .filter(Boolean)
+            .join(', ')
+
+        const result = await supabase
             .from('task_checklists')
-            .select('id, task_id, title, event_key, is_done, sort_order, created_at, due_date, completed_at, completed_by, phase')
+            .select(checklistColumns)
             .eq('task_id', taskId)
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: true })
 
-        data = fallback.data as any
-        error = fallback.error
+        data = result.data as any
+        error = result.error as { message?: string | null } | null
+
+        if (!error) break
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (
+            includeResponsibleUserId &&
+            missingColumn &&
+            missingColumn.table === 'task_checklists' &&
+            missingColumn.column === 'responsible_user_id'
+        ) {
+            includeResponsibleUserId = false
+            continue
+        }
+
+        if (/relationship between 'task_checklists' and 'users'/i.test(error.message ?? '')) {
+            const fallbackColumns = [
+                'id',
+                'task_id',
+                'title',
+                'event_key',
+                'is_done',
+                'sort_order',
+                'created_at',
+                'due_date',
+                'completed_at',
+                'completed_by',
+                'phase',
+                includeResponsibleUserId ? 'responsible_user_id' : null,
+            ]
+                .filter(Boolean)
+                .join(', ')
+
+            const fallback = await supabase
+                .from('task_checklists')
+                .select(fallbackColumns)
+                .eq('task_id', taskId)
+                .order('sort_order', { ascending: true })
+                .order('created_at', { ascending: true })
+
+            data = fallback.data as any
+            error = fallback.error as { message?: string | null } | null
+
+            const fallbackMissingColumn = parseMissingColumnError(error?.message)
+            if (
+                includeResponsibleUserId &&
+                fallbackMissingColumn &&
+                fallbackMissingColumn.table === 'task_checklists' &&
+                fallbackMissingColumn.column === 'responsible_user_id'
+            ) {
+                includeResponsibleUserId = false
+                continue
+            }
+        }
+
+        break
     }
 
     if (error) {
@@ -1502,22 +1573,41 @@ export async function addTaskChecklistItem(
         phase?: TaskChecklistPhase | null
         sortOrder?: number
         eventKey?: TaskChecklistEventKey
+        responsibleUserId?: string | null
     }
 ) {
     const supabase = await createClient()
 
-    const { error } = await supabase
-        .from('task_checklists')
-        .insert({
-            task_id: taskId,
-            title: title.trim(),
-            due_date: options?.dueDate ?? null,
-            phase: options?.phase ?? null,
-            sort_order: options?.sortOrder ?? 0,
-            event_key: options?.eventKey ?? null,
-        })
+    const payload: Record<string, unknown> = {
+        task_id: taskId,
+        title: title.trim(),
+        due_date: options?.dueDate ?? null,
+        phase: options?.phase ?? null,
+        sort_order: options?.sortOrder ?? 0,
+        event_key: options?.eventKey ?? null,
+        responsible_user_id: options?.responsibleUserId ?? null,
+    }
 
-    if (error) return { error: error.message }
+    while (true) {
+        const { error } = await supabase
+            .from('task_checklists')
+            .insert(payload)
+
+        if (!error) break
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (
+            missingColumn &&
+            missingColumn.table === 'task_checklists' &&
+            missingColumn.column === 'responsible_user_id' &&
+            'responsible_user_id' in payload
+        ) {
+            delete payload.responsible_user_id
+            continue
+        }
+
+        return { error: error.message }
+    }
 
     revalidatePath('/admin/tarefas')
     return { success: true }

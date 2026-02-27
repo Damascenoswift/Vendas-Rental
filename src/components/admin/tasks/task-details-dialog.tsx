@@ -226,6 +226,7 @@ export function TaskDetailsDialog({
     const [attachments, setAttachments] = useState<TaskAttachmentFile[]>([])
     const [users, setUsers] = useState<UserOption[]>([])
     const [newChecklistTitle, setNewChecklistTitle] = useState("")
+    const [newChecklistResponsibleId, setNewChecklistResponsibleId] = useState<string>("")
     const [newObserverId, setNewObserverId] = useState<string>("")
     const [newComment, setNewComment] = useState("")
     const [mentionAliasToUserId, setMentionAliasToUserId] = useState<Record<string, string>>({})
@@ -372,6 +373,8 @@ export function TaskDetailsDialog({
         setObservers([])
         setComments([])
         setAttachments([])
+        setNewChecklistTitle("")
+        setNewChecklistResponsibleId("")
         setNewComment("")
         setMentionAliasToUserId({})
         setActiveMentionContext(null)
@@ -477,13 +480,16 @@ export function TaskDetailsDialog({
         if (!task) return
         if (!newChecklistTitle.trim()) return
         setIsSavingChecklist(true)
-        const result = await addTaskChecklistItem(task.id, newChecklistTitle)
+        const result = await addTaskChecklistItem(task.id, newChecklistTitle, {
+            responsibleUserId: newChecklistResponsibleId || null,
+        })
         if (result?.error) {
             showToast({ title: "Erro ao adicionar checklist", description: result.error, variant: "error" })
         } else {
             const updated = await getTaskChecklists(task.id)
             setChecklists(updated)
             setNewChecklistTitle("")
+            setNewChecklistResponsibleId("")
         }
         setIsSavingChecklist(false)
     }
@@ -901,6 +907,9 @@ export function TaskDetailsDialog({
         <div className="space-y-2">
             {items.map((item) => {
                 const completedByName = item.completed_by_user?.name || item.completed_by_user?.email || ""
+                const responsibleName = item.responsible_user_id
+                    ? (usersById.get(item.responsible_user_id) ?? "Usuário vinculado")
+                    : ""
                 const completedAtLabel = formatDateTime(item.completed_at)
                 const dueDateLabel = formatDateOnly(item.due_date)
                 return (
@@ -916,6 +925,17 @@ export function TaskDetailsDialog({
                                 </span>
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                     {dueDateLabel && <span>Prazo: {dueDateLabel}</span>}
+                                    {responsibleName && (
+                                        <span className="flex items-center gap-2">
+                                            <span
+                                                className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                                                style={{ backgroundColor: stringToHsl(responsibleName) }}
+                                            >
+                                                {getInitials(responsibleName)}
+                                            </span>
+                                            <span>Responsável: {responsibleName}</span>
+                                        </span>
+                                    )}
                                     {item.is_done && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
                                     {completedByName && (
                                         <span className="flex items-center gap-2">
@@ -1490,12 +1510,28 @@ export function TaskDetailsDialog({
 
                         <div className="grid gap-3">
                             <h4 className="text-sm font-semibold">Checklist adicional</h4>
-                            <div className="flex gap-2">
+                            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_220px_auto]">
                                 <Input
                                     value={newChecklistTitle}
                                     onChange={(event) => setNewChecklistTitle(event.target.value)}
                                     placeholder="Adicionar item"
                                 />
+                                <Select
+                                    value={newChecklistResponsibleId || "__unassigned__"}
+                                    onValueChange={(value) => setNewChecklistResponsibleId(value === "__unassigned__" ? "" : value)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Responsável" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__unassigned__">Sem responsável</SelectItem>
+                                        {users.map((user) => (
+                                            <SelectItem key={user.id} value={user.id}>
+                                                {user.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                                 <Button onClick={handleAddChecklist} disabled={isSavingChecklist || !newChecklistTitle.trim()}>
                                     Adicionar
                                 </Button>
