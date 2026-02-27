@@ -4,6 +4,7 @@ import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { ensureCrmCardForIndication } from '@/services/crm-card-service'
+import { createIndicationNotificationEvent } from '@/services/notification-service'
 import { createRentalTasksForIndication } from '@/services/task-service'
 import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
 import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
@@ -165,6 +166,24 @@ export async function createIndicationAction(payload: any) {
         if (taskResult && 'error' in taskResult && taskResult.error) {
             console.error('Rental task auto-create error:', taskResult.error)
         }
+    }
+
+    try {
+        await createIndicationNotificationEvent({
+            eventKey: 'INDICATION_CREATED',
+            indicacaoId: indicationId,
+            actorUserId: user.id,
+            title: 'Nova indicação criada',
+            message: `A indicação de ${finalPayload.nome ?? 'cliente sem nome'} foi criada.`,
+            dedupeToken: `create:${indicationId}`,
+            metadata: {
+                source: 'create_indication_action',
+                brand: brand || null,
+                initial_status: finalPayload.status ?? null,
+            },
+        })
+    } catch (notificationError) {
+        console.error('Erro ao criar notificação da indicação criada:', notificationError)
     }
 
     revalidatePath('/indicacoes')

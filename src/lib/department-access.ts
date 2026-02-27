@@ -3,6 +3,7 @@ const WORKS_DEPARTMENT = "obras"
 const WORKS_ALLOWED_PATH_PREFIXES = [
   "/admin/obras",
   "/admin/chat",
+  "/admin/notificacoes",
   "/perfil",
 ]
 

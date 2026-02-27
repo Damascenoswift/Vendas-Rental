@@ -4,8 +4,10 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasFullAccess, type UserProfile } from "@/lib/auth"
 import {
+    createIndicationNotificationEvent,
     createTaskChecklistNotifications,
     createTaskCommentNotifications,
+    createTaskStatusChangedNotifications,
 } from "@/services/notification-service"
 import { revalidatePath } from "next/cache"
 
@@ -218,6 +220,22 @@ function buildInteractionFromChecklistEvent(eventKey: Exclude<TaskChecklistEvent
         type: 'STATUS_CHANGE',
         content: 'Contrato marcado como assinado via checklist de tarefas.',
         metadata: { new_status: 'CONCLUIDA', source: 'task_checklist' },
+    }
+}
+
+function getIndicationNotificationEventForChecklist(eventKey: Exclude<TaskChecklistEventKey, null>) {
+    if (eventKey === 'DOCS_APPROVED' || eventKey === 'DOCS_INCOMPLETE' || eventKey === 'DOCS_REJECTED') {
+        return {
+            eventKey: 'INDICATION_DOC_VALIDATION_CHANGED' as const,
+            title: 'Validação de documentos atualizada',
+            message: 'Documentação da indicação foi atualizada via checklist de tarefa.',
+        }
+    }
+
+    return {
+        eventKey: 'INDICATION_CONTRACT_MILESTONE' as const,
+        title: 'Marco de contrato da indicação atualizado',
+        message: 'Status de contrato/comissão da indicação foi atualizado via checklist de tarefa.',
     }
 }
 
@@ -1277,11 +1295,23 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { error: "Unauthorized" }
 
+    let previousStatus: string | null = null
+    const { data: currentTask, error: currentTaskError } = await supabase
+        .from('tasks')
+        .select('status')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    if (!currentTaskError && currentTask) {
+        previousStatus = (currentTask as { status?: string | null }).status ?? null
+    }
+
+    const nowIso = new Date().toISOString()
     const baseUpdates: Record<string, string | null> = {
         status: newStatus,
     }
     if (newStatus === 'DONE') {
-        baseUpdates.completed_at = new Date().toISOString()
+        baseUpdates.completed_at = nowIso
         baseUpdates.completed_by = user.id
     }
 
@@ -1319,6 +1349,19 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     // Prefer user-scoped update to respect RLS first.
     const userScoped = await tryUpdateStatus(supabase, baseUpdates)
     if (!userScoped.error && userScoped.data?.id) {
+        if (previousStatus !== newStatus) {
+            try {
+                await createTaskStatusChangedNotifications({
+                    taskId,
+                    actorUserId: user.id,
+                    oldStatus: previousStatus,
+                    newStatus,
+                    dedupeToken: nowIso,
+                })
+            } catch (notificationError) {
+                console.error("Error creating task status changed notification:", notificationError)
+            }
+        }
         revalidatePath('/admin/tarefas')
         return { success: true }
     }
@@ -1341,9 +1384,35 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
+    if (!previousStatus) {
+        const { data: currentTaskAdmin, error: currentTaskAdminError } = await supabaseAdmin
+            .from('tasks')
+            .select('status')
+            .eq('id', taskId)
+            .maybeSingle()
+
+        if (!currentTaskAdminError && currentTaskAdmin) {
+            previousStatus = (currentTaskAdmin as { status?: string | null }).status ?? null
+        }
+    }
+
     const adminResult = await tryUpdateStatus(supabaseAdmin, baseUpdates)
     if (adminResult.error) return { error: adminResult.error.message }
     if (!adminResult.data?.id) return { error: "Tarefa não encontrada para atualização." }
+
+    if (previousStatus !== newStatus) {
+        try {
+            await createTaskStatusChangedNotifications({
+                taskId,
+                actorUserId: user.id,
+                oldStatus: previousStatus,
+                newStatus,
+                dedupeToken: nowIso,
+            })
+        } catch (notificationError) {
+            console.error("Error creating task status changed notification:", notificationError)
+        }
+    }
 
     revalidatePath('/admin/tarefas')
     return { success: true }
@@ -1713,6 +1782,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
 
         let syncLeadError: { message?: string | null } | null = null
         let syncedLead = false
+        let statusChanged = false
 
         if (Object.keys(leadUpdates).length > 0) {
             const { error: updateLeadFieldsError } = await supabaseAdmin
@@ -1751,6 +1821,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
                 syncLeadError = syncStatusError
             } else if ((syncedStatusRows?.length ?? 0) > 0) {
                 syncedLead = true
+                statusChanged = true
             }
         }
 
@@ -1773,6 +1844,44 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
 
             if (interactionError) {
                 console.error("Error logging checklist interaction:", interactionError)
+            }
+
+            try {
+                const indicationEvent = getIndicationNotificationEventForChecklist(eventKey)
+                await createIndicationNotificationEvent({
+                    eventKey: indicationEvent.eventKey,
+                    indicacaoId,
+                    actorUserId: user.id,
+                    title: indicationEvent.title,
+                    message: indicationEvent.message,
+                    dedupeToken: `task-checklist:${itemId}:${eventKey}:${isDone ? 'done' : 'todo'}`,
+                    metadata: {
+                        source: 'task_checklist',
+                        task_id: itemWithTask?.task_id ?? null,
+                        checklist_item_id: itemId,
+                        checklist_event_key: eventKey,
+                        new_status: leadUpdates.doc_validation_status ?? nextStatus ?? null,
+                    },
+                })
+
+                if (statusChanged && nextStatus) {
+                    await createIndicationNotificationEvent({
+                        eventKey: 'INDICATION_STATUS_CHANGED',
+                        indicacaoId,
+                        actorUserId: user.id,
+                        title: 'Status da indicação alterado',
+                        message: `Status da indicação atualizado para ${nextStatus}.`,
+                        dedupeToken: `task-checklist-status:${itemId}:${nextStatus}`,
+                        metadata: {
+                            source: 'task_checklist',
+                            task_id: itemWithTask?.task_id ?? null,
+                            checklist_item_id: itemId,
+                            new_status: nextStatus,
+                        },
+                    })
+                }
+            } catch (notificationError) {
+                console.error("Error creating indication notifications from checklist sync:", notificationError)
             }
         }
     }

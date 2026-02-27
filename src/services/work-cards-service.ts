@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
+import {
+    createWorkCommentNotifications,
+    createWorkProcessStatusChangedNotifications,
+} from "@/services/notification-service"
 import { createTask, type TaskStatus } from "@/services/task-service"
 import { addBusinessDays } from "@/lib/business-days"
 import { hasWorksOnlyScope } from "@/lib/department-access"
@@ -1591,7 +1595,7 @@ export async function setWorkProcessItemStatus(input: {
 
     const { data: current, error: currentError } = await supabaseAdmin
         .from("obra_process_items" as any)
-        .select("id, obra_id, status, phase, linked_task_id, started_at")
+        .select("id, obra_id, title, status, phase, linked_task_id, started_at")
         .eq("id", input.itemId)
         .maybeSingle()
 
@@ -1642,6 +1646,21 @@ export async function setWorkProcessItemStatus(input: {
     }
 
     await refreshWorkStatusFromExecution(current.obra_id)
+
+    try {
+        await createWorkProcessStatusChangedNotifications({
+            workId: current.obra_id,
+            processItemId: input.itemId,
+            actorUserId: user.id,
+            processTitle: (current as { title?: string | null }).title ?? "Etapa da obra",
+            oldStatus: current.status,
+            newStatus: input.status,
+            linkedTaskId: current.linked_task_id ?? null,
+            dedupeToken: data.updated_at ?? new Date().toISOString(),
+        })
+    } catch (notificationError) {
+        console.error("Erro ao criar notificação de status de etapa da obra:", notificationError)
+    }
 
     revalidatePath("/admin/obras")
     revalidatePath("/admin/tarefas")
@@ -2026,6 +2045,19 @@ export async function addWorkComment(input: {
 
     revalidatePath("/admin/obras")
     const mappedComment = await mapWorkCommentRow(supabaseAdmin, data as WorkCommentRow)
+
+    try {
+        await createWorkCommentNotifications({
+            workId: input.workId,
+            commentId: data.id,
+            actorUserId: user.id,
+            content,
+            commentType,
+        })
+    } catch (notificationError) {
+        console.error("Erro ao criar notificação de comentário da obra:", notificationError)
+    }
+
     return {
         success: true,
         comment: mappedComment,

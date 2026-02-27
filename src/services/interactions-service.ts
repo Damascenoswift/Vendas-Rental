@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { ensureCrmCardForIndication } from "@/services/crm-card-service"
+import { createIndicationNotificationEvent } from "@/services/notification-service"
 import { createTask } from "@/services/task-service"
 import { markDorataContractSigned } from "@/app/actions/crm"
 import { getProfile } from "@/lib/auth"
@@ -132,7 +133,7 @@ export async function addInteraction(
         }
     }
 
-    const { error } = await supabase
+    const { data: insertedInteraction, error } = await supabase
         .from('indicacao_interactions')
         .insert({
             indicacao_id: indicacaoId,
@@ -141,16 +142,40 @@ export async function addInteraction(
             content: normalizedContent,
             metadata
         })
+        .select('id')
+        .maybeSingle()
 
     if (error) {
         console.error("Error adding interaction:", error)
         return { error: error.message }
     }
 
+    if (type === 'COMMENT') {
+        try {
+            await createIndicationNotificationEvent({
+                eventKey: 'INDICATION_INTERACTION_COMMENT',
+                indicacaoId,
+                actorUserId: user.id,
+                title: 'Novo comentário na indicação',
+                message: normalizedContent,
+                dedupeToken: `interaction:${insertedInteraction?.id ?? normalizedContent.slice(0, 64)}`,
+                entityType: 'INDICACAO_INTERACTION',
+                entityId: insertedInteraction?.id ?? indicacaoId,
+                metadata: {
+                    interaction_type: type,
+                    interaction_id: insertedInteraction?.id ?? null,
+                    source: 'indicacao_interactions',
+                },
+            })
+        } catch (notificationError) {
+            console.error("Error creating indication comment notification:", notificationError)
+        }
+    }
+
     revalidatePath(`/admin/leads`)
     revalidatePath(`/admin/crm`)
     revalidatePath(`/admin/indicacoes`)
-    return { success: true }
+    return { success: true, id: insertedInteraction?.id ?? null }
 }
 
 export async function updateDocValidationStatus(
@@ -190,7 +215,7 @@ export async function updateDocValidationStatus(
     }
 
     // 2. Log this as an interaction
-    await addInteraction(
+    const docInteractionResult = await addInteraction(
         indicacaoId,
         `Document status updated to: ${status}. ${notes ? `Notes: ${notes}` : ''}`,
         'DOC_APPROVAL',
@@ -206,6 +231,24 @@ export async function updateDocValidationStatus(
     const shortStatus = status === 'PENDING' ? 'Pendente' : statusLabelByCode[status]
 
     let warning: string | null = null
+
+    try {
+        await createIndicationNotificationEvent({
+            eventKey: 'INDICATION_DOC_VALIDATION_CHANGED',
+            indicacaoId,
+            actorUserId: user.id,
+            title: 'Validação de documentos atualizada',
+            message: `Status de documentação atualizado para ${shortStatus}.`,
+            dedupeToken: `doc-validation:${docInteractionResult?.id ?? status}`,
+            metadata: {
+                source: 'doc_validation_status',
+                new_status: status,
+                notes: notes ?? null,
+            },
+        })
+    } catch (notificationError) {
+        console.error("Error creating indication doc validation notification:", notificationError)
+    }
 
     if (isDorata && status !== 'PENDING') {
         const { data: financeUsers, error: financeUsersError } = await supabaseAdmin
@@ -388,12 +431,30 @@ export async function updateStatusWithComment(
     }
 
     // 3. Add interaction (System log for status change)
-    await addInteraction(
+    const statusInteractionResult = await addInteraction(
         indicacaoId,
         `Status alterado para: ${newStatus}`,
         'STATUS_CHANGE',
         { new_status: newStatus }
     )
+
+    try {
+        await createIndicationNotificationEvent({
+            eventKey: 'INDICATION_STATUS_CHANGED',
+            indicacaoId,
+            actorUserId: user.id,
+            title: 'Status da indicação alterado',
+            message: `Status atualizado para ${newStatus}.`,
+            dedupeToken: `status-with-comment:${statusInteractionResult?.id ?? newStatus}`,
+            metadata: {
+                source: 'update_status_with_comment',
+                new_status: newStatus,
+                has_comment: Boolean(comment?.trim()),
+            },
+        })
+    } catch (notificationError) {
+        console.error("Error creating indication status notification:", notificationError)
+    }
 
     // 4. Add optional user comment
     if (comment && comment.trim()) {
@@ -583,7 +644,8 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
         }
     }
 
-    let { error } = await supabase
+    let insertedLogId: string | null = null
+    const { data: insertedLog, error: initialInsertError } = await supabase
         .from('energisa_logs')
         .insert({
             indicacao_id: indicacaoId,
@@ -591,6 +653,11 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
             action_type: actionType,
             notes: notes
         })
+        .select('id')
+        .maybeSingle()
+
+    insertedLogId = (insertedLog as { id?: string | null } | null)?.id ?? null
+    let error = initialInsertError
 
     if (error && isPermissionDenied(error)) {
         const canAccessByTask = await hasTaskAccessForIndicacao(indicacaoId)
@@ -605,8 +672,11 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
                         action_type: actionType,
                         notes: notes
                     })
+                    .select('id')
+                    .maybeSingle()
 
                 error = adminResult.error
+                insertedLogId = (adminResult.data as { id?: string | null } | null)?.id ?? insertedLogId
             } catch (adminError) {
                 console.error('Error creating admin client for Energisa insert:', adminError)
             }
@@ -614,6 +684,27 @@ export async function addEnergisaLog(indicacaoId: string, actionType: string, no
     }
 
     if (error) return { error: error.message }
+
+    try {
+        await createIndicationNotificationEvent({
+            eventKey: 'INDICATION_ENERGISA_LOG_ADDED',
+            indicacaoId,
+            actorUserId: user.id,
+            title: 'Novo log da Energisa na indicação',
+            message: `${actionType}: ${notes}`,
+            dedupeToken: `energisa-log:${insertedLogId ?? actionType}`,
+            entityType: 'ENERGISA_LOG',
+            entityId: insertedLogId ?? indicacaoId,
+            metadata: {
+                source: 'energisa_logs',
+                energisa_log_id: insertedLogId,
+                action_type: actionType,
+                notes,
+            },
+        })
+    } catch (notificationError) {
+        console.error("Error creating indication Energisa notification:", notificationError)
+    }
 
     revalidatePath('/admin/tarefas')
     revalidatePath('/admin/leads')

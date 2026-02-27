@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
     Table,
     TableBody,
@@ -20,6 +20,7 @@ import { IndicationsFilter } from "@/components/admin/indications-filter"
 import { Button } from "@/components/ui/button"
 import { Trash2, FileText, Loader2 } from "lucide-react"
 import { generateContractFromIndication } from "@/app/actions/contracts-generation"
+import { useRouter } from "next/navigation"
 
 import type { UserProfile, UserRole } from "@/lib/auth"
 
@@ -27,6 +28,7 @@ interface AdminIndicacoesClientProps {
     initialIndicacoes: any[]
     role?: UserRole
     department?: UserProfile['department'] | null
+    initialOpenIndicacaoId?: string | null
 }
 
 import { IndicationsKanban } from "@/components/admin/indications-kanban"
@@ -34,12 +36,23 @@ import { LayoutGrid, List } from "lucide-react"
 
 // ... imports remain the same
 
-export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicacoesClientProps) {
+export function AdminIndicacoesClient({
+    initialIndicacoes,
+    role,
+    initialOpenIndicacaoId = null,
+}: AdminIndicacoesClientProps) {
+    const router = useRouter()
     const [indicacoes, setIndicacoes] = useState(initialIndicacoes)
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
     const [view, setView] = useState<"list" | "kanban">("list")
+    const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(initialOpenIndicacaoId)
     const isSupervisorViewOnly = role === "supervisor"
+
+    useEffect(() => {
+        if (!initialOpenIndicacaoId) return
+        setSelectedIndicacaoId(initialOpenIndicacaoId)
+    }, [initialOpenIndicacaoId])
 
     // ... (useMemos remain the same) 
     // Extract unique vendors
@@ -153,6 +166,7 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                         <TableBody>
                             {filteredIndicacoes.map((ind) => {
                                 const vendedorInfo = (ind.users as any)?.name || (ind.users as any)?.email || ind.user_id
+                                const isDeepLinkOpen = selectedIndicacaoId === ind.id
 
                                 return (
                                     <TableRow key={ind.id}>
@@ -207,6 +221,14 @@ export function AdminIndicacoesClient({ initialIndicacoes, role }: AdminIndicaco
                                                         (ind as any).created_by_supervisor_id,
                                                     ].filter(Boolean)}
                                                     initialData={ind}
+                                                    open={isDeepLinkOpen ? true : undefined}
+                                                    onOpenChange={isDeepLinkOpen ? (open) => {
+                                                        if (open) return
+                                                        setSelectedIndicacaoId(null)
+                                                        if (initialOpenIndicacaoId) {
+                                                            router.replace('/admin/indicacoes', { scroll: false })
+                                                        }
+                                                    } : undefined}
                                                 />
                                                 {!isSupervisorViewOnly && (
                                                     <>

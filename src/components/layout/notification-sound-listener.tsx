@@ -61,8 +61,14 @@ export function NotificationSoundListener() {
                 (payload) => {
                     const row = (payload as RealtimePayload).new ?? null
                     const notificationType = String(row?.type ?? "").toUpperCase()
+                    const notificationDomain = String(row?.domain ?? "").toUpperCase()
 
-                    if (notificationType.startsWith("TASK_")) {
+                    if (
+                        notificationDomain === "TASK" ||
+                        notificationDomain === "INDICACAO" ||
+                        notificationDomain === "OBRA" ||
+                        notificationType.startsWith("TASK_")
+                    ) {
                         playNotificationSound("task_notification")
                     }
                 }

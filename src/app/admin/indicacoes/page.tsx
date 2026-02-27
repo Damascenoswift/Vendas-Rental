@@ -10,7 +10,14 @@ import { Plus } from "lucide-react"
 
 export const dynamic = "force-dynamic"
 
-export default async function AdminIndicacoesPage() {
+export default async function AdminIndicacoesPage({
+    searchParams,
+}: {
+    searchParams?: Promise<{ openIndicacao?: string }>
+}) {
+    const params = searchParams ? await searchParams : undefined
+    const initialOpenIndicacaoId = params?.openIndicacao?.trim() || null
+
     const supabase = await createClient()
     const {
         data: { user },
@@ -89,7 +96,12 @@ export default async function AdminIndicacoesPage() {
                 </div>
             </div>
 
-            <AdminIndicacoesClient initialIndicacoes={indicacoes || []} role={role} department={department} />
+            <AdminIndicacoesClient
+                initialIndicacoes={indicacoes || []}
+                role={role}
+                department={department}
+                initialOpenIndicacaoId={initialOpenIndicacaoId}
+            />
         </div>
     )
 }

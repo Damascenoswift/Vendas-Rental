@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
-import { getWorkCards, type WorkCardStatus } from "@/services/work-cards-service"
+import { getWorkCardById, getWorkCards, type WorkCardStatus } from "@/services/work-cards-service"
 import { WorkFilters } from "@/components/admin/works/work-filters"
 import { WorkBoard } from "@/components/admin/works/work-board"
 import { hasWorksOnlyScope } from "@/lib/department-access"
@@ -27,7 +27,7 @@ function normalizeStatus(value?: string | null): WorkCardStatus {
 export default async function AdminWorksPage({
     searchParams,
 }: {
-    searchParams?: Promise<{ status?: string; q?: string }>
+    searchParams?: Promise<{ status?: string; q?: string; openWork?: string }>
 }) {
     const params = searchParams ? await searchParams : undefined
 
@@ -46,12 +46,20 @@ export default async function AdminWorksPage({
 
     const status = normalizeStatus(params?.status)
     const search = params?.q?.trim() || undefined
+    const initialOpenWorkId = params?.openWork?.trim() || null
 
-    const cards = await getWorkCards({
+    let cards = await getWorkCards({
         brand: "dorata",
         status,
         search,
     })
+
+    if (initialOpenWorkId) {
+        const openCard = await getWorkCardById(initialOpenWorkId)
+        if (openCard && !cards.some((card) => card.id === openCard.id)) {
+            cards = [openCard, ...cards]
+        }
+    }
 
     return (
         <div className="flex-1 space-y-4 p-6">
@@ -64,7 +72,7 @@ export default async function AdminWorksPage({
 
             <WorkFilters />
 
-            <WorkBoard initialCards={cards} />
+            <WorkBoard initialCards={cards} initialOpenWorkId={initialOpenWorkId} />
         </div>
     )
 }

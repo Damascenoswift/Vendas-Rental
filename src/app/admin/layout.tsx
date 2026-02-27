@@ -25,18 +25,16 @@ export default async function AdminLayout({
     const worksOnlyScope = hasWorksOnlyScope(profile?.department)
 
     let unreadNotifications = 0
-    if (!worksOnlyScope) {
-        const { count: unreadCount, error: unreadError } = await supabase
-            .from("notifications")
-            .select("id", { count: "exact", head: true })
-            .eq("recipient_user_id", user.id)
-            .eq("is_read", false)
+    const { count: unreadCount, error: unreadError } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_user_id", user.id)
+        .eq("is_read", false)
 
-        if (unreadError) {
-            console.error("Erro ao buscar notificações não lidas:", unreadError)
-        } else {
-            unreadNotifications = unreadCount ?? 0
-        }
+    if (unreadError) {
+        console.error("Erro ao buscar notificações não lidas:", unreadError)
+    } else {
+        unreadNotifications = unreadCount ?? 0
     }
 
     return (
@@ -74,6 +72,17 @@ export default async function AdminLayout({
                                 </>
                             ) : (
                                 <>
+                                    <Link href="/admin/notificacoes">
+                                        <Button variant="outline" size="sm">
+                                            <Bell className="mr-2 h-4 w-4" />
+                                            Notificações
+                                            {unreadNotifications > 0 && (
+                                                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                                                    {unreadNotifications}
+                                                </span>
+                                            )}
+                                        </Button>
+                                    </Link>
                                     <Link href="/admin/chat">
                                         <Button variant="outline" size="sm">
                                             Chat Interno

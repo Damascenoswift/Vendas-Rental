@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile, hasFullAccess, type UserProfile } from "@/lib/auth"
 import { ensureCrmCardForIndication } from "@/services/crm-card-service"
+import { createIndicationNotificationEvent } from "@/services/notification-service"
 
 const indicationUpdateRoles = ['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2']
 
@@ -115,7 +116,7 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
         return { error: "Erro ao atualizar status" }
     }
 
-    const { error: interactionError } = await supabaseAdmin
+    const { data: statusInteraction, error: interactionError } = await supabaseAdmin
         .from("indicacao_interactions" as any)
         .insert({
             indicacao_id: id,
@@ -124,9 +125,28 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
             content: `Status alterado para: ${newStatus}`,
             metadata: { new_status: newStatus },
         } as any)
+        .select("id")
+        .maybeSingle()
 
     if (interactionError) {
         console.error("Erro ao registrar histórico de status:", interactionError)
+    }
+
+    try {
+        await createIndicationNotificationEvent({
+            eventKey: 'INDICATION_STATUS_CHANGED',
+            indicacaoId: id,
+            actorUserId: user.id,
+            title: 'Status da indicação alterado',
+            message: `Status atualizado para ${newStatus}.`,
+            dedupeToken: `admin-status:${(statusInteraction as { id?: string | null } | null)?.id ?? newStatus}`,
+            metadata: {
+                source: 'admin_indications_status',
+                new_status: newStatus,
+            },
+        })
+    } catch (notificationError) {
+        console.error("Erro ao criar notificação de status da indicação:", notificationError)
     }
 
     const { data: indicacao, error: indicacaoError } = await supabaseAdmin
@@ -203,6 +223,34 @@ export async function setIndicationFlags(id: string, flags: IndicationFlagsInput
     if (error) {
         console.error("Erro ao atualizar indicadores de assinatura/compensação:", error)
         return { error: "Erro ao atualizar campos" }
+    }
+
+    try {
+        const changedFlags: string[] = []
+        if (flags.assinada !== undefined) {
+            changedFlags.push(flags.assinada ? "assinada" : "assinatura removida")
+        }
+        if (flags.compensada !== undefined) {
+            changedFlags.push(flags.compensada ? "compensada" : "compensação removida")
+        }
+
+        await createIndicationNotificationEvent({
+            eventKey: 'INDICATION_CONTRACT_MILESTONE',
+            indicacaoId: id,
+            actorUserId: user.id,
+            title: 'Marco de contrato/comissão atualizado',
+            message: changedFlags.length > 0
+                ? `Campos atualizados: ${changedFlags.join(', ')}.`
+                : 'Campos de contrato/comissão foram atualizados.',
+            dedupeToken: `admin-flags:${updates.assinada_em ?? 'no-assinada'}:${updates.compensada_em ?? 'no-compensada'}`,
+            metadata: {
+                source: 'admin_indications_flags',
+                assinada: flags.assinada ?? null,
+                compensada: flags.compensada ?? null,
+            },
+        })
+    } catch (notificationError) {
+        console.error("Erro ao criar notificação de marco de contrato/comissão:", notificationError)
     }
 
     revalidatePath("/admin/indicacoes")

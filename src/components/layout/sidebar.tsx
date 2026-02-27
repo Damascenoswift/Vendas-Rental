@@ -144,6 +144,7 @@ export function Sidebar({ className }: SidebarProps) {
                         {worksOnlyScope ? (
                             <>
                                 <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
+                                <NavItem href="/admin/notificacoes" label="Notificações" icon={Bell} />
                                 {canAccessInternalChat && (
                                     <NavItem
                                         href="/admin/chat"

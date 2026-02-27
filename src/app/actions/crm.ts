@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
 import { getRentalDefaultStageName } from "@/services/crm-card-service"
+import { createIndicationNotificationEvent } from "@/services/notification-service"
 import { createRentalTasksForIndication, createTask } from "@/services/task-service"
 import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
@@ -328,6 +329,7 @@ export async function markDorataContractSigned(
     const shouldUnsetSignature = Boolean(options?.allowToggle) && Boolean(indicacao.assinada_em)
 
     if (shouldUnsetSignature) {
+        const toggleToken = indicacao.assinada_em ?? new Date().toISOString()
         const updates: Record<string, string | null> = {
             assinada_em: null,
         }
@@ -400,6 +402,39 @@ export async function markDorataContractSigned(
 
         if (commissionInteractionError) {
             console.error("Erro ao registrar interação de reversão de comissão Dorata:", commissionInteractionError)
+        }
+
+        try {
+            await createIndicationNotificationEvent({
+                eventKey: "INDICATION_CONTRACT_MILESTONE",
+                indicacaoId,
+                actorUserId: user.id,
+                title: "Marco de contrato/comissão atualizado",
+                message: "Contrato desmarcado como assinado no CRM Dorata.",
+                dedupeToken: `crm-contract-toggle-off:${toggleToken}`,
+                metadata: {
+                    source: "crm_dorata_contract_toggle",
+                    signed: false,
+                    reverted: true,
+                },
+            })
+
+            if (updates.status === "AGUARDANDO_ASSINATURA") {
+                await createIndicationNotificationEvent({
+                    eventKey: "INDICATION_STATUS_CHANGED",
+                    indicacaoId,
+                    actorUserId: user.id,
+                    title: "Status da indicação alterado",
+                    message: "Status atualizado para AGUARDANDO_ASSINATURA.",
+                    dedupeToken: `crm-contract-toggle-status:${toggleToken}`,
+                    metadata: {
+                        source: "crm_dorata_contract_toggle",
+                        new_status: "AGUARDANDO_ASSINATURA",
+                    },
+                })
+            }
+        } catch (notificationError) {
+            console.error("Erro ao criar notificação de marco/status no toggle de contrato Dorata:", notificationError)
         }
 
         revalidatePath("/admin/crm")
@@ -537,6 +572,42 @@ export async function markDorataContractSigned(
 
     if (commissionInteractionError) {
         console.error("Erro ao registrar interação de comissão Dorata:", commissionInteractionError)
+    }
+
+    try {
+        await createIndicationNotificationEvent({
+            eventKey: "INDICATION_CONTRACT_MILESTONE",
+            indicacaoId,
+            actorUserId: user.id,
+            title: "Marco de contrato/comissão atualizado",
+            message: notificationCreated
+                ? "Contrato assinado no CRM Dorata. Comissão liberada e gestor financeiro notificado."
+                : "Contrato assinado no CRM Dorata. Comissão liberada para conferência financeira.",
+            dedupeToken: `crm-contract-signed:${signedAt}`,
+            metadata: {
+                source: "crm_dorata_contract_signed",
+                signed: true,
+                signed_at: signedAt,
+                manager_notified: notificationCreated,
+            },
+        })
+
+        if (updates.status === "CONCLUIDA") {
+            await createIndicationNotificationEvent({
+                eventKey: "INDICATION_STATUS_CHANGED",
+                indicacaoId,
+                actorUserId: user.id,
+                title: "Status da indicação alterado",
+                message: "Status atualizado para CONCLUIDA.",
+                dedupeToken: `crm-contract-status:${signedAt}`,
+                metadata: {
+                    source: "crm_dorata_contract_signed",
+                    new_status: "CONCLUIDA",
+                },
+            })
+        }
+    } catch (notificationError) {
+        console.error("Erro ao criar notificação de marco/status ao assinar contrato Dorata:", notificationError)
     }
 
     const appendWarning = (message: string) => {

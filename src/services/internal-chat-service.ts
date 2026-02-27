@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasInternalChatAccess } from "@/lib/internal-chat-access"
+import { createChatNotificationEvent } from "@/services/notification-service"
 
 const INTERNAL_CHAT_MAX_CONVERSATIONS = 120
 const INTERNAL_CHAT_MAX_MESSAGE_LENGTH = 2000
@@ -658,6 +659,7 @@ export async function createChatMessageNotification(params: {
     senderUserId: string
     recipientUserId: string
     body: string
+    messageId?: string
 }) {
     if (!params.conversationId || !params.senderUserId || !params.recipientUserId) {
         return
@@ -694,31 +696,26 @@ export async function createChatMessageNotification(params: {
     const senderName = sender?.name?.trim() || sender?.email || "Alguém"
     const preview = sanitizeNotificationPreview(params.body)
 
-    const { error: notificationError } = await supabaseAdmin
-        .from("notifications")
-        .insert({
-            recipient_user_id: params.recipientUserId,
-            actor_user_id: params.senderUserId,
-            task_id: null,
-            task_comment_id: null,
-            type: "INTERNAL_CHAT_MESSAGE",
+    try {
+        await createChatNotificationEvent({
+            conversationId: params.conversationId,
+            senderUserId: params.senderUserId,
+            recipientUserId: params.recipientUserId,
             title: `Mensagem interna de ${senderName}`,
             message: preview || "Você recebeu uma nova mensagem interna.",
+            dedupeToken: params.messageId?.trim() || `${Date.now()}`,
             metadata: {
-                conversation_id: params.conversationId,
                 sender_name: senderName,
-                target_path: `/admin/chat?conversation=${params.conversationId}`,
+                message_id: params.messageId ?? null,
             },
         })
-
-    if (notificationError) {
+    } catch (notificationError) {
         console.error("Error creating internal chat notification:", {
             error: notificationError,
             conversationId: params.conversationId,
             senderUserId: params.senderUserId,
             recipientUserId: params.recipientUserId,
         })
-        return
     }
 }
 
@@ -791,6 +788,7 @@ export async function sendMessage(conversationId: string, body: string) {
                     senderUserId: user.id,
                     recipientUserId: row.user_id,
                     body: sanitizedBody,
+                    messageId: insertedMessage.id,
                 })
             )
         )

@@ -1,6 +1,6 @@
 import { NotificationsCenter } from "@/components/admin/notifications/notifications-center"
 import { createClient } from "@/lib/supabase/server"
-import { getMyNotifications } from "@/services/notification-service"
+import { getMyNotificationRules, getMyNotifications } from "@/services/notification-service"
 
 export default async function NotificationsPage({
     searchParams,
@@ -22,13 +22,14 @@ export default async function NotificationsPage({
         includeRead: true,
         limit: 200,
     })
+    const rulesResponse = await getMyNotificationRules()
 
     return (
         <div className="space-y-4">
             <div className="space-y-1">
                 <h1 className="text-2xl font-bold tracking-tight">Notificações</h1>
                 <p className="text-sm text-muted-foreground">
-                    Acompanhe tarefas e mensagens internas da equipe em um só lugar.
+                    Acompanhe movimentações de tarefas, indicações, obras e chat em um só lugar.
                 </p>
             </div>
 
@@ -36,6 +37,9 @@ export default async function NotificationsPage({
                 currentUserId={user.id}
                 initialNotifications={notifications}
                 initialSelectedId={selectedId}
+                initialRules={rulesResponse.rules}
+                userSector={rulesResponse.sector}
+                canManageDefaults={rulesResponse.canManageDefaults}
             />
         </div>
     )
