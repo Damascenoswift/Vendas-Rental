@@ -1579,6 +1579,7 @@ export async function addTaskChecklistItem(
     }
 ) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
 
     const payload: Record<string, unknown> = {
         task_id: taskId,
@@ -1589,13 +1590,20 @@ export async function addTaskChecklistItem(
         event_key: options?.eventKey ?? null,
         responsible_user_id: options?.responsibleUserId ?? null,
     }
+    let responsibleColumnAvailable = true
+    let insertedChecklistId: string | null = null
 
     while (true) {
-        const { error } = await supabase
+        const { error, data } = await supabase
             .from('task_checklists')
             .insert(payload)
+            .select('id')
+            .maybeSingle()
 
-        if (!error) break
+        if (!error) {
+            insertedChecklistId = (data as { id?: string | null } | null)?.id ?? null
+            break
+        }
 
         const missingColumn = parseMissingColumnError(error.message)
         if (
@@ -1605,10 +1613,50 @@ export async function addTaskChecklistItem(
             'responsible_user_id' in payload
         ) {
             delete payload.responsible_user_id
+            responsibleColumnAvailable = false
             continue
         }
 
         return { error: error.message }
+    }
+
+    const responsibleUserId = responsibleColumnAvailable
+        ? (options?.responsibleUserId?.trim() || null)
+        : null
+
+    if (responsibleUserId) {
+        const { error: observerUpsertError } = await supabase
+            .from('task_observers')
+            .upsert(
+                {
+                    task_id: taskId,
+                    user_id: responsibleUserId,
+                },
+                {
+                    onConflict: 'task_id,user_id',
+                    ignoreDuplicates: true,
+                }
+            )
+
+        if (observerUpsertError) {
+            console.error("Error auto-linking checklist responsible as task observer:", observerUpsertError)
+        }
+    }
+
+    if (user?.id) {
+        try {
+            await createTaskChecklistNotifications({
+                taskId,
+                checklistItemId: insertedChecklistId ?? `${taskId}:new:${Date.now()}`,
+                checklistTitle: title.trim(),
+                isDone: false,
+                actorUserId: user.id,
+                responsibleUserId,
+                action: "CREATED",
+            })
+        } catch (notificationError) {
+            console.error("Error creating task checklist created notifications:", notificationError)
+        }
     }
 
     revalidatePath('/admin/tarefas')
@@ -1752,6 +1800,24 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
         (rawEventKey as TaskChecklistEventKey) ??
         inferEventKey(itemWithTask?.title)
 
+    let checklistResponsibleUserId: string | null = null
+    const responsibleResult = await supabase
+        .from('task_checklists')
+        .select('responsible_user_id')
+        .eq('id', itemId)
+        .maybeSingle()
+
+    if (!responsibleResult.error) {
+        checklistResponsibleUserId = (responsibleResult.data as { responsible_user_id?: string | null } | null)?.responsible_user_id ?? null
+    } else {
+        const responsibleMissingColumn = parseMissingColumnError(responsibleResult.error.message)
+        if (
+            !(responsibleMissingColumn && responsibleMissingColumn.table === 'task_checklists' && responsibleMissingColumn.column === 'responsible_user_id')
+        ) {
+            console.error("Error loading checklist responsible user before notification:", responsibleResult.error)
+        }
+    }
+
     let resolvedIndicacaoId = itemWithTask?.task?.indicacao_id ?? null
     if (isDone && eventKey && itemWithTask?.task) {
         resolvedIndicacaoId = await resolveTaskIndicacaoId(supabase, itemWithTask.task as TaskLeadLink)
@@ -1770,6 +1836,25 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
         .eq('id', itemId)
 
     if (error) return { error: error.message }
+
+    if (checklistResponsibleUserId && itemWithTask?.task_id) {
+        const { error: observerUpsertError } = await supabase
+            .from('task_observers')
+            .upsert(
+                {
+                    task_id: itemWithTask.task_id,
+                    user_id: checklistResponsibleUserId,
+                },
+                {
+                    onConflict: 'task_id,user_id',
+                    ignoreDuplicates: true,
+                }
+            )
+
+        if (observerUpsertError) {
+            console.error("Error auto-linking checklist responsible as observer on toggle:", observerUpsertError)
+        }
+    }
 
     // Keep doc commands mutually exclusive in the same task
     if (
@@ -1802,6 +1887,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
             checklistTitle: itemWithTask?.title ?? "",
             isDone,
             actorUserId: user.id,
+            responsibleUserId: checklistResponsibleUserId,
         })
     } catch (notificationError) {
         console.error("Error creating task checklist notifications:", notificationError)

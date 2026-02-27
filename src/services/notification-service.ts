@@ -281,6 +281,15 @@ function sanitizePreview(content: string, maxLength = 180) {
     return `${cleaned.slice(0, maxLength - 3)}...`
 }
 
+function normalizeMentionDisplayValue(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim()
+}
+
 function normalizeMentionLookupToken(value: string) {
     const normalized = value
         .normalize("NFD")
@@ -432,6 +441,7 @@ async function resolveMentionUserIdsFromContent(params: {
     }
 
     const lookup = new Map<string, Set<string>>()
+    const mentionableUsers: Array<{ id: string; normalizedName: string | null }> = []
     const addLookup = (token: string, userId: string) => {
         if (!token) return
         const current = lookup.get(token) ?? new Set<string>()
@@ -447,6 +457,7 @@ async function resolveMentionUserIdsFromContent(params: {
         const userId = row.id
         const name = row.name?.trim() ?? ""
         const email = row.email?.trim() ?? ""
+        const normalizedDisplayName = normalizeMentionDisplayValue(name)
 
         const normalizedFullName = normalizeMentionLookupToken(name)
         addLookup(normalizedFullName, userId)
@@ -458,6 +469,11 @@ async function resolveMentionUserIdsFromContent(params: {
         const emailLocal = email.includes("@") ? email.split("@")[0] : email
         const normalizedEmailLocal = normalizeMentionLookupToken(emailLocal)
         addLookup(normalizedEmailLocal, userId)
+
+        mentionableUsers.push({
+            id: userId,
+            normalizedName: normalizedDisplayName.length > 0 ? normalizedDisplayName : null,
+        })
     })
 
     const resolvedByToken: string[] = []
@@ -468,9 +484,34 @@ async function resolveMentionUserIdsFromContent(params: {
         if (matchedId) resolvedByToken.push(matchedId)
     })
 
+    // Fallback: support explicit display-name mentions like "@Nome Sobrenome".
+    const normalizedContent = normalizeMentionDisplayValue(params.content)
+    const resolvedByDisplayName: string[] = []
+
+    mentionableUsers.forEach((user) => {
+        if (!user.normalizedName) return
+        if (!user.normalizedName.includes(" ")) return
+
+        const token = `@${user.normalizedName}`
+        let searchFrom = 0
+        while (searchFrom < normalizedContent.length) {
+            const index = normalizedContent.indexOf(token, searchFrom)
+            if (index < 0) break
+
+            const nextChar = normalizedContent[index + token.length]
+            if (!nextChar || /[\s.,;:!?()[\]{}<>]/.test(nextChar)) {
+                resolvedByDisplayName.push(user.id)
+                break
+            }
+
+            searchFrom = index + token.length
+        }
+    })
+
     return normalizeMentionUserIds([
         ...explicitMentionUserIds,
         ...resolvedByToken,
+        ...resolvedByDisplayName,
     ])
 }
 
@@ -1462,6 +1503,34 @@ async function resolveTaskRecipients(params: {
         }
     }
 
+    const loadChecklistResponsibleUserIds = async (
+        client: ReturnType<typeof createSupabaseServiceClient> | Awaited<ReturnType<typeof createClient>>
+    ) => {
+        const checklistResult = await client
+            .from("task_checklists")
+            .select("responsible_user_id")
+            .eq("task_id", params.taskId)
+            .not("responsible_user_id", "is", null)
+
+        if (!checklistResult.error) {
+            return {
+                userIds: Array.from(
+                    new Set(
+                        ((checklistResult.data ?? []) as Array<{ responsible_user_id: string | null }>)
+                            .map((row) => row.responsible_user_id)
+                            .filter((value): value is string => Boolean(value))
+                    )
+                ),
+                error: null,
+            }
+        }
+
+        return {
+            userIds: [] as string[],
+            error: checklistResult.error,
+        }
+    }
+
     let taskData: TaskRecipientTaskData | null = null
     let taskLoadResult = await loadTaskData(params.supabaseAdmin)
     if (taskLoadResult.data) {
@@ -1516,6 +1585,38 @@ async function resolveTaskRecipients(params: {
         }
     }
 
+    let checklistResponsibleIds: string[] = []
+    let checklistResponsibleLoad = await loadChecklistResponsibleUserIds(params.supabaseAdmin)
+    if (!checklistResponsibleLoad.error) {
+        checklistResponsibleIds = checklistResponsibleLoad.userIds
+    } else if (isPermissionDeniedError(checklistResponsibleLoad.error)) {
+        try {
+            const supabaseUser = await createClient()
+            checklistResponsibleLoad = await loadChecklistResponsibleUserIds(supabaseUser)
+            if (!checklistResponsibleLoad.error) {
+                checklistResponsibleIds = checklistResponsibleLoad.userIds
+            }
+        } catch (fallbackError) {
+            console.error("Error creating fallback client to resolve checklist responsible users:", fallbackError)
+        }
+    }
+
+    if (checklistResponsibleLoad.error && checklistResponsibleIds.length === 0) {
+        const missingChecklistColumn = parseMissingColumnError(checklistResponsibleLoad.error.message)
+        const checklistUnavailable =
+            (missingChecklistColumn?.table === "task_checklists" && missingChecklistColumn.column === "responsible_user_id")
+            || isMissingRelationError(checklistResponsibleLoad.error, "task_checklists")
+
+        if (checklistUnavailable) {
+            console.warn("Task checklist responsible users unavailable for notifications; continuing without them.", {
+                taskId: params.taskId,
+                error: checklistResponsibleLoad.error,
+            })
+        } else {
+            console.error("Error loading checklist responsible users for notifications; continuing without them.", checklistResponsibleLoad.error)
+        }
+    }
+
     const recipients: NotificationDispatchRecipient[] = []
 
     if (taskData.assignee_id) {
@@ -1536,6 +1637,13 @@ async function resolveTaskRecipients(params: {
         if (!observer.user_id) return
         recipients.push({
             userId: observer.user_id,
+            responsibilityKind: "OBSERVER",
+        })
+    })
+
+    checklistResponsibleIds.forEach((userId) => {
+        recipients.push({
+            userId,
             responsibilityKind: "OBSERVER",
         })
     })
@@ -1769,6 +1877,8 @@ export async function createTaskChecklistNotifications(params: {
     checklistTitle: string
     isDone: boolean
     actorUserId: string
+    responsibleUserId?: string | null
+    action?: "TOGGLED" | "CREATED"
 }) {
     if (!params.taskId || !params.checklistItemId || !params.actorUserId) {
         return
@@ -1808,7 +1918,21 @@ export async function createTaskChecklistNotifications(params: {
     const actorDisplay = actor?.name?.trim() || actor?.email || "Alguém"
     const taskTitle = (taskRecipientsResult.task.title ?? "Tarefa sem título").trim() || "Tarefa sem título"
     const checklistTitle = (params.checklistTitle ?? "").trim() || "Checklist sem título"
-    const actionLabel = params.isDone ? "concluiu" : "reabriu"
+    const action = params.action ?? "TOGGLED"
+    const actionLabel = action === "CREATED" ? "adicionou" : (params.isDone ? "concluiu" : "reabriu")
+
+    const recipients = [...taskRecipientsResult.recipients]
+    if (params.responsibleUserId?.trim()) {
+        recipients.push({
+            userId: params.responsibleUserId.trim(),
+            responsibilityKind: "OBSERVER",
+        })
+    }
+
+    const message =
+        action === "CREATED"
+            ? `${actorDisplay} adicionou "${checklistTitle}" em "${taskTitle}".`
+            : `${actorDisplay} ${actionLabel} "${checklistTitle}" em "${taskTitle}".`
 
     await dispatchNotificationEvent({
         domain: "TASK",
@@ -1819,17 +1943,22 @@ export async function createTaskChecklistNotifications(params: {
         entityId: params.taskId,
         taskId: params.taskId,
         title: `${actorDisplay} ${actionLabel} um checklist da tarefa`,
-        message: `${actorDisplay} ${actionLabel} "${checklistTitle}" em "${taskTitle}".`,
+        message,
         metadata: {
             checklist_item_id: params.checklistItemId,
             checklist_title: checklistTitle,
             checklist_is_done: params.isDone,
+            checklist_action: action,
+            checklist_responsible_user_id: params.responsibleUserId?.trim() || null,
             task_title: taskTitle,
             task_id: params.taskId,
             target_path: `/admin/tarefas?openTask=${params.taskId}`,
         },
-        recipients: taskRecipientsResult.recipients,
-        dedupeKey: `TASK_CHECKLIST_UPDATED:${params.checklistItemId}:${params.isDone ? "DONE" : "TODO"}`,
+        recipients,
+        dedupeKey:
+            action === "CREATED"
+                ? `TASK_CHECKLIST_UPDATED:${params.checklistItemId}:CREATED`
+                : `TASK_CHECKLIST_UPDATED:${params.checklistItemId}:${params.isDone ? "DONE" : "TODO"}`,
         targetPath: `/admin/tarefas?openTask=${params.taskId}`,
     })
 }
