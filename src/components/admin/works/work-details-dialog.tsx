@@ -126,6 +126,13 @@ function formatSnapshotValue(value: unknown, format?: "number" | "integer" | "da
     return String(value)
 }
 
+function getSnapshotNumber(snapshot: unknown, path: string) {
+    const raw = getSnapshotValue(snapshot, path)
+    if (raw === null || raw === undefined || raw === "") return null
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
 function formatInverterModels(snapshot: unknown) {
     const raw = getSnapshotValue(snapshot, "equipment.inverters")
     if (!Array.isArray(raw) || raw.length === 0) return "-"
@@ -285,6 +292,31 @@ function formatInverterSelectionLabel(item: SnapshotInverter) {
 
 function buildTechnicalSnapshotRows(snapshot: unknown) {
     const moduleFromSnapshot = getSnapshotModule(snapshot)
+    const inputInverterType = getSnapshotValue(snapshot, "dimensioning.input_dimensioning.tipo_inversor")
+    const outputInverterType = getSnapshotValue(snapshot, "dimensioning.inverter.tipo")
+    const inputQtdString = getSnapshotNumber(snapshot, "dimensioning.input_dimensioning.qtd_inversor_string")
+    const outputQtdString = getSnapshotNumber(snapshot, "dimensioning.inverter.qtd_string")
+    const inputQtdMicro = getSnapshotNumber(snapshot, "dimensioning.input_dimensioning.qtd_inversor_micro")
+    const outputQtdMicro = getSnapshotNumber(snapshot, "dimensioning.inverter.qtd_micro")
+    const inputPotStringKw = getSnapshotNumber(snapshot, "dimensioning.input_dimensioning.potencia_inversor_string_kw")
+    const outputPotStringKw = getSnapshotNumber(snapshot, "dimensioning.inverter.pot_string_kw")
+    const outputPotMicroTotalKw = getSnapshotNumber(snapshot, "dimensioning.inverter.pot_micro_total_kw")
+
+    let manualPotMicroTotalKw: number | null = null
+    if (inputQtdMicro !== null) {
+        if (inputQtdMicro <= 0) {
+            manualPotMicroTotalKw = 0
+        } else if (outputPotMicroTotalKw !== null && outputQtdMicro !== null && outputQtdMicro > 0) {
+            manualPotMicroTotalKw = outputPotMicroTotalKw * (inputQtdMicro / outputQtdMicro)
+        }
+    }
+
+    const inverterType = inputInverterType ?? outputInverterType
+    const qtdInversorString = inputQtdString ?? outputQtdString
+    const qtdMicroInversor = inputQtdMicro ?? outputQtdMicro
+    const potenciaInversorStringKw = inputPotStringKw ?? outputPotStringKw
+    const potenciaMicroTotalKw = manualPotMicroTotalKw ?? outputPotMicroTotalKw
+
     const rows = [
         {
             label: "Origem do orçamento",
@@ -348,10 +380,7 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
         },
         {
             label: "Tipo de inversor",
-            value: formatSnapshotValue(
-                getSnapshotValue(snapshot, "dimensioning.inverter.tipo") ??
-                    getSnapshotValue(snapshot, "dimensioning.input_dimensioning.tipo_inversor")
-            ),
+            value: formatSnapshotValue(inverterType),
         },
         {
             label: "Modelo(s) de inversor(es)",
@@ -371,27 +400,19 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
         },
         {
             label: "Qtd. inversor string",
-            value: formatSnapshotValue(
-                getSnapshotValue(snapshot, "dimensioning.inverter.qtd_string") ??
-                    getSnapshotValue(snapshot, "dimensioning.input_dimensioning.qtd_inversor_string"),
-                "integer"
-            ),
+            value: formatSnapshotValue(qtdInversorString, "integer"),
         },
         {
             label: "Qtd. micro inversor",
-            value: formatSnapshotValue(
-                getSnapshotValue(snapshot, "dimensioning.inverter.qtd_micro") ??
-                    getSnapshotValue(snapshot, "dimensioning.input_dimensioning.qtd_inversor_micro"),
-                "integer"
-            ),
+            value: formatSnapshotValue(qtdMicroInversor, "integer"),
         },
         {
             label: "Potência inversor string",
-            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.inverter.pot_string_kw"), "number", "kW"),
+            value: formatSnapshotValue(potenciaInversorStringKw, "number", "kW"),
         },
         {
             label: "Potência micro total",
-            value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.inverter.pot_micro_total_kw"), "number", "kW"),
+            value: formatSnapshotValue(potenciaMicroTotalKw, "number", "kW"),
         },
         {
             label: "Índice de produção",
