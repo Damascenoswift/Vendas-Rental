@@ -633,8 +633,12 @@ export function ProposalCalculatorComplete({
 
     const handleInstallmentChange = (value: string) => {
         const targetInstallment = toNumber(value)
+        const permutaMensal =
+            input.trade?.enabled && normalizeTradeMode(input.trade?.mode) === "INSTALLMENTS" && input.finance.enabled
+                ? Math.max(Math.min(Number(input.trade?.value || 0), calculated.output.finance.parcela_mensal_base), 0)
+                : 0
         const monthlyRate = solveMonthlyRateFromInstallment({
-            desired_installment: targetInstallment,
+            desired_installment: targetInstallment + permutaMensal,
             financed_value: calculated.output.finance.valor_financiado,
             grace_months: input.finance.carencia_meses,
             grace_interest_mode: params.grace_interest_mode,
@@ -1810,7 +1814,11 @@ export function ProposalCalculatorComplete({
                                         </Select>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Valor da permuta (R$)</Label>
+                                        <Label>
+                                            {normalizeTradeMode(input.trade?.mode) === "INSTALLMENTS"
+                                                ? "Valor mensal da permuta (R$)"
+                                                : "Valor da permuta (R$)"}
+                                        </Label>
                                         <Input
                                             type="number"
                                             step="0.01"
@@ -1827,12 +1835,9 @@ export function ProposalCalculatorComplete({
                                     </p>
                                 ) : (
                                     <p className="text-xs text-muted-foreground">
-                                        Abatimento aplicado:{" "}
-                                        {formatCurrency(
-                                            normalizeTradeMode(input.trade?.mode) === "TOTAL_VALUE"
-                                                ? tradeOutput.applied_total_value
-                                                : tradeOutput.applied_installments_value
-                                        )}
+                                        {normalizeTradeMode(input.trade?.mode) === "TOTAL_VALUE"
+                                            ? `Abatimento aplicado: ${formatCurrency(tradeOutput.applied_total_value)}`
+                                            : `Desconto mensal: ${formatCurrency(calculated.output.finance.parcela_permuta_mensal)} • Total aplicado: ${formatCurrency(tradeOutput.applied_installments_value)}`}
                                     </p>
                                 )}
                             </div>
@@ -1911,10 +1916,28 @@ export function ProposalCalculatorComplete({
                                     <span className="text-muted-foreground">Parcela mensal</span>
                                     <span>{formatCurrency(calculated.output.finance.parcela_mensal)}</span>
                                 </div>
+                                {input.trade?.enabled && normalizeTradeMode(input.trade?.mode) === "INSTALLMENTS" && (
+                                    <>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Parcela base (com juros)</span>
+                                            <span>{formatCurrency(calculated.output.finance.parcela_mensal_base)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Desconto permuta/mês</span>
+                                            <span>{formatCurrency(calculated.output.finance.parcela_permuta_mensal)}</span>
+                                        </div>
+                                    </>
+                                )}
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Total com juros</span>
                                     <span>{formatCurrency(calculated.output.finance.total_pago)}</span>
                                 </div>
+                                {input.trade?.enabled && normalizeTradeMode(input.trade?.mode) === "INSTALLMENTS" && (
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Total após permuta</span>
+                                        <span>{formatCurrency(calculated.output.finance.total_pago_liquido)}</span>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </CardContent>

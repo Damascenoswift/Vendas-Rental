@@ -111,8 +111,11 @@ export type ProposalCalcOutput = {
         entrada_percentual: number
         valor_financiado: number
         saldo_pos_carencia: number
+        parcela_mensal_base: number
+        parcela_permuta_mensal: number
         parcela_mensal: number
         total_pago: number
+        total_pago_liquido: number
         juros_pagos: number
     }
     trade: {
@@ -371,21 +374,9 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const jurosMensal = Number(input.finance.juros_mensal || 0)
     const numParcelas = Number(input.finance.num_parcelas || 0)
     const totalBaloes = (input.finance.baloes || []).reduce((sum, b) => sum + Number(b.balao_valor || 0), 0)
+    const valorFinanciado = Math.max(totalAVista - entradaValor - totalBaloes, 0)
 
-    const maxInstallmentTrade = Math.max(totalAVista - entradaValor - totalBaloes, 0)
-    const appliedTradeOnInstallments = tradeEnabled && tradeMode === "INSTALLMENTS" && input.finance.enabled
-        ? Math.min(tradeValue, maxInstallmentTrade)
-        : 0
-
-    const entradaPercentual = totalAVista > 0 ? entradaValor / totalAVista : 0
-    const valorFinanciado = Math.max(totalAVista - entradaValor - totalBaloes - appliedTradeOnInstallments, 0)
-    const saldoPosCarencia = calculateFinancedBalanceAfterGrace({
-        financed_value: valorFinanciado,
-        monthly_rate: jurosMensal,
-        grace_months: carenciaMeses,
-        grace_interest_mode: params.grace_interest_mode,
-    })
-    const parcelaMensal = input.finance.enabled
+    const parcelaMensalBase = input.finance.enabled
         ? calculateInstallmentFromRate({
             financed_value: valorFinanciado,
             monthly_rate: jurosMensal,
@@ -394,11 +385,30 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             installments: numParcelas,
         })
         : 0
+
+    const appliedTradeOnInstallmentsMonthly = tradeEnabled && tradeMode === "INSTALLMENTS" && input.finance.enabled
+        ? Math.min(tradeValue, Math.max(parcelaMensalBase, 0))
+        : 0
+    const appliedTradeOnInstallments = appliedTradeOnInstallmentsMonthly * Math.max(numParcelas, 0)
+
+    const entradaPercentual = totalAVista > 0 ? entradaValor / totalAVista : 0
+    const saldoPosCarencia = calculateFinancedBalanceAfterGrace({
+        financed_value: valorFinanciado,
+        monthly_rate: jurosMensal,
+        grace_months: carenciaMeses,
+        grace_interest_mode: params.grace_interest_mode,
+    })
+    const parcelaMensal = Math.max(parcelaMensalBase - appliedTradeOnInstallmentsMonthly, 0)
+    const totalPagoBruto = input.finance.enabled
+        ? entradaValor + (parcelaMensalBase * numParcelas) + totalBaloes
+        : totalAVista
     const totalPago = input.finance.enabled
+        ? totalPagoBruto
+        : totalAVista
+    const totalPagoLiquido = input.finance.enabled
         ? entradaValor + (parcelaMensal * numParcelas) + totalBaloes
         : totalAVista
-    const jurosBase = totalAVista - appliedTradeOnInstallments
-    const jurosPagos = Math.max(totalPago - jurosBase, 0)
+    const jurosPagos = Math.max(totalPagoBruto - totalAVista, 0)
 
     const output: ProposalCalcOutput = {
         dimensioning: {
@@ -442,8 +452,11 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             entrada_percentual: entradaPercentual,
             valor_financiado: valorFinanciado,
             saldo_pos_carencia: saldoPosCarencia,
+            parcela_mensal_base: parcelaMensalBase,
+            parcela_permuta_mensal: appliedTradeOnInstallmentsMonthly,
             parcela_mensal: parcelaMensal,
             total_pago: totalPago,
+            total_pago_liquido: totalPagoLiquido,
             juros_pagos: jurosPagos
         },
         trade: {

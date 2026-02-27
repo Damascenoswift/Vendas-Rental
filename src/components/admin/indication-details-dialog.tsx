@@ -488,10 +488,17 @@ export function IndicationDetailsDialog({
         const graceMonths = toFiniteNumber(financeInput?.carencia_meses)
         const monthlyRate = toFiniteNumber(financeInput?.juros_mensal)
         const installments = toFiniteNumber(financeInput?.num_parcelas)
+        const installmentBase = toFiniteNumber(financeOutput?.parcela_mensal_base)
+        const installmentTradeMonthly = toFiniteNumber(financeOutput?.parcela_permuta_mensal)
         const installmentValue = toFiniteNumber(financeOutput?.parcela_mensal)
         const totalPaid = toFiniteNumber(financeOutput?.total_pago)
+        const totalPaidNet = toFiniteNumber(financeOutput?.total_pago_liquido)
         const totalInterest = toFiniteNumber(financeOutput?.juros_pagos)
         const financedAmount = toFiniteNumber(financeOutput?.valor_financiado)
+        const isInstallmentTrade =
+            Boolean(tradeInput?.enabled) &&
+            tradeMode === "INSTALLMENTS" &&
+            (installmentTradeMonthly ?? 0) > 0
 
         rows.push(
             {
@@ -501,10 +508,6 @@ export function IndicationDetailsDialog({
             {
                 label: "Parcelamento",
                 value: installments ? `${installments} parcelas` : "—",
-            },
-            {
-                label: "Parcela mensal",
-                value: formatCurrency(installmentValue),
             },
             {
                 label: "Juros mensal",
@@ -519,7 +522,7 @@ export function IndicationDetailsDialog({
                 value: formatCurrency(financedAmount),
             },
             {
-                label: "Total pago",
+                label: isInstallmentTrade ? "Total com juros (bruto)" : "Total pago",
                 value: formatCurrency(totalPaid),
             },
             {
@@ -528,10 +531,47 @@ export function IndicationDetailsDialog({
             },
         )
 
+        if (isInstallmentTrade) {
+            rows.splice(7, 0,
+                {
+                    label: "Parcela base (com juros)",
+                    value: formatCurrency(installmentBase),
+                },
+                {
+                    label: "Desconto permuta/mês",
+                    value: formatCurrency(installmentTradeMonthly),
+                },
+                {
+                    label: "Parcela final",
+                    value: formatCurrency(installmentValue),
+                },
+            )
+
+            rows.push({
+                label: "Total após permuta",
+                value: formatCurrency(
+                    totalPaidNet ??
+                    (
+                        totalPaid != null && installmentTradeMonthly != null && installments != null
+                            ? totalPaid - (installmentTradeMonthly * installments)
+                            : null
+                    )
+                ),
+            })
+        } else {
+            rows.splice(7, 0, {
+                label: "Parcela mensal",
+                value: formatCurrency(installmentValue),
+            })
+        }
+
         if (Boolean(tradeInput?.enabled) && (tradeApplied ?? 0) > 0) {
             rows.push({
                 label: "Permuta",
-                value: `${tradeMode === "TOTAL_VALUE" ? "Total da obra" : "Parcelas"} • ${formatCurrency(tradeApplied)}`,
+                value:
+                    tradeMode === "TOTAL_VALUE"
+                        ? `Total da obra • ${formatCurrency(tradeApplied)}`
+                        : `Parcelas • ${formatCurrency(installmentTradeMonthly)} por mês (total ${formatCurrency(tradeApplied)})`,
             })
         }
 

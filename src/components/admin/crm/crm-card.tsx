@@ -41,8 +41,11 @@ export type CrmCardData = {
             output?: {
                 finance?: {
                     entrada_percentual?: number
+                    parcela_mensal_base?: number
+                    parcela_permuta_mensal?: number
                     parcela_mensal?: number
                     total_pago?: number
+                    total_pago_liquido?: number
                     juros_pagos?: number
                 }
                 trade?: {
@@ -148,8 +151,18 @@ export function CrmCard({
         }
 
         const installments = typeof financeInput?.num_parcelas === "number" ? financeInput.num_parcelas : null
+        const tradeMode = tradeInput?.mode === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
+        const monthlyInstallmentBase = typeof financeOutput?.parcela_mensal_base === "number" ? financeOutput.parcela_mensal_base : null
+        const monthlyInstallmentDiscount = typeof financeOutput?.parcela_permuta_mensal === "number" ? financeOutput.parcela_permuta_mensal : null
+        const isInstallmentTrade =
+            Boolean(tradeInput?.enabled) &&
+            tradeMode === "INSTALLMENTS" &&
+            (monthlyInstallmentDiscount ?? 0) > 0
         const monthlyInstallment = typeof financeOutput?.parcela_mensal === "number" ? financeOutput.parcela_mensal : null
         if (installments && monthlyInstallment) {
+            if (isInstallmentTrade && monthlyInstallmentBase) {
+                return `${installments}x de ${formatCurrency(monthlyInstallment)} (base ${formatCurrency(monthlyInstallmentBase)})`
+            }
             return `${installments}x de ${formatCurrency(monthlyInstallment)}`
         }
         return "Financiado"
@@ -168,11 +181,22 @@ export function CrmCard({
         const tradeApplied = tradeMode === "TOTAL_VALUE"
             ? Number(tradeOutput?.applied_total_value ?? 0)
             : Number(tradeOutput?.applied_installments_value ?? 0)
+        const isInstallmentTrade = Boolean(tradeInput?.enabled) && tradeMode === "INSTALLMENTS" && tradeApplied > 0
+        const installmentBase = typeof financeOutput?.parcela_mensal_base === "number" ? financeOutput.parcela_mensal_base : null
+        const installmentDiscount = typeof financeOutput?.parcela_permuta_mensal === "number" ? financeOutput.parcela_permuta_mensal : null
+        const installmentFinal = typeof financeOutput?.parcela_mensal === "number" ? financeOutput.parcela_mensal : null
         const tradeDetail =
             Boolean(tradeInput?.enabled) && tradeApplied > 0
                 ? `Permuta ${tradeMode === "TOTAL_VALUE" ? "total" : "parcelas"} ${formatCurrency(tradeApplied)}`
                 : null
-        return [entry, tradeDetail, interest ? `Juros ${interest} a.m.` : null, grace].filter(Boolean).join(" • ")
+        const installmentTradeDetail = isInstallmentTrade
+            ? [
+                installmentBase ? `Parcela base ${formatCurrency(installmentBase)}` : null,
+                installmentDiscount ? `Permuta/mês ${formatCurrency(installmentDiscount)}` : null,
+                installmentFinal ? `Parcela final ${formatCurrency(installmentFinal)}` : null,
+            ].filter(Boolean).join(" • ")
+            : null
+        return [entry, installmentTradeDetail ?? tradeDetail, interest ? `Juros ${interest} a.m.` : null, grace].filter(Boolean).join(" • ")
     })()
 
     const handleGenerateContract = async (event: MouseEvent<HTMLButtonElement>) => {
