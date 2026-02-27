@@ -91,12 +91,22 @@ export interface WorkProcessItem {
     status: WorkProcessStatus
     sort_order: number
     due_date: string | null
+    responsible_user_id: string | null
     started_at: string | null
     completed_at: string | null
     completed_by: string | null
     linked_task_id: string | null
     created_at: string
     updated_at: string
+}
+
+export interface WorkResponsibleUserOption {
+    id: string
+    name: string
+    email: string | null
+    department: string | null
+    status: string | null
+    role: string | null
 }
 
 export interface WorkComment {
@@ -260,6 +270,10 @@ function normalizeWorkCardsError(message?: string | null) {
         normalized.includes("execution_deadline_at")
     ) {
         return "Banco desatualizado: execute a migração 090_work_cards_execution_deadline.sql."
+    }
+
+    if (normalized.includes("responsible_user_id")) {
+        return "Banco desatualizado: execute a migração 099_work_process_responsible_user.sql."
     }
 
     if (
@@ -937,13 +951,13 @@ async function ensureExecutionTasksForWork(obraId: string) {
 
     const { data: executionItems, error: itemsError } = await supabaseAdmin
         .from("obra_process_items" as any)
-        .select("id, title, description, status, linked_task_id")
+        .select("id, title, description, status, linked_task_id, responsible_user_id")
         .eq("obra_id", obraId)
         .eq("phase", "EXECUCAO")
         .order("sort_order", { ascending: true })
 
     if (itemsError) {
-        return { success: false, error: itemsError.message }
+        return { success: false, error: normalizeWorkCardsError(itemsError.message) }
     }
 
     const items = (executionItems ?? []) as Array<{
@@ -952,6 +966,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
         description: string | null
         status: WorkProcessStatus
         linked_task_id: string | null
+        responsible_user_id: string | null
     }>
 
     let created = 0
@@ -973,6 +988,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
             department: "energia",
             brand: card.brand,
             visibility_scope: "TEAM",
+            assignee_id: item.responsible_user_id ?? undefined,
             indicacao_id: card.indicacao_id ?? undefined,
             contact_id: card.contact_id ?? undefined,
             proposal_id: card.primary_proposal_id ?? undefined,
@@ -1472,12 +1488,68 @@ export async function getWorkProcessItems(workId: string) {
     return (data ?? []) as WorkProcessItem[]
 }
 
+export async function getWorkResponsibleUsers() {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return [] as WorkResponsibleUserOption[]
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
+        .from("users")
+        .select("id, name, email, department, status, role")
+        .order("name", { ascending: true })
+
+    if (error) {
+        console.error("Erro ao buscar usuários responsáveis das obras:", error)
+        return [] as WorkResponsibleUserOption[]
+    }
+
+    const rows = (data ?? []) as Array<{
+        id: string
+        name: string | null
+        email: string | null
+        department: string | null
+        status: string | null
+        role: string | null
+    }>
+
+    return rows
+        .filter((row) => {
+            const roleValue = (row.role ?? "").trim().toLowerCase()
+            if (!roleValue) return false
+            if (roleValue.startsWith("vendedor")) return false
+            if (roleValue === "investidor") return false
+
+            const isAllowedRole =
+                roleValue.startsWith("adm_") ||
+                roleValue.startsWith("funcionario_") ||
+                roleValue.startsWith("suporte") ||
+                roleValue === "supervisor"
+            if (!isAllowedRole) return false
+
+            const statusValue = (row.status ?? "").trim().toLowerCase()
+            if (statusValue === "inativo" || statusValue === "inactive" || statusValue === "suspended") {
+                return false
+            }
+
+            return true
+        })
+        .map((row) => ({
+            id: row.id,
+            name: row.name || row.email || "Sem nome",
+            email: row.email ?? null,
+            department: row.department ?? null,
+            status: row.status ?? null,
+            role: row.role ?? null,
+        }))
+}
+
 export async function addWorkProcessItem(input: {
     workId: string
     phase: WorkPhase
     title: string
     description?: string
     dueDate?: string
+    responsibleUserId?: string | null
 }) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return { error: "Sem permissão." }
@@ -1512,7 +1584,7 @@ export async function addWorkProcessItem(input: {
         .limit(1)
 
     if (maxOrderError) {
-        return { error: maxOrderError.message }
+        return { error: normalizeWorkCardsError(maxOrderError.message) }
     }
 
     const maxOrder = (maxOrderRows?.[0]?.sort_order as number | undefined) ?? 0
@@ -1525,6 +1597,7 @@ export async function addWorkProcessItem(input: {
             title,
             description: input.description?.trim() || null,
             due_date: input.dueDate || null,
+            responsible_user_id: input.responsibleUserId ?? null,
             status: "TODO",
             sort_order: maxOrder + 1,
         })
@@ -1532,7 +1605,7 @@ export async function addWorkProcessItem(input: {
         .single()
 
     if (error || !data) {
-        return { error: error?.message ?? "Falha ao criar processo." }
+        return { error: normalizeWorkCardsError(error?.message ?? "Falha ao criar processo.") }
     }
 
     revalidatePath("/admin/obras")
@@ -1541,7 +1614,7 @@ export async function addWorkProcessItem(input: {
 
 export async function updateWorkProcessItem(input: {
     itemId: string
-    updates: Partial<Pick<WorkProcessItem, "title" | "description" | "due_date" | "sort_order">>
+    updates: Partial<Pick<WorkProcessItem, "title" | "description" | "due_date" | "sort_order" | "responsible_user_id">>
 }) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return { error: "Sem permissão." }
@@ -1564,6 +1637,10 @@ export async function updateWorkProcessItem(input: {
         payload.sort_order = input.updates.sort_order
     }
 
+    if ("responsible_user_id" in input.updates) {
+        payload.responsible_user_id = input.updates.responsible_user_id || null
+    }
+
     if (Object.keys(payload).length === 0) {
         return { error: "Nenhuma atualização enviada." }
     }
@@ -1577,7 +1654,23 @@ export async function updateWorkProcessItem(input: {
         .single()
 
     if (error || !data) {
-        return { error: error?.message ?? "Falha ao atualizar processo." }
+        return { error: normalizeWorkCardsError(error?.message ?? "Falha ao atualizar processo.") }
+    }
+
+    if ("responsible_user_id" in payload) {
+        const linkedTaskId = (data as { linked_task_id?: string | null }).linked_task_id ?? null
+        if (linkedTaskId) {
+            const { error: taskSyncError } = await supabaseAdmin
+                .from("tasks")
+                .update({ assignee_id: (data as { responsible_user_id?: string | null }).responsible_user_id ?? null })
+                .eq("id", linkedTaskId)
+
+            if (taskSyncError) {
+                console.error("Erro ao sincronizar responsável da tarefa vinculada da obra:", taskSyncError)
+            } else {
+                revalidatePath("/admin/tarefas")
+            }
+        }
     }
 
     revalidatePath("/admin/obras")

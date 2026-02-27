@@ -34,6 +34,7 @@ type CloseableFinancialItem = {
     description: string
     origin_lead_id: string | null
     client_name: string | null
+    source_competencia: string | null
 }
 
 type FinancialSearchParams = {
@@ -186,7 +187,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .limit(80),
         supabaseAdmin
             .from('financeiro_relatorios_manuais_itens')
-            .select('id, report_id, beneficiary_user_id, brand, transaction_type, client_name, origin_lead_id, valor, status, external_ref, observacao, created_at, paid_at')
+            .select('id, report_id, beneficiary_user_id, brand, transaction_type, client_name, origin_lead_id, valor, status, external_ref, observacao, created_at, paid_at, report:financeiro_relatorios_manuais!financeiro_relatorios_manuais_itens_report_id_fkey(competencia)')
             .order('created_at', { ascending: false })
             .limit(300),
     ])
@@ -613,6 +614,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const totalBalance = filteredTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0)
 
     const manualItemsRows = (manualItems as any[]).map((item) => {
+        const report = Array.isArray(item.report) ? item.report[0] : item.report
         const beneficiary = usersById.get(item.beneficiary_user_id)
         return {
             id: item.id as string,
@@ -630,6 +632,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             observacao: (item.observacao as string | null) ?? null,
             createdAt: (item.created_at as string) ?? null,
             paidAt: (item.paid_at as string | null) ?? null,
+            competencia: (report?.competencia as string | null) ?? null,
         }
     }).filter((item) => salesEligibleUserIds.has(item.beneficiaryUserId))
 
@@ -659,6 +662,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             description: `Fechamento Rental - ${row.nome}`,
             origin_lead_id: row.id,
             client_name: row.nome,
+            source_competencia: null,
         })
     }
 
@@ -684,6 +688,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             description: `Override Rental - ${row.nome} (${row.sellerName})`,
             origin_lead_id: row.id,
             client_name: row.nome,
+            source_competencia: null,
         })
     }
 
@@ -705,6 +710,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             description: `Fechamento Dorata - ${(row as any).nome ?? row.id.slice(0, 8)}`,
             origin_lead_id: row.id,
             client_name: (row as any).nome ?? `Orçamento ${row.id.slice(0, 8)}`,
+            source_competencia: null,
         })
     }
 
@@ -723,6 +729,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             description: manualItem.observacao || `Manual Elyakim - ${manualItem.clientName ?? manualItem.id.slice(0, 8)}`,
             origin_lead_id: manualItem.originLeadId,
             client_name: manualItem.clientName,
+            source_competencia: manualItem.competencia,
         })
     }
 
@@ -1106,6 +1113,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 Fechar pagamento selecionado
                             </button>
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                            Itens do relatório manual entram aqui mesmo quando a competência for de mês anterior. Exemplo: competência dezembro, pagamento em fevereiro.
+                        </p>
 
                         <div className="rounded-md border border-dashed p-4 space-y-3">
                             <div>
@@ -1191,6 +1201,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         <TableHead>Marca</TableHead>
                                         <TableHead>Beneficiário</TableHead>
                                         <TableHead>Cliente</TableHead>
+                                        <TableHead>Competência origem</TableHead>
                                         <TableHead>Origem</TableHead>
                                         <TableHead>Tipo</TableHead>
                                         <TableHead className="text-right">Valor disponível</TableHead>
@@ -1199,7 +1210,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 <TableBody>
                                     {closeableItems.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                            <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                                                 Nenhum item liberado para fechar no momento.
                                             </TableCell>
                                         </TableRow>
@@ -1231,6 +1242,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                                 </TableCell>
                                                 <TableCell>{item.beneficiary_name}</TableCell>
                                                 <TableCell>{item.client_name || "—"}</TableCell>
+                                                <TableCell>
+                                                    {item.source_kind === "manual_elyakim" && item.source_competencia
+                                                        ? formatDate(item.source_competencia)
+                                                        : "—"}
+                                                </TableCell>
                                                 <TableCell>
                                                     {item.source_kind === "manual_elyakim" ? "Manual Elyakim" : "Sistema"}
                                                 </TableCell>
@@ -1432,18 +1448,20 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Data</TableHead>
+                                    <TableHead>Competência</TableHead>
                                     <TableHead>Beneficiário</TableHead>
                                     <TableHead>Cliente</TableHead>
                                     <TableHead>Marca</TableHead>
                                     <TableHead>Tipo</TableHead>
                                     <TableHead className="text-right">Valor</TableHead>
                                     <TableHead>Status</TableHead>
+                                    <TableHead>Recebido em</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {filteredManualItemsRows.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                        <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                                             Nenhum item manual registrado.
                                         </TableCell>
                                     </TableRow>
@@ -1451,6 +1469,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     filteredManualItemsRows.map((item) => (
                                         <TableRow key={`manual-${item.id}`}>
                                             <TableCell>{formatDate(item.createdAt)}</TableCell>
+                                            <TableCell>{formatDate(item.competencia)}</TableCell>
                                             <TableCell>{item.beneficiaryName}</TableCell>
                                             <TableCell>{item.clientName || "—"}</TableCell>
                                             <TableCell>{item.brand === "rental" ? "Rental" : "Dorata"}</TableCell>
@@ -1459,6 +1478,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                             <TableCell>
                                                 <Badge variant={item.status === "pago" ? "success" : "secondary"}>{item.status}</Badge>
                                             </TableCell>
+                                            <TableCell>{formatDate(item.paidAt)}</TableCell>
                                         </TableRow>
                                     ))
                                 )}

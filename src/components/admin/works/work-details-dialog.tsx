@@ -16,9 +16,11 @@ import {
     getWorkImages,
     getWorkProcessItems,
     getWorkProposalLinks,
+    getWorkResponsibleUsers,
     releaseProjectForExecution,
     setWorkProcessItemStatus,
     toggleWorkTasksIntegration,
+    updateWorkProcessItem,
     type WorkCard,
     type WorkComment,
     type WorkImage,
@@ -26,6 +28,7 @@ import {
     type WorkProcessItem,
     type WorkProcessStatus,
     type WorkProposalLink,
+    type WorkResponsibleUserOption,
 } from "@/services/work-cards-service"
 import { uploadWorkImage, validateWorkImageAttachment } from "@/lib/work-images"
 import {
@@ -519,12 +522,14 @@ export function WorkDetailsDialog({
 
     const [work, setWork] = useState<WorkCard | null>(null)
     const [processItems, setProcessItems] = useState<WorkProcessItem[]>([])
+    const [responsibleUsers, setResponsibleUsers] = useState<WorkResponsibleUserOption[]>([])
     const [comments, setComments] = useState<WorkComment[]>([])
     const [images, setImages] = useState<WorkImage[]>([])
     const [proposalLinks, setProposalLinks] = useState<WorkProposalLink[]>([])
 
     const [newProjectItem, setNewProjectItem] = useState("")
     const [newExecutionItem, setNewExecutionItem] = useState("")
+    const [newExecutionResponsibleId, setNewExecutionResponsibleId] = useState("")
     const [newEnergisaComment, setNewEnergisaComment] = useState("")
     const [newGeneralComment, setNewGeneralComment] = useState("")
     const [commentAttachmentFiles, setCommentAttachmentFiles] = useState<File[]>([])
@@ -578,17 +583,23 @@ export function WorkDetailsDialog({
         [comments]
     )
 
+    const responsibleUserById = useMemo(
+        () => new Map(responsibleUsers.map((user) => [user.id, user] as const)),
+        [responsibleUsers]
+    )
+
     const loadData = useCallback(async () => {
         if (!workId) return
 
         setIsLoading(true)
         try {
-            const [card, items, commentsData, imagesData, links] = await Promise.all([
+            const [card, items, commentsData, imagesData, links, users] = await Promise.all([
                 getWorkCardById(workId),
                 getWorkProcessItems(workId),
                 getWorkComments(workId),
                 getWorkImages(workId),
                 getWorkProposalLinks(workId),
+                getWorkResponsibleUsers(),
             ])
 
             setWork(card)
@@ -596,6 +607,7 @@ export function WorkDetailsDialog({
             setComments(commentsData)
             setImages(imagesData)
             setProposalLinks(links)
+            setResponsibleUsers(users)
         } finally {
             setIsLoading(false)
         }
@@ -671,6 +683,9 @@ export function WorkDetailsDialog({
                 workId,
                 phase,
                 title,
+                responsibleUserId: phase === "EXECUCAO" && newExecutionResponsibleId
+                    ? newExecutionResponsibleId
+                    : null,
             })
 
             if (result.error) {
@@ -679,7 +694,32 @@ export function WorkDetailsDialog({
             }
 
             if (phase === "PROJETO") setNewProjectItem("")
-            if (phase === "EXECUCAO") setNewExecutionItem("")
+            if (phase === "EXECUCAO") {
+                setNewExecutionItem("")
+                setNewExecutionResponsibleId("")
+            }
+
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    async function handleProcessResponsibleChange(itemId: string, responsibleUserId: string) {
+        setIsSaving(true)
+        try {
+            const result = await updateWorkProcessItem({
+                itemId,
+                updates: {
+                    responsible_user_id: responsibleUserId || null,
+                },
+            })
+
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
 
             await loadData()
             onChanged?.()
@@ -1320,12 +1360,28 @@ export function WorkDetailsDialog({
                                         Libere o projeto para habilitar a execução.
                                     </p>
                                 ) : null}
-                                <div className="flex gap-2">
+                                <div className="grid gap-2 md:grid-cols-[1fr_240px_auto]">
                                     <Input
                                         value={newExecutionItem}
                                         onChange={(event) => setNewExecutionItem(event.target.value)}
                                         placeholder="Novo processo de execução"
                                     />
+                                    <Select
+                                        value={newExecutionResponsibleId || "__none__"}
+                                        onValueChange={(value) => setNewExecutionResponsibleId(value === "__none__" ? "" : value)}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Responsável (opcional)" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="__none__">Sem responsável</SelectItem>
+                                            {responsibleUsers.map((user) => (
+                                                <SelectItem key={`new-exec-responsible-${user.id}`} value={user.id}>
+                                                    {user.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                     <Button
                                         variant="outline"
                                         onClick={() => handleAddProcessItem("EXECUCAO")}
@@ -1349,7 +1405,7 @@ export function WorkDetailsDialog({
                                                     <Trash2 className="h-3.5 w-3.5" />
                                                 </Button>
                                             </div>
-                                            <div className="mt-2 flex items-center gap-2">
+                                            <div className="mt-2 grid gap-2 md:grid-cols-[220px_1fr_auto]">
                                                 <Select
                                                     value={item.status}
                                                     onValueChange={(value) => handleProcessStatusChange(item.id, value as WorkProcessStatus)}
@@ -1365,6 +1421,25 @@ export function WorkDetailsDialog({
                                                         <SelectItem value="DONE">{processStatusLabel("DONE")}</SelectItem>
                                                     </SelectContent>
                                                 </Select>
+                                                <Select
+                                                    value={item.responsible_user_id || "__none__"}
+                                                    onValueChange={(value) =>
+                                                        handleProcessResponsibleChange(item.id, value === "__none__" ? "" : value)
+                                                    }
+                                                    disabled={isSaving}
+                                                >
+                                                    <SelectTrigger className="h-8">
+                                                        <SelectValue placeholder="Responsável" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="__none__">Sem responsável</SelectItem>
+                                                        {responsibleUsers.map((user) => (
+                                                            <SelectItem key={`exec-responsible-${item.id}-${user.id}`} value={user.id}>
+                                                                {user.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
                                                 {item.linked_task_id ? (
                                                     <Link href={`/admin/tarefas?openTask=${item.linked_task_id}`} className="text-xs underline">
                                                         Abrir tarefa
@@ -1373,6 +1448,11 @@ export function WorkDetailsDialog({
                                                     <span className="text-xs text-muted-foreground">Sem tarefa vinculada</span>
                                                 )}
                                             </div>
+                                            <p className="mt-2 text-xs text-muted-foreground">
+                                                Responsável atual: {item.responsible_user_id
+                                                    ? (responsibleUserById.get(item.responsible_user_id)?.name ?? "Usuário não encontrado")
+                                                    : "Sem responsável"}
+                                            </p>
                                         </div>
                                     ))}
                                     {executionItems.length === 0 ? (
