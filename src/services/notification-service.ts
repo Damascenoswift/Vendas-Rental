@@ -109,6 +109,15 @@ type NotificationRecipientUser = {
     department: string | null
 }
 
+type TaskRecipientTaskData = {
+    id: string
+    title: string | null
+    assignee_id: string | null
+    creator_id: string | null
+    department: string | null
+    visibility_scope?: string | null
+}
+
 type NotificationEventCatalogRow = {
     event_key: string
     domain: NotificationDomain
@@ -321,6 +330,21 @@ function parseMissingColumnError(message?: string | null) {
     if (!match) return null
 
     return { column: match[1], table: match[2] }
+}
+
+function isMissingRelationError(error: { code?: string | null; message?: string | null } | null | undefined, relation: string) {
+    if (!error) return false
+    if (error.code === "42P01") return true
+    const message = error.message ?? ""
+    if (!/does not exist/i.test(message)) return false
+    return message.toLowerCase().includes(relation.toLowerCase())
+}
+
+function isPermissionDeniedError(error: { code?: string | null; message?: string | null } | null | undefined) {
+    if (!error) return false
+    if (error.code === "42501") return true
+    const message = (error.message ?? "").toLowerCase()
+    return message.includes("permission denied")
 }
 
 function resolveLegacyTypeFromEvent(params: {
@@ -1371,51 +1395,144 @@ async function resolveTaskRecipients(params: {
     taskId: string
     includeSectorMembers?: boolean
 }) {
-    const [taskResult, observersResult] = await Promise.all([
-        params.supabaseAdmin
+    const loadTaskData = async (
+        client: ReturnType<typeof createSupabaseServiceClient> | Awaited<ReturnType<typeof createClient>>
+    ) => {
+        const taskResult = await client
             .from("tasks")
             .select("id, title, assignee_id, creator_id, department, visibility_scope")
             .eq("id", params.taskId)
-            .maybeSingle(),
-        params.supabaseAdmin
-            .from("task_observers")
-            .select("user_id")
-            .eq("task_id", params.taskId),
-    ])
+            .maybeSingle()
 
-    if (taskResult.error || !taskResult.data) {
+        if (!taskResult.error && taskResult.data) {
+            return {
+                data: taskResult.data as TaskRecipientTaskData,
+                error: null,
+            }
+        }
+
+        const missingTaskColumn = parseMissingColumnError(taskResult.error?.message)
+        if (missingTaskColumn?.table === "tasks" && missingTaskColumn.column === "visibility_scope") {
+            const fallbackTaskResult = await client
+                .from("tasks")
+                .select("id, title, assignee_id, creator_id, department")
+                .eq("id", params.taskId)
+                .maybeSingle()
+
+            if (!fallbackTaskResult.error && fallbackTaskResult.data) {
+                return {
+                    data: {
+                        ...(fallbackTaskResult.data as Omit<TaskRecipientTaskData, "visibility_scope">),
+                        visibility_scope: "TEAM",
+                    } satisfies TaskRecipientTaskData,
+                    error: null,
+                }
+            }
+
+            return {
+                data: null,
+                error: fallbackTaskResult.error,
+            }
+        }
+
         return {
-            task: null,
-            recipients: [] as NotificationDispatchRecipient[],
+            data: null,
             error: taskResult.error,
         }
     }
 
-    if (observersResult.error) {
+    const loadTaskObservers = async (
+        client: ReturnType<typeof createSupabaseServiceClient> | Awaited<ReturnType<typeof createClient>>
+    ) => {
+        const observersResult = await client
+            .from("task_observers")
+            .select("user_id")
+            .eq("task_id", params.taskId)
+
+        if (!observersResult.error) {
+            return {
+                rows: (observersResult.data ?? []) as Array<{ user_id: string | null }>,
+                error: null,
+            }
+        }
+
         return {
-            task: taskResult.data,
-            recipients: [] as NotificationDispatchRecipient[],
+            rows: [] as Array<{ user_id: string | null }>,
             error: observersResult.error,
+        }
+    }
+
+    let taskData: TaskRecipientTaskData | null = null
+    let taskLoadResult = await loadTaskData(params.supabaseAdmin)
+    if (taskLoadResult.data) {
+        taskData = taskLoadResult.data
+    } else if (isPermissionDeniedError(taskLoadResult.error)) {
+        try {
+            const supabaseUser = await createClient()
+            taskLoadResult = await loadTaskData(supabaseUser)
+            taskData = taskLoadResult.data
+        } catch (fallbackError) {
+            console.error("Error creating fallback client to resolve task recipients:", fallbackError)
+        }
+    }
+
+    if (!taskData) {
+        return {
+            task: null,
+            recipients: [] as NotificationDispatchRecipient[],
+            error: taskLoadResult.error,
+        }
+    }
+
+    let observerRows: Array<{ user_id: string | null }> = []
+    let observerLoadResult = await loadTaskObservers(params.supabaseAdmin)
+    if (!observerLoadResult.error) {
+        observerRows = observerLoadResult.rows
+    } else if (isPermissionDeniedError(observerLoadResult.error)) {
+        try {
+            const supabaseUser = await createClient()
+            observerLoadResult = await loadTaskObservers(supabaseUser)
+            if (!observerLoadResult.error) {
+                observerRows = observerLoadResult.rows
+            }
+        } catch (fallbackError) {
+            console.error("Error creating fallback client to resolve task observers:", fallbackError)
+        }
+    }
+
+    if (observerLoadResult.error && observerRows.length === 0) {
+        const missingObserverColumn = parseMissingColumnError(observerLoadResult.error.message)
+        const observersUnavailable =
+            (missingObserverColumn?.table === "task_observers")
+            || isMissingRelationError(observerLoadResult.error, "task_observers")
+
+        if (observersUnavailable) {
+            console.warn("Task observers unavailable for notifications; continuing without observers.", {
+                taskId: params.taskId,
+                error: observerLoadResult.error,
+            })
+        } else {
+            console.error("Error loading task observers for notifications; continuing without observers.", observerLoadResult.error)
         }
     }
 
     const recipients: NotificationDispatchRecipient[] = []
 
-    if (taskResult.data.assignee_id) {
+    if (taskData.assignee_id) {
         recipients.push({
-            userId: taskResult.data.assignee_id,
+            userId: taskData.assignee_id,
             responsibilityKind: "ASSIGNEE",
         })
     }
 
-    if (taskResult.data.creator_id) {
+    if (taskData.creator_id) {
         recipients.push({
-            userId: taskResult.data.creator_id,
+            userId: taskData.creator_id,
             responsibilityKind: "CREATOR",
         })
     }
 
-    ;(observersResult.data ?? []).forEach((observer) => {
+    observerRows.forEach((observer) => {
         if (!observer.user_id) return
         recipients.push({
             userId: observer.user_id,
@@ -1424,7 +1541,7 @@ async function resolveTaskRecipients(params: {
     })
 
     if (params.includeSectorMembers) {
-        const sectorMembers = await getActiveUsersByDepartment(params.supabaseAdmin, taskResult.data.department)
+        const sectorMembers = await getActiveUsersByDepartment(params.supabaseAdmin, taskData.department)
         sectorMembers.forEach((member) => {
             recipients.push({
                 userId: member.id,
@@ -1434,7 +1551,7 @@ async function resolveTaskRecipients(params: {
     }
 
     return {
-        task: taskResult.data,
+        task: taskData,
         recipients,
         error: null,
     }
