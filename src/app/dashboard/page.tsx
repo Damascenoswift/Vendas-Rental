@@ -62,7 +62,8 @@ type DashboardMetrics = {
   porStatus: Record<StatusKey, number>
   ultimaIndicacao: string | null
   porMarca: Record<Brand, number>
-  recentes: RecentIndicacao[]
+  pendentesAssinatura: RecentIndicacao[]
+  assinadasRecentes: RecentIndicacao[]
   activity: DashboardActivity[]
 }
 
@@ -79,8 +80,15 @@ const emptyMetrics: DashboardMetrics = {
     rental: 0,
     dorata: 0,
   },
-  recentes: [],
+  pendentesAssinatura: [],
+  assinadasRecentes: [],
   activity: [],
+}
+
+const getTimestampValue = (value?: string | null) => {
+  if (!value) return 0
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? 0 : timestamp
 }
 
 const statusBadgeConfig: Record<string, { label: string; className: string }> = {
@@ -396,12 +404,33 @@ export default function DashboardPage() {
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, 20)
 
+        const pendingSignatureRows = rentalRows
+          .filter((row) => !row.assinada_em)
+          .filter((row) => row.status === "AGUARDANDO_ASSINATURA" || Boolean(row.contrato_enviado_em))
+          .sort((a, b) => {
+            const aSentAt = getTimestampValue(a.contrato_enviado_em)
+            const bSentAt = getTimestampValue(b.contrato_enviado_em)
+            if (aSentAt !== bSentAt) return aSentAt - bSentAt
+            return getTimestampValue(a.updated_at) - getTimestampValue(b.updated_at)
+          })
+          .slice(0, 10)
+
+        const recentlySignedRows = rentalRows
+          .filter((row) => Boolean(row.assinada_em) || row.status === "CONCLUIDA")
+          .sort((a, b) => {
+            const aSignedAt = getTimestampValue(a.assinada_em || a.updated_at)
+            const bSignedAt = getTimestampValue(b.assinada_em || b.updated_at)
+            return bSignedAt - aSignedAt
+          })
+          .slice(0, 10)
+
         setMetrics({
           total: rows.length,
           porStatus,
           ultimaIndicacao: rows[0]?.created_at ?? null,
           porMarca,
-          recentes: rentalRows.slice(0, 6),
+          pendentesAssinatura: pendingSignatureRows,
+          assinadasRecentes: recentlySignedRows,
           activity: recentActivity,
         })
         setMetricsError(null)
@@ -513,7 +542,7 @@ export default function DashboardPage() {
         subtitle: `Total enviado para ${brandLabels[brand as keyof typeof brandLabels]}`,
         value: metrics.porMarca[brand as keyof typeof metrics.porMarca],
       })),
-    [allowedBrands, metrics.porMarca]
+    [allowedBrands, metrics]
   )
 
   const metricCards = useMemo(
@@ -635,47 +664,127 @@ export default function DashboardPage() {
             </Link>
           </CardHeader>
           <CardContent>
-            {metrics.recentes.length === 0 ? (
+            {metrics.pendentesAssinatura.length === 0 && metrics.assinadasRecentes.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nenhuma indicação encontrada para acompanhamento.
               </p>
             ) : (
-              <div className="space-y-3">
-                {metrics.recentes.map((indicacao) => {
-                  const status =
-                    statusBadgeConfig[indicacao.status] ?? statusBadgeConfig.EM_ANALISE
-                  const progress = getJourneyProgress(indicacao)
-
-                  return (
-                    <div
-                      key={indicacao.id}
-                      className="rounded-lg border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
-                    >
-                      <div className="space-y-1">
-                        <p className="font-medium text-foreground">{indicacao.nome}</p>
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <Badge variant="outline" className={status.className}>
-                            {status.label}
-                          </Badge>
-                          <span>Etapa: {getCurrentStepLabel(indicacao)}</span>
-                          <span>Atualizado: {formatDateTime(indicacao.updated_at)}</span>
-                        </div>
-                        <div className="pt-1">
-                          <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={`h-full rounded-full ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
-                              style={{ width: `${progress.percent}%` }}
-                            />
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {progress.done} de {progress.total} etapas concluídas
-                          </p>
-                        </div>
-                      </div>
-                      <IndicationProgressDialog indication={indicacao} />
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Em aberto para assinatura</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Prioriza os contratos enviados e ainda não assinados.
+                      </p>
                     </div>
-                  )
-                })}
+                    <Badge variant="secondary">{metrics.pendentesAssinatura.length}</Badge>
+                  </div>
+
+                  {metrics.pendentesAssinatura.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Nenhum contrato pendente de assinatura no momento.
+                      </p>
+                    </div>
+                  ) : (
+                    metrics.pendentesAssinatura.map((indicacao) => {
+                      const status =
+                        statusBadgeConfig[indicacao.status] ?? statusBadgeConfig.EM_ANALISE
+                      const progress = getJourneyProgress(indicacao)
+
+                      return (
+                        <div
+                          key={indicacao.id}
+                          className="rounded-lg border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-medium text-foreground">{indicacao.nome}</p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <Badge variant="outline" className={status.className}>
+                                {status.label}
+                              </Badge>
+                              <span>Etapa: {getCurrentStepLabel(indicacao)}</span>
+                              <span>
+                                Enviado: {indicacao.contrato_enviado_em ? formatDateTime(indicacao.contrato_enviado_em) : "—"}
+                              </span>
+                            </div>
+                            <div className="pt-1">
+                              <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={`h-full rounded-full ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
+                                  style={{ width: `${progress.percent}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {progress.done} de {progress.total} etapas concluídas
+                              </p>
+                            </div>
+                          </div>
+                          <IndicationProgressDialog indication={indicacao} />
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Últimos 10 assinados</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Contratos assinados recentemente para seguir cobrando o cliente.
+                      </p>
+                    </div>
+                    <Badge variant="secondary">{metrics.assinadasRecentes.length}</Badge>
+                  </div>
+
+                  {metrics.assinadasRecentes.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4">
+                      <p className="text-sm text-muted-foreground">
+                        Ainda não há contratos assinados recentes.
+                      </p>
+                    </div>
+                  ) : (
+                    metrics.assinadasRecentes.map((indicacao) => {
+                      const status =
+                        statusBadgeConfig[indicacao.status] ?? statusBadgeConfig.EM_ANALISE
+                      const progress = getJourneyProgress(indicacao)
+
+                      return (
+                        <div
+                          key={indicacao.id}
+                          className="rounded-lg border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-medium text-foreground">{indicacao.nome}</p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <Badge variant="outline" className={status.className}>
+                                {status.label}
+                              </Badge>
+                              <span>Etapa: {getCurrentStepLabel(indicacao)}</span>
+                              <span>
+                                Assinado: {indicacao.assinada_em ? formatDateTime(indicacao.assinada_em) : formatDateTime(indicacao.updated_at)}
+                              </span>
+                            </div>
+                            <div className="pt-1">
+                              <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className={`h-full rounded-full ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
+                                  style={{ width: `${progress.percent}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {progress.done} de {progress.total} etapas concluídas
+                              </p>
+                            </div>
+                          </div>
+                          <IndicationProgressDialog indication={indicacao} />
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
               </div>
             )}
           </CardContent>
