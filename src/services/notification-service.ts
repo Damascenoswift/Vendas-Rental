@@ -419,6 +419,24 @@ function mergeMetadata(base?: Record<string, unknown>, extra?: Record<string, un
     }
 }
 
+function summarizeRecipientsByResponsibility(recipients: NotificationDispatchRecipient[]) {
+    const summary = new Map<NotificationResponsibilityKind, number>()
+
+    recipients.forEach((recipient) => {
+        const current = summary.get(recipient.responsibilityKind) ?? 0
+        summary.set(recipient.responsibilityKind, current + 1)
+    })
+
+    return Object.fromEntries(summary.entries())
+}
+
+function logTaskNotificationDebug(stage: string, details: Record<string, unknown>) {
+    console.info("[task-notification-debug]", {
+        stage,
+        ...details,
+    })
+}
+
 async function resolveMentionUserIdsFromContent(params: {
     supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
     content: string
@@ -728,6 +746,12 @@ async function revalidateNotificationRelatedPaths(paths?: string[]) {
 
 export async function dispatchNotificationEvent(input: NotificationDispatchInput) {
     if (!input.title.trim() || !input.message.trim()) {
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("skipped-empty-content", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+            })
+        }
         return { inserted: 0 }
     }
 
@@ -745,6 +769,12 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
     }>
 
     if (recipients.length === 0) {
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("skipped-no-input-recipients", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+            })
+        }
         return { inserted: 0 }
     }
 
@@ -767,6 +797,13 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
     }
 
     if (groupedRecipients.size === 0) {
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("skipped-only-actor-recipients", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+                actorUserId: input.actorUserId ?? null,
+            })
+        }
         return { inserted: 0 }
     }
 
@@ -775,6 +812,13 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
         supabaseAdmin = createSupabaseServiceClient()
     } catch (error) {
         console.error("Error creating service client for dispatchNotificationEvent:", error)
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("service-client-error", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+                error,
+            })
+        }
         return { inserted: 0 }
     }
 
@@ -801,6 +845,14 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
 
     if (recipientUsersResult.error) {
         console.error("Error loading notification recipients:", recipientUsersResult.error)
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("recipient-load-error", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+                error: recipientUsersResult.error,
+                recipientIds,
+            })
+        }
         return { inserted: 0 }
     }
 
@@ -840,7 +892,8 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
         if (isUserInactiveStatus(recipientUser.status)) continue
         if (isInvestidorRole(recipientUser.role)) continue
 
-        const enabledResponsibilities = Array.from(grouped.responsibilities).filter((responsibilityKind) => {
+        const allResponsibilities = Array.from(grouped.responsibilities)
+        let enabledResponsibilities = allResponsibilities.filter((responsibilityKind) => {
             return applyRuleForRecipient({
                 catalog: effectiveCatalog,
                 defaultsByResponsibility,
@@ -850,6 +903,24 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
                 forceMandatory: grouped.isMandatory,
             })
         })
+
+        let forcedTaskDirectDelivery = false
+        if (enabledResponsibilities.length === 0 && input.domain === "TASK") {
+            const directTaskResponsibilities = allResponsibilities.filter((responsibilityKind) => {
+                return responsibilityKind !== "SECTOR_MEMBER" && responsibilityKind !== "SYSTEM"
+            })
+
+            if (directTaskResponsibilities.length > 0) {
+                enabledResponsibilities = directTaskResponsibilities
+                forcedTaskDirectDelivery = true
+                console.warn("Forcing task notification delivery for directly involved recipient.", {
+                    eventKey: input.eventKey,
+                    taskId: input.taskId ?? null,
+                    recipientUserId,
+                    responsibilities: directTaskResponsibilities,
+                })
+            }
+        }
 
         if (enabledResponsibilities.length === 0) {
             continue
@@ -872,9 +943,9 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
             entity_id: input.entityId,
         })
 
-        payload.push({
-            recipient_user_id: recipientUserId,
-            actor_user_id: input.actorUserId ?? null,
+            payload.push({
+                recipient_user_id: recipientUserId,
+                actor_user_id: input.actorUserId ?? null,
             task_id: input.taskId ?? null,
             task_comment_id: input.taskCommentId ?? null,
             type: notificationType,
@@ -885,14 +956,24 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
             event_key: input.eventKey,
             sector: resolvedSector,
             responsibility_kind: primaryResponsibility,
-            entity_type: input.entityType,
-            entity_id: input.entityId,
-            dedupe_key: dedupeKey,
-            is_mandatory: grouped.isMandatory || input.isMandatory === true,
-        })
+                entity_type: input.entityType,
+                entity_id: input.entityId,
+                dedupe_key: dedupeKey,
+                is_mandatory: grouped.isMandatory || input.isMandatory === true || forcedTaskDirectDelivery,
+            })
     }
 
     if (payload.length === 0) {
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("skipped-no-payload-after-rules", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+                resolvedSector,
+                dedupeKey,
+                inputRecipients: recipients.length,
+                groupedRecipients: groupedRecipients.size,
+            })
+        }
         return { inserted: 0 }
     }
 
@@ -906,7 +987,28 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
 
     if (insertError) {
         console.error("Error dispatching notification event:", insertError)
+        if (input.domain === "TASK") {
+            logTaskNotificationDebug("insert-error", {
+                eventKey: input.eventKey,
+                taskId: input.taskId ?? null,
+                resolvedSector,
+                dedupeKey,
+                payloadSize: payload.length,
+                error: insertError,
+            })
+        }
         return { inserted: 0 }
+    }
+
+    if (input.domain === "TASK") {
+        logTaskNotificationDebug("dispatched", {
+            eventKey: input.eventKey,
+            taskId: input.taskId ?? null,
+            resolvedSector,
+            dedupeKey,
+            payloadSize: payload.length,
+            inserted: (insertedData ?? []).length,
+        })
     }
 
     await revalidateNotificationRelatedPaths(input.revalidatePaths)
@@ -1717,6 +1819,16 @@ export async function createTaskCommentNotifications(params: {
         return
     }
 
+    logTaskNotificationDebug("comment-recipients-resolved", {
+        eventKey: params.parentCommentId ? "TASK_COMMENT_REPLY" : "TASK_COMMENT_CREATED",
+        taskId: params.taskId,
+        visibilityScope: taskRecipientsResult.task.visibility_scope ?? "TEAM",
+        recipients: taskRecipientsResult.recipients.length,
+        recipientsByResponsibility: summarizeRecipientsByResponsibility(taskRecipientsResult.recipients),
+        mentionCandidates: mentionUserIds.length,
+        parentCommentId: params.parentCommentId ?? null,
+    })
+
     if (actorResult.error) {
         console.error("Error loading actor for comment notifications:", actorResult.error)
     }
@@ -1910,6 +2022,17 @@ export async function createTaskChecklistNotifications(params: {
         return
     }
 
+    logTaskNotificationDebug("checklist-recipients-resolved", {
+        eventKey: "TASK_CHECKLIST_UPDATED",
+        taskId: params.taskId,
+        visibilityScope: taskRecipientsResult.task.visibility_scope ?? "TEAM",
+        recipients: taskRecipientsResult.recipients.length,
+        recipientsByResponsibility: summarizeRecipientsByResponsibility(taskRecipientsResult.recipients),
+        checklistItemId: params.checklistItemId,
+        checklistResponsibleUserId: params.responsibleUserId?.trim() || null,
+        action: params.action ?? "TOGGLED",
+    })
+
     if (actorResult.error) {
         console.error("Error loading actor for checklist notifications:", actorResult.error)
     }
@@ -1999,6 +2122,16 @@ export async function createTaskStatusChangedNotifications(params: {
         console.error("Error loading task recipients for status notifications:", taskRecipientsResult.error)
         return
     }
+
+    logTaskNotificationDebug("status-recipients-resolved", {
+        eventKey: "TASK_STATUS_CHANGED",
+        taskId: params.taskId,
+        visibilityScope: taskRecipientsResult.task.visibility_scope ?? "TEAM",
+        recipients: taskRecipientsResult.recipients.length,
+        recipientsByResponsibility: summarizeRecipientsByResponsibility(taskRecipientsResult.recipients),
+        oldStatus: params.oldStatus ?? null,
+        newStatus: params.newStatus,
+    })
 
     if (actorResult.error) {
         console.error("Error loading actor for task status notifications:", actorResult.error)
