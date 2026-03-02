@@ -18,6 +18,15 @@ import {
     TableRow,
 } from "@/components/ui/table"
 
+function parseMissingColumnError(message?: string | null) {
+    if (!message) return null
+
+    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (!match) return null
+
+    return { column: match[1], table: match[2] }
+}
+
 function getEstimatedKwh(calculation: unknown): number | null {
     if (!calculation || typeof calculation !== "object" || Array.isArray(calculation)) return null
     const output = (calculation as Record<string, any>).output
@@ -103,24 +112,39 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
     if (role === "supervisor" && (!scopedClientIds || scopedClientIds.length === 0)) {
         proposals = []
     } else {
-        let proposalsQuery = supabaseAdmin
-            .from('proposals')
-            .select(`
-                *,
-                seller:users(name, email),
-                cliente:indicacoes!proposals_client_id_fkey(id, nome)
-            `)
-            .order('created_at', { ascending: false })
+        const buildProposalsQuery = (orderColumn: "updated_at" | "created_at") => {
+            let proposalsQuery = supabaseAdmin
+                .from('proposals')
+                .select(`
+                    *,
+                    seller:users(name, email),
+                    cliente:indicacoes!proposals_client_id_fkey(id, nome)
+                `)
+                .order(orderColumn, { ascending: false })
+                .order('created_at', { ascending: false })
 
-        if (role === "supervisor") {
-            proposalsQuery = proposalsQuery.in("client_id", scopedClientIds ?? [])
+            if (role === "supervisor") {
+                proposalsQuery = proposalsQuery.in("client_id", scopedClientIds ?? [])
+            }
+
+            if (targetProposalId) {
+                proposalsQuery = proposalsQuery.eq("id", targetProposalId)
+            }
+
+            return proposalsQuery
         }
 
-        if (targetProposalId) {
-            proposalsQuery = proposalsQuery.eq("id", targetProposalId)
+        let proposalsResult = await buildProposalsQuery("updated_at")
+        const missingOrderColumn = parseMissingColumnError(proposalsResult.error?.message)
+        if (
+            proposalsResult.error &&
+            missingOrderColumn &&
+            missingOrderColumn.table === "proposals" &&
+            missingOrderColumn.column === "updated_at"
+        ) {
+            proposalsResult = await buildProposalsQuery("created_at")
         }
 
-        const proposalsResult = await proposalsQuery
         proposals = proposalsResult.data ?? []
         proposalsError = proposalsResult.error as { message: string } | null
     }
@@ -161,7 +185,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Data</TableHead>
+                            <TableHead>Última alteração</TableHead>
                             <TableHead>Cliente</TableHead>
                             <TableHead>Vendedor</TableHead>
                             <TableHead>Produção Estimada</TableHead>
@@ -188,7 +212,9 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                         ) : (
                             normalizedProposals.map((proposal: any) => (
                                 <TableRow key={proposal.id}>
-                                    <TableCell>{format(new Date(proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}</TableCell>
+                                    <TableCell>
+                                        {format(new Date(proposal.updated_at ?? proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}
+                                    </TableCell>
                                     <TableCell>{proposal.cliente?.nome || '-'}</TableCell>
                                     <TableCell>{proposal.seller?.name || proposal.seller?.email || 'Sistema'}</TableCell>
                                     <TableCell>
