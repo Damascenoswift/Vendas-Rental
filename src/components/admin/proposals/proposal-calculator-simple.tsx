@@ -96,6 +96,10 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
+function normalizeNonNegativePercent(value: number, fallback: number) {
+    return Math.max(normalizePercent(value, fallback), 0)
+}
+
 function normalizeTradeMode(value: string | null | undefined): NonNullable<ProposalCalcInput["trade"]>["mode"] {
     return value === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
 }
@@ -239,10 +243,7 @@ export function ProposalCalculatorSimple({
         initialInput?.finance?.carencia_meses ?? 0
     )
     const [jurosMensal, setJurosMensal] = useState(
-        Math.max(
-            normalizePercent(Number(initialInput?.finance?.juros_mensal ?? defaultInterest), defaultInterest),
-            defaultInterest
-        )
+        normalizeNonNegativePercent(Number(initialInput?.finance?.juros_mensal ?? defaultInterest), defaultInterest)
     )
     const [numParcelas, setNumParcelas] = useState(
         initialInput?.finance?.num_parcelas ?? 0
@@ -257,6 +258,7 @@ export function ProposalCalculatorSimple({
         initialInput?.trade?.value ?? 0
     )
     const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
+    const [interestInputDraft, setInterestInputDraft] = useState<string | null>(null)
 
     const { showToast } = useToast()
     const router = useRouter()
@@ -373,7 +375,7 @@ export function ProposalCalculatorSimple({
             installments: numParcelas,
         })
 
-        setJurosMensal(Math.max(monthlyRate, defaultInterest))
+        setJurosMensal(monthlyRate)
     }
 
     const handleInstallmentInputChange = (value: string) => {
@@ -388,6 +390,24 @@ export function ProposalCalculatorSimple({
             handleInstallmentChange(installmentInputDraft)
         }
         setInstallmentInputDraft(null)
+    }
+
+    const handleInterestChange = (value: string) => {
+        setJurosMensal(normalizeNonNegativePercent(toNumber(value), 0))
+    }
+
+    const handleInterestInputChange = (value: string) => {
+        setInterestInputDraft(value)
+        if (!value.trim()) return
+        handleInterestChange(value)
+    }
+
+    const handleInterestInputBlur = () => {
+        if (interestInputDraft === null) return
+        if (interestInputDraft.trim()) {
+            handleInterestChange(interestInputDraft)
+        }
+        setInterestInputDraft(null)
     }
 
     const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
@@ -967,8 +987,17 @@ export function ProposalCalculatorSimple({
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label>Juros mensal (%) calculado</Label>
-                                        <Input value={(jurosMensal * 100).toFixed(4)} disabled />
+                                        <Label>Juros mensal (%)</Label>
+                                        <Input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={
+                                                interestInputDraft ??
+                                                formatDecimalForInput(jurosMensal * 100, 4)
+                                            }
+                                            onChange={(e) => handleInterestInputChange(e.target.value)}
+                                            onBlur={handleInterestInputBlur}
+                                        />
                                     </div>
                                 </div>
                             </div>

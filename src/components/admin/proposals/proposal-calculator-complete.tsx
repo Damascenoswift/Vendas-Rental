@@ -136,6 +136,10 @@ function normalizePercent(value: number, fallback: number) {
     return value > 1 ? value / 100 : value
 }
 
+function normalizeNonNegativePercent(value: number, fallback: number) {
+    return Math.max(normalizePercent(value, fallback), 0)
+}
+
 function normalizeTradeMode(value: string | null | undefined): NonNullable<ProposalCalcInput["trade"]>["mode"] {
     return value === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
 }
@@ -432,12 +436,9 @@ export function ProposalCalculatorComplete({
             finance: {
                 ...baseInput.finance,
                 ...(initialCalculationInput.finance ?? {}),
-                juros_mensal: Math.max(
-                    normalizePercent(
-                        Number(initialCalculationInput.finance?.juros_mensal ?? baseInput.finance.juros_mensal),
-                        baseInput.finance.juros_mensal
-                    ),
-                    defaultMonthlyInterestRate
+                juros_mensal: normalizeNonNegativePercent(
+                    Number(initialCalculationInput.finance?.juros_mensal ?? baseInput.finance.juros_mensal),
+                    baseInput.finance.juros_mensal
                 ),
                 baloes: Array.isArray(initialCalculationInput.finance?.baloes)
                     ? initialCalculationInput.finance?.baloes.map((balao) => ({
@@ -464,6 +465,7 @@ export function ProposalCalculatorComplete({
     const router = useRouter()
     const [loading, setLoading] = useState(false)
     const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
+    const [interestInputDraft, setInterestInputDraft] = useState<string | null>(null)
     const [kitGeradorValor, setKitGeradorValor] = useState<number>(() => {
         const fromOutput = Number(initialProposal?.calculation?.output?.kit?.custo_kit ?? 0)
         if (Number.isFinite(fromOutput) && fromOutput > 0) return roundCurrencyValue(fromOutput)
@@ -645,7 +647,7 @@ export function ProposalCalculatorComplete({
             installments: input.finance.num_parcelas,
         })
 
-        updateFinance({ juros_mensal: Math.max(monthlyRate, defaultMonthlyInterestRate) })
+        updateFinance({ juros_mensal: monthlyRate })
     }
 
     const handleInstallmentInputChange = (value: string) => {
@@ -660,6 +662,24 @@ export function ProposalCalculatorComplete({
             handleInstallmentChange(installmentInputDraft)
         }
         setInstallmentInputDraft(null)
+    }
+
+    const handleInterestChange = (value: string) => {
+        updateFinance({ juros_mensal: normalizeNonNegativePercent(toNumber(value), 0) })
+    }
+
+    const handleInterestInputChange = (value: string) => {
+        setInterestInputDraft(value)
+        if (!value.trim()) return
+        handleInterestChange(value)
+    }
+
+    const handleInterestInputBlur = () => {
+        if (interestInputDraft === null) return
+        if (interestInputDraft.trim()) {
+            handleInterestChange(interestInputDraft)
+        }
+        setInterestInputDraft(null)
     }
 
     const buildManualFromName = (fullName: string | null | undefined): ManualContactState => {
@@ -1738,8 +1758,17 @@ export function ProposalCalculatorComplete({
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label>Juros mensal (%) calculado</Label>
-                                <Input value={(input.finance.juros_mensal * 100).toFixed(4)} disabled />
+                                <Label>Juros mensal (%)</Label>
+                                <Input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={
+                                        interestInputDraft ??
+                                        formatDecimalForInput(input.finance.juros_mensal * 100, 4)
+                                    }
+                                    onChange={(e) => handleInterestInputChange(e.target.value)}
+                                    onBlur={handleInterestInputBlur}
+                                />
                             </div>
                         </div>
 
