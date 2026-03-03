@@ -4,8 +4,8 @@ import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/layout/sidebar" // Import Sidebar
 import { ToastContainer } from "@/components/ui/toaster"
-import { Bell } from "lucide-react"
 import { NotificationSoundListener } from "@/components/layout/notification-sound-listener"
+import { NotificationBellButton } from "@/components/layout/notification-bell-button"
 import { getProfile } from "@/lib/auth"
 import { hasWorksOnlyScope } from "@/lib/department-access"
 
@@ -53,17 +53,7 @@ export default async function AdminLayout({
                         <div className="flex items-center gap-2">
                             {!worksOnlyScope ? (
                                 <>
-                                    <Link href="/admin/notificacoes">
-                                        <Button variant="outline" size="sm">
-                                            <Bell className="mr-2 h-4 w-4" />
-                                            Notificações
-                                            {unreadNotifications > 0 && (
-                                                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                                                    {unreadNotifications}
-                                                </span>
-                                            )}
-                                        </Button>
-                                    </Link>
+                                    <NotificationBellButton initialUnreadCount={unreadNotifications} />
                                     <Link href="/dashboard">
                                         <Button variant="outline" size="sm">
                                             Voltar ao Dashboard
@@ -72,17 +62,7 @@ export default async function AdminLayout({
                                 </>
                             ) : (
                                 <>
-                                    <Link href="/admin/notificacoes">
-                                        <Button variant="outline" size="sm">
-                                            <Bell className="mr-2 h-4 w-4" />
-                                            Notificações
-                                            {unreadNotifications > 0 && (
-                                                <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                                                    {unreadNotifications}
-                                                </span>
-                                            )}
-                                        </Button>
-                                    </Link>
+                                    <NotificationBellButton initialUnreadCount={unreadNotifications} />
                                     <Link href="/admin/chat">
                                         <Button variant="outline" size="sm">
                                             Chat Interno

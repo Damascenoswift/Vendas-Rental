@@ -30,8 +30,10 @@ const soundTimeline: Record<NotificationSoundKind, SoundStep[]> = {
         { frequency: 640, durationSeconds: 0.08, volume: 0.038, waveform: "triangle" },
     ],
     task_notification: [
-        { frequency: 560, durationSeconds: 0.12, volume: 0.05, waveform: "square", gapSeconds: 0.025 },
-        { frequency: 720, durationSeconds: 0.15, volume: 0.052, waveform: "square" },
+        { frequency: 560, durationSeconds: 0.9, volume: 0.05, waveform: "square", gapSeconds: 0.1 },
+        { frequency: 720, durationSeconds: 0.95, volume: 0.052, waveform: "square", gapSeconds: 0.1 },
+        { frequency: 560, durationSeconds: 0.9, volume: 0.05, waveform: "square", gapSeconds: 0.1 },
+        { frequency: 720, durationSeconds: 0.95, volume: 0.052, waveform: "square" },
     ],
 }
 
