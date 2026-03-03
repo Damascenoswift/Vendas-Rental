@@ -14,21 +14,24 @@ type SoundStep = {
 }
 
 const SOUND_COOLDOWN_MS = 500
-const BASE_VOLUME = 0.04
-const SOUND_GAIN_MULTIPLIER = 20
-const MAX_OUTPUT_VOLUME = 1
+const BASE_VOLUME = 0.05
+const SOUND_GAIN_MULTIPLIER = 160
+const MAX_OUTPUT_VOLUME = 8
+const ATTACK_SECONDS = 0.008
+const RELEASE_TAIL_SECONDS = 0.06
 
 const soundTimeline: Record<NotificationSoundKind, SoundStep[]> = {
     rental_indication: [
-        { frequency: 680, durationSeconds: 0.06, volume: 0.04, waveform: "sine", gapSeconds: 0.015 },
-        { frequency: 920, durationSeconds: 0.08, volume: 0.045, waveform: "sine" },
+        { frequency: 680, durationSeconds: 0.09, volume: 0.045, waveform: "sine", gapSeconds: 0.02 },
+        { frequency: 920, durationSeconds: 0.13, volume: 0.05, waveform: "sine" },
     ],
     internal_chat: [
-        { frequency: 780, durationSeconds: 0.05, volume: 0.035, waveform: "triangle", gapSeconds: 0.01 },
-        { frequency: 640, durationSeconds: 0.05, volume: 0.03, waveform: "triangle" },
+        { frequency: 780, durationSeconds: 0.08, volume: 0.04, waveform: "triangle", gapSeconds: 0.015 },
+        { frequency: 640, durationSeconds: 0.08, volume: 0.038, waveform: "triangle" },
     ],
     task_notification: [
-        { frequency: 560, durationSeconds: 0.08, volume: 0.038, waveform: "square" },
+        { frequency: 560, durationSeconds: 0.12, volume: 0.05, waveform: "square", gapSeconds: 0.025 },
+        { frequency: 720, durationSeconds: 0.15, volume: 0.052, waveform: "square" },
     ],
 }
 
@@ -106,6 +109,14 @@ function shouldPlay(kind: NotificationSoundKind) {
 function playToneSequence(context: AudioContext, sequence: SoundStep[]) {
     const now = context.currentTime + 0.01
     let cursor = now
+    const compressor = context.createDynamicsCompressor()
+
+    compressor.threshold.setValueAtTime(-24, now)
+    compressor.knee.setValueAtTime(18, now)
+    compressor.ratio.setValueAtTime(10, now)
+    compressor.attack.setValueAtTime(0.003, now)
+    compressor.release.setValueAtTime(0.12, now)
+    compressor.connect(context.destination)
 
     sequence.forEach((step) => {
         const oscillator = context.createOscillator()
@@ -120,17 +131,26 @@ function playToneSequence(context: AudioContext, sequence: SoundStep[]) {
             Math.min(baseStepVolume * SOUND_GAIN_MULTIPLIER, MAX_OUTPUT_VOLUME)
         )
         gainNode.gain.setValueAtTime(0.0001, cursor)
-        gainNode.gain.exponentialRampToValueAtTime(targetVolume, cursor + 0.01)
+        gainNode.gain.exponentialRampToValueAtTime(targetVolume, cursor + ATTACK_SECONDS)
         gainNode.gain.exponentialRampToValueAtTime(0.0001, cursor + step.durationSeconds)
 
         oscillator.connect(gainNode)
-        gainNode.connect(context.destination)
+        gainNode.connect(compressor)
 
         oscillator.start(cursor)
-        oscillator.stop(cursor + step.durationSeconds + 0.02)
+        oscillator.stop(cursor + step.durationSeconds + RELEASE_TAIL_SECONDS)
 
         cursor += step.durationSeconds + (step.gapSeconds ?? 0)
     })
+
+    const sequenceDuration = Math.max(0, cursor - now)
+    setTimeout(() => {
+        try {
+            compressor.disconnect()
+        } catch {
+            // Ignore disconnect races after the audio graph is torn down.
+        }
+    }, Math.ceil((sequenceDuration + RELEASE_TAIL_SECONDS + 0.1) * 1000))
 }
 
 export function initializeNotificationSounds() {
