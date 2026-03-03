@@ -977,16 +977,39 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
         return { inserted: 0 }
     }
 
-    const { error: insertError, data: insertedData } = await supabaseAdmin
-        .from("notifications")
-        .upsert(payload, {
-            onConflict: "recipient_user_id,dedupe_key",
-            ignoreDuplicates: true,
-        })
-        .select("id")
+    const insertedData: Array<{ id: string }> = []
+    let duplicateCount = 0
+    let fatalInsertCount = 0
 
-    if (insertError) {
-        console.error("Error dispatching notification event:", insertError)
+    for (const row of payload) {
+        const { error: insertError, data } = await supabaseAdmin
+            .from("notifications")
+            .insert(row)
+            .select("id")
+            .maybeSingle()
+
+        if (insertError) {
+            if (insertError.code === "23505") {
+                duplicateCount += 1
+                continue
+            }
+
+            fatalInsertCount += 1
+            console.error("Error dispatching notification event row:", {
+                error: insertError,
+                recipient_user_id: row.recipient_user_id,
+                event_key: row.event_key,
+                dedupe_key: row.dedupe_key,
+            })
+            continue
+        }
+
+        if (data?.id) {
+            insertedData.push({ id: data.id })
+        }
+    }
+
+    if (insertedData.length === 0 && fatalInsertCount > 0) {
         if (input.domain === "TASK") {
             logTaskNotificationDebug("insert-error", {
                 eventKey: input.eventKey,
@@ -994,7 +1017,8 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
                 resolvedSector,
                 dedupeKey,
                 payloadSize: payload.length,
-                error: insertError,
+                fatalInsertCount,
+                duplicateCount,
             })
         }
         return { inserted: 0 }
@@ -1007,11 +1031,15 @@ export async function dispatchNotificationEvent(input: NotificationDispatchInput
             resolvedSector,
             dedupeKey,
             payloadSize: payload.length,
+            duplicateCount,
+            fatalInsertCount,
             inserted: (insertedData ?? []).length,
         })
     }
 
-    await revalidateNotificationRelatedPaths(input.revalidatePaths)
+    if (insertedData.length > 0) {
+        await revalidateNotificationRelatedPaths(input.revalidatePaths)
+    }
 
     return { inserted: (insertedData ?? []).length }
 }
