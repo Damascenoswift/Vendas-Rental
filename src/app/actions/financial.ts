@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getProfile, hasFullAccess } from '@/lib/auth'
 import { hasSalesAccess } from '@/lib/sales-access'
@@ -267,6 +268,47 @@ function normalizeDate(value?: string | null) {
     return fallback
 }
 
+function parseDecimalFormValue(value: FormDataEntryValue | null | undefined) {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : Number.NaN
+    }
+
+    const raw = String(value ?? '').trim()
+    if (!raw) return Number.NaN
+
+    const normalized = raw.includes(',')
+        ? raw.replace(/\./g, '').replace(',', '.')
+        : raw
+
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+function buildFinancialRedirect(params: {
+    tab: 'previsoes' | 'liberado' | 'historico'
+    seller?: string | null
+    status?: string | null
+    error?: string | null
+}) {
+    const search = new URLSearchParams()
+    search.set('tab', params.tab)
+
+    if (params.seller && params.seller !== 'all') {
+        search.set('seller', params.seller)
+    }
+
+    if (params.status) {
+        search.set('status', params.status)
+    }
+
+    if (params.error) {
+        search.set('error', params.error)
+    }
+
+    const query = search.toString()
+    return query ? `/admin/financeiro?${query}` : '/admin/financeiro'
+}
+
 async function buildClosureCode(supabaseAdmin: any, competenciaDate: string) {
     const yearMonth = competenciaDate.slice(0, 7).replace('-', '')
     const prefix = `FECH-${yearMonth}`
@@ -285,15 +327,18 @@ async function buildClosureCode(supabaseAdmin: any, competenciaDate: string) {
 }
 
 export async function closeCommissionBatchFromForm(formData: FormData): Promise<void> {
+    const seller = formData.get('return_seller')?.toString().trim() ?? ''
     const permission = await checkFinancialPermission()
-    if ('error' in permission) return
+    if ('error' in permission) {
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'permission' }))
+    }
 
     const rawSelected = formData.getAll('selected_items')
         .map((item) => String(item ?? '').trim())
         .filter(Boolean)
 
     if (rawSelected.length === 0) {
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'no-items' }))
     }
 
     const decodedItems: Array<z.infer<typeof closeableItemSchema>> = []
@@ -302,22 +347,21 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             const parsedJson = JSON.parse(decodeURIComponent(encoded))
             const parsedItem = closeableItemSchema.safeParse(parsedJson)
             if (!parsedItem.success) {
-                return
+                redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-selection' }))
             }
             decodedItems.push(parsedItem.data)
         } catch {
-            return
+            redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-selection' }))
         }
     }
 
     const expenseBeneficiary = formData.get('expense_beneficiary_user_id')?.toString().trim() ?? ''
     const expenseBrand = formData.get('expense_brand')?.toString().trim() ?? ''
     const expenseDescription = formData.get('expense_description')?.toString().trim() ?? ''
-    const expenseAmountRaw = formData.get('expense_amount')?.toString().trim() ?? ''
     const applyExpense = formData.get('apply_expense')?.toString() === '1'
 
     if (applyExpense) {
-        const expenseAmount = Number(expenseAmountRaw)
+        const expenseAmount = parseDecimalFormValue(formData.get('expense_amount'))
         if (
             !expenseBeneficiary ||
             !expenseDescription ||
@@ -325,7 +369,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             !Number.isFinite(expenseAmount) ||
             expenseAmount <= 0
         ) {
-            return
+            redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-expense' }))
         }
 
         const normalizedBrand = expenseBrand === 'dorata' ? 'dorata' : 'rental'
@@ -355,7 +399,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         .reduce((sum, item) => sum + Number(item.amount), 0)
     const totalValor = Number((totalCredits - totalDiscounts).toFixed(2))
     if (totalValor < 0) {
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'negative-total' }))
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
@@ -365,7 +409,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
     )
     const hasIneligibleBeneficiary = decodedItems.some((item) => !salesEligibility.get(item.beneficiary_user_id))
     if (hasIneligibleBeneficiary) {
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-beneficiary' }))
     }
 
     const codigo = await buildClosureCode(supabaseAdmin, competencia)
@@ -386,7 +430,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
 
     if (fechamentoError || !fechamento?.id) {
         console.error('Erro ao criar fechamento financeiro:', fechamentoError)
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'closing-create-failed' }))
     }
 
     const fechamentoItemsPayload = decodedItems.map((item) => ({
@@ -418,7 +462,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
             .eq('id', fechamento.id)
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'closing-items-failed' }))
     }
 
     const transacoesPayload = decodedItems.map((item) => ({
@@ -444,7 +488,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
             .eq('id', fechamento.id)
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'closing-transactions-failed' }))
     }
 
     const manualInserted = insertedItems?.filter((item: any) => item.source_kind === 'manual_elyakim') ?? []
@@ -473,12 +517,15 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
     }
 
     revalidatePath('/admin/financeiro')
-    return
+    redirect(buildFinancialRedirect({ tab: 'historico', seller, status: 'closing-created' }))
 }
 
 export async function createManualElyakimItemFromForm(formData: FormData): Promise<void> {
+    const seller = formData.get('return_seller')?.toString().trim() ?? ''
     const permission = await checkFinancialPermission()
-    if ('error' in permission) return
+    if ('error' in permission) {
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'permission' }))
+    }
 
     const parsed = createManualItemSchema.safeParse({
         competencia: formData.get('competencia'),
@@ -486,21 +533,21 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
         brand: formData.get('brand') ?? 'rental',
         transaction_type: formData.get('transaction_type') ?? 'comissao_venda',
         client_name: formData.get('client_name'),
-        amount: formData.get('amount'),
+        amount: parseDecimalFormValue(formData.get('amount')),
         origin_lead_id: formData.get('origin_lead_id'),
         external_ref: formData.get('external_ref'),
         observacao: formData.get('observacao'),
     })
 
     if (!parsed.success) {
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-manual' }))
     }
 
     const competencia = normalizeCompetenciaDate(parsed.data.competencia)
     const supabaseAdmin = createSupabaseServiceClient()
     const salesEligibility = await getSalesEligibilityMap(supabaseAdmin, [parsed.data.beneficiary_user_id])
     if (!salesEligibility.get(parsed.data.beneficiary_user_id)) {
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-beneficiary' }))
     }
 
     const { data: existingReport } = await supabaseAdmin
@@ -529,7 +576,7 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
 
         if (reportError || !reportInserted?.id) {
             console.error('Erro ao criar cabeçalho de relatório Elyakim:', reportError)
-            return
+            redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'manual-report-failed' }))
         }
         reportId = reportInserted.id
     }
@@ -552,11 +599,11 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
 
     if (itemError) {
         console.error('Erro ao criar item manual Elyakim:', itemError)
-        return
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'manual-item-failed' }))
     }
 
     revalidatePath('/admin/financeiro')
-    return
+    redirect(buildFinancialRedirect({ tab: 'liberado', seller, status: 'manual-created' }))
 }
 
 export async function createTransaction(prevState: CreateTransactionState, formData: FormData): Promise<CreateTransactionState> {

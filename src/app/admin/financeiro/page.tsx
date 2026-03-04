@@ -39,6 +39,9 @@ type CloseableFinancialItem = {
 
 type FinancialSearchParams = {
     seller?: string | string[]
+    tab?: string | string[]
+    status?: string | string[]
+    error?: string | string[]
 }
 
 type SellerRow = {
@@ -130,10 +133,22 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const sellerParam = Array.isArray(resolvedSearchParams?.seller)
         ? resolvedSearchParams?.seller[0]
         : resolvedSearchParams?.seller
+    const tabParam = Array.isArray(resolvedSearchParams?.tab)
+        ? resolvedSearchParams?.tab[0]
+        : resolvedSearchParams?.tab
+    const statusParam = Array.isArray(resolvedSearchParams?.status)
+        ? resolvedSearchParams?.status[0]
+        : resolvedSearchParams?.status
+    const errorParam = Array.isArray(resolvedSearchParams?.error)
+        ? resolvedSearchParams?.error[0]
+        : resolvedSearchParams?.error
 
     const selectedSellerId = typeof sellerParam === "string" && sellerParam.length > 0
         ? sellerParam
         : "all"
+    const selectedTab = tabParam === "liberado" || tabParam === "historico"
+        ? tabParam
+        : "previsoes"
     const sellerFilterId = selectedSellerId === "all" ? null : selectedSellerId
 
     const [transactions, users, pricingRules] = await Promise.all([
@@ -564,11 +579,34 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     }
 
     const sellerOptions = Array.from(sellerRowsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+    const payableSellerOptions = sellerOptions.filter((seller) => salesEligibleUserIds.has(seller.id))
     const rentalSellerOptions = sellerOptions.filter((seller) => {
         const userRow = usersById.get(seller.id)
         const brands = Array.isArray(userRow?.allowed_brands) ? userRow.allowed_brands : []
         return brands.includes("rental")
     })
+
+    const feedbackMessages = {
+        "manual-created": { tone: "success", text: "Item manual criado. Ele já entrou na lista de fechamento." },
+        "closing-created": { tone: "success", text: "Fechamento registrado. O lote foi enviado para o histórico." },
+        "permission": { tone: "error", text: "Você não tem permissão para concluir essa ação." },
+        "no-items": { tone: "error", text: "Selecione ao menos um item antes de fechar o pagamento." },
+        "invalid-selection": { tone: "error", text: "A seleção do fechamento ficou inválida. Atualize a página e tente novamente." },
+        "invalid-expense": { tone: "error", text: "Se for aplicar despesa, preencha beneficiário, descrição e valor válidos." },
+        "negative-total": { tone: "error", text: "O fechamento não pode gerar total líquido negativo." },
+        "invalid-beneficiary": { tone: "error", text: "O beneficiário escolhido não está habilitado para esse pagamento." },
+        "closing-create-failed": { tone: "error", text: "Não foi possível criar o fechamento financeiro." },
+        "closing-items-failed": { tone: "error", text: "O fechamento foi criado, mas houve falha ao salvar os itens." },
+        "closing-transactions-failed": { tone: "error", text: "O fechamento foi criado, mas houve falha ao registrar as transações." },
+        "invalid-manual": { tone: "error", text: "Revise o item manual. Beneficiário, cliente e valor precisam estar válidos." },
+        "manual-report-failed": { tone: "error", text: "Não foi possível criar o cabeçalho do relatório manual." },
+        "manual-item-failed": { tone: "error", text: "Não foi possível salvar o item manual." },
+    } as const
+
+    const feedbackKey = errorParam || statusParam
+    const feedback = feedbackKey && feedbackKey in feedbackMessages
+        ? feedbackMessages[feedbackKey as keyof typeof feedbackMessages]
+        : null
 
     const commissionSettingsRows = rentalSellerOptions.map((seller) => ({
         userId: seller.id,
@@ -781,7 +819,19 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 </div>
             </div>
 
-            <Tabs defaultValue="previsoes" className="space-y-4">
+            {feedback ? (
+                <div
+                    className={
+                        feedback.tone === "success"
+                            ? "rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+                            : "rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                    }
+                >
+                    {feedback.text}
+                </div>
+            ) : null}
+
+            <Tabs key={selectedTab} defaultValue={selectedTab} className="space-y-4">
                 <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="previsoes">Previsões</TabsTrigger>
                     <TabsTrigger value="liberado">Liberado para pagar</TabsTrigger>
@@ -1075,6 +1125,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                     </div>
 
                     <form action={closeCommissionBatchFromForm} className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                        <input type="hidden" name="return_seller" value={selectedSellerId} />
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
                             <div className="flex flex-col gap-1">
                                 <label htmlFor="competencia" className="text-sm font-medium">Competência</label>
@@ -1144,7 +1195,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                                     >
                                         <option value="">Sem despesa</option>
-                                        {sellerOptions.map((seller) => (
+                                        {payableSellerOptions.map((seller) => (
                                             <option key={`expense-user-${seller.id}`} value={seller.id}>
                                                 {seller.name}
                                             </option>
@@ -1269,6 +1320,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                         </div>
 
                         <form action={createManualElyakimItemFromForm} className="grid gap-4 md:grid-cols-2">
+                            <input type="hidden" name="return_seller" value={selectedSellerId} />
                             <div className="flex flex-col gap-1">
                                 <label htmlFor="manual_competencia" className="text-sm font-medium">Competência</label>
                                 <input
@@ -1289,7 +1341,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     required
                                 >
                                     <option value="">Selecione...</option>
-                                    {sellerOptions.map((seller) => (
+                                    {payableSellerOptions.map((seller) => (
                                         <option key={`manual-user-${seller.id}`} value={seller.id}>
                                             {seller.name}
                                         </option>
