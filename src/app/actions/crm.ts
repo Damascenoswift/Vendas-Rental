@@ -5,7 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
 import { getRentalDefaultStageName } from "@/services/crm-card-service"
-import { createIndicationNotificationEvent } from "@/services/notification-service"
+import { createIndicationNotificationEvent, createWorkReleasedForStartNotifications } from "@/services/notification-service"
 import { createRentalTasksForIndication, createTask } from "@/services/task-service"
 import { upsertWorkCardFromProposal } from "@/services/work-cards-service"
 
@@ -87,6 +87,16 @@ export async function activateWorkCardFromProposal(
     revalidatePath("/admin/crm")
     revalidatePath("/admin/indicacoes")
     revalidatePath("/admin/obras")
+
+    if (result?.workId) {
+        await createWorkReleasedForStartNotifications({
+            workId: result.workId,
+            actorUserId: user.id,
+            proposalId,
+            executionBusinessDays,
+            dedupeToken: `${proposalId}:${Date.now()}`,
+        })
+    }
 
     return {
         success: true,
@@ -680,6 +690,13 @@ export async function markDorataContractSigned(
         if (workResult?.error) {
             console.error("Erro ao criar/atualizar obra ao assinar contrato no CRM Dorata:", workResult.error)
             appendWarning(`Contrato assinado, mas falhou ao criar/atualizar a obra. (${workResult.error})`)
+        } else if (workResult?.workId) {
+            await createWorkReleasedForStartNotifications({
+                workId: workResult.workId,
+                actorUserId: user.id,
+                proposalId: preferredProposalId,
+                dedupeToken: `${preferredProposalId}:${signedAt}`,
+            })
         }
     }
 

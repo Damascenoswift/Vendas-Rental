@@ -51,6 +51,7 @@ export type NotificationEventKey =
     | "INDICATION_INTERACTION_COMMENT"
     | "INDICATION_ENERGISA_LOG_ADDED"
     | "INDICATION_CONTRACT_MILESTONE"
+    | "WORK_RELEASED_FOR_START"
     | "WORK_COMMENT_CREATED"
     | "WORK_PROCESS_STATUS_CHANGED"
     | "INTERNAL_CHAT_MESSAGE"
@@ -2576,6 +2577,86 @@ export async function createWorkProcessStatusChangedNotifications(params: {
         },
         recipients,
         dedupeKey: `WORK_PROCESS_STATUS_CHANGED:${params.processItemId}:${params.newStatus}:${params.dedupeToken?.trim() || "default"}`,
+        targetPath: `/admin/obras?openWork=${params.workId}`,
+    })
+}
+
+export async function createWorkReleasedForStartNotifications(params: {
+    workId: string
+    actorUserId: string
+    proposalId?: string | null
+    executionBusinessDays?: number | null
+    dedupeToken?: string | null
+}) {
+    if (!params.workId || !params.actorUserId) {
+        return
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error("Error creating service client for work start notifications:", error)
+        return
+    }
+
+    const [workResult, actorResult, sectorMembers] = await Promise.all([
+        supabaseAdmin
+            .from("obra_cards" as any)
+            .select("id, title")
+            .eq("id", params.workId)
+            .maybeSingle(),
+        supabaseAdmin
+            .from("users")
+            .select("id, name, email")
+            .eq("id", params.actorUserId)
+            .maybeSingle(),
+        getActiveUsersByDepartment(supabaseAdmin, "obras"),
+    ])
+
+    if (workResult.error || !workResult.data) {
+        console.error("Error loading work for work start notifications:", workResult.error)
+        return
+    }
+
+    if (actorResult.error) {
+        console.error("Error loading actor for work start notifications:", actorResult.error)
+    }
+
+    const recipients: NotificationDispatchRecipient[] = []
+    sectorMembers.forEach((member) => {
+        recipients.push({
+            userId: member.id,
+            responsibilityKind: "SECTOR_MEMBER",
+        })
+    })
+
+    const actor = actorResult.data as { name?: string | null; email?: string | null } | null
+    const actorDisplay = actor?.name?.trim() || actor?.email || "Alguém"
+    const workTitle = ((workResult.data as { title?: string | null }).title ?? "Obra sem título").trim() || "Obra sem título"
+    const prazoMessage =
+        typeof params.executionBusinessDays === "number" && Number.isInteger(params.executionBusinessDays) && params.executionBusinessDays > 0
+            ? ` • Prazo previsto: ${params.executionBusinessDays} dia(s) úteis`
+            : ""
+
+    await dispatchNotificationEvent({
+        domain: "OBRA",
+        eventKey: "WORK_RELEASED_FOR_START",
+        sector: "obras",
+        actorUserId: params.actorUserId,
+        entityType: "OBRA",
+        entityId: params.workId,
+        title: `${actorDisplay} liberou um projeto para início em Obras`,
+        message: `Obra: ${workTitle}${prazoMessage}`,
+        metadata: {
+            work_id: params.workId,
+            work_title: workTitle,
+            proposal_id: params.proposalId ?? null,
+            execution_business_days: params.executionBusinessDays ?? null,
+            target_path: `/admin/obras?openWork=${params.workId}`,
+        },
+        recipients,
+        dedupeKey: `WORK_RELEASED_FOR_START:${params.workId}:${params.dedupeToken?.trim() || new Date().toISOString()}`,
         targetPath: `/admin/obras?openWork=${params.workId}`,
     })
 }
