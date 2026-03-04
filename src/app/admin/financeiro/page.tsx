@@ -42,6 +42,7 @@ type FinancialSearchParams = {
     tab?: string | string[]
     status?: string | string[]
     error?: string | string[]
+    detail?: string | string[]
 }
 
 type SellerRow = {
@@ -142,6 +143,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const errorParam = Array.isArray(resolvedSearchParams?.error)
         ? resolvedSearchParams?.error[0]
         : resolvedSearchParams?.error
+    const detailParam = Array.isArray(resolvedSearchParams?.detail)
+        ? resolvedSearchParams?.detail[0]
+        : resolvedSearchParams?.detail
 
     const selectedSellerId = typeof sellerParam === "string" && sellerParam.length > 0
         ? sellerParam
@@ -628,6 +632,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const feedbackMessages = {
         "manual-created": { tone: "success", text: "Item manual criado. Ele já entrou na lista de fechamento." },
         "closing-created": { tone: "success", text: "Fechamento registrado. O lote foi enviado para o histórico." },
+        "closing-created-no-history": { tone: "success", text: "Pagamento registrado e removido do liberado, mas o histórico de lotes não está disponível neste banco." },
         "permission": { tone: "error", text: "Você não tem permissão para concluir essa ação." },
         "no-items": { tone: "error", text: "Selecione ao menos um item antes de fechar o pagamento." },
         "invalid-selection": { tone: "error", text: "A seleção do fechamento ficou inválida. Atualize a página e tente novamente." },
@@ -645,6 +650,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const feedbackKey = errorParam || statusParam
     const feedback = feedbackKey && feedbackKey in feedbackMessages
         ? feedbackMessages[feedbackKey as keyof typeof feedbackMessages]
+        : null
+    const feedbackDetail = typeof detailParam === "string" && detailParam.trim().length > 0
+        ? detailParam.trim()
         : null
 
     const commissionSettingsRows = rentalSellerOptions.map((seller) => ({
@@ -866,7 +874,10 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                             : "rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
                     }
                 >
-                    {feedback.text}
+                    <div>{feedback.text}</div>
+                    {feedback.tone === "error" && feedbackDetail ? (
+                        <div className="mt-1 text-xs opacity-80">{feedbackDetail}</div>
+                    ) : null}
                 </div>
             ) : null}
 

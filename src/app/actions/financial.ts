@@ -64,6 +64,39 @@ function parseMissingColumnError(message?: string | null) {
     return null
 }
 
+function extractErrorMessage(error: unknown) {
+    if (!error) return null
+    if (typeof error === 'string') return error
+    if (typeof error === 'object' && 'message' in error) {
+        const message = (error as { message?: unknown }).message
+        if (typeof message === 'string') return message
+    }
+    return null
+}
+
+function isMissingRelationError(message?: string | null, relation?: string) {
+    if (!message || !relation) return false
+    const escapedRelation = relation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`relation ["']?${escapedRelation}["']? does not exist`, 'i')
+    return regex.test(message)
+}
+
+function isClosureSchemaUnavailableError(error: unknown) {
+    const message = extractErrorMessage(error)
+    const missingColumn = parseMissingColumnError(message)
+    if (
+        missingColumn &&
+        (missingColumn.table === 'financeiro_fechamentos' || missingColumn.table === 'financeiro_fechamento_itens')
+    ) {
+        return true
+    }
+
+    return (
+        isMissingRelationError(message, 'financeiro_fechamentos') ||
+        isMissingRelationError(message, 'financeiro_fechamento_itens')
+    )
+}
+
 async function upsertPricingRuleWithFallback(
     supabaseAdmin: any,
     payload: Record<string, unknown>
@@ -297,6 +330,7 @@ function buildFinancialRedirect(params: {
     seller?: string | null
     status?: string | null
     error?: string | null
+    detail?: string | null
 }) {
     const search = new URLSearchParams()
     search.set('tab', params.tab)
@@ -311,6 +345,10 @@ function buildFinancialRedirect(params: {
 
     if (params.error) {
         search.set('error', params.error)
+    }
+
+    if (params.detail) {
+        search.set('detail', params.detail.slice(0, 240))
     }
 
     const query = search.toString()
@@ -408,6 +446,39 @@ async function createClosingRecord(params: {
     }
 }
 
+function buildTransactionsPayload(params: {
+    items: Array<z.infer<typeof closeableItemSchema>>
+    paymentDate: string
+    createdBy: string
+    fallbackLabel: string
+}) {
+    return params.items.map((item) => ({
+        beneficiary_user_id: item.beneficiary_user_id,
+        origin_lead_id: item.origin_lead_id ?? null,
+        type: item.transaction_type,
+        amount: item.transaction_type === 'despesa'
+            ? -Number(item.amount)
+            : Number(item.amount),
+        description: item.description || params.fallbackLabel,
+        status: 'pago',
+        due_date: params.paymentDate,
+        created_by: params.createdBy,
+    }))
+}
+
+async function insertFinancialTransactions(params: {
+    supabaseAdmin: any
+    items: Array<z.infer<typeof closeableItemSchema>>
+    paymentDate: string
+    createdBy: string
+    fallbackLabel: string
+}) {
+    const transacoesPayload = buildTransactionsPayload(params)
+    return params.supabaseAdmin
+        .from('financeiro_transacoes')
+        .insert(transacoesPayload)
+}
+
 export async function closeCommissionBatchFromForm(formData: FormData): Promise<void> {
     const seller = formData.get('return_seller')?.toString().trim() ?? ''
     const permission = await checkFinancialPermission()
@@ -472,6 +543,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
     const paymentDate = normalizeDate(formData.get('payment_date')?.toString() ?? null)
     const observacaoRaw = formData.get('observacao')?.toString().trim()
     const observacao = observacaoRaw && observacaoRaw.length > 0 ? observacaoRaw : null
+    const fallbackTransactionLabel = `Fechamento ${competencia}`
 
     const totalCredits = decodedItems
         .filter((item) => item.transaction_type !== 'despesa')
@@ -505,7 +577,39 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
 
     if (fechamentoError || !fechamento?.id) {
         console.error('Erro ao criar fechamento financeiro:', fechamentoError)
-        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'closing-create-failed' }))
+
+        if (
+            isClosureSchemaUnavailableError(fechamentoError) &&
+            !decodedItems.some((item) => item.source_kind === 'manual_elyakim')
+        ) {
+            const { error: fallbackTransactionsError } = await insertFinancialTransactions({
+                supabaseAdmin,
+                items: decodedItems,
+                paymentDate,
+                createdBy: permission.userId,
+                fallbackLabel: fallbackTransactionLabel,
+            })
+
+            if (fallbackTransactionsError) {
+                console.error('Erro ao registrar transações em fallback do fechamento:', fallbackTransactionsError)
+                redirect(buildFinancialRedirect({
+                    tab: 'liberado',
+                    seller,
+                    error: 'closing-create-failed',
+                    detail: extractErrorMessage(fallbackTransactionsError),
+                }))
+            }
+
+            revalidatePath('/admin/financeiro')
+            redirect(buildFinancialRedirect({ tab: 'liberado', seller, status: 'closing-created-no-history' }))
+        }
+
+        redirect(buildFinancialRedirect({
+            tab: 'liberado',
+            seller,
+            error: 'closing-create-failed',
+            detail: extractErrorMessage(fechamentoError),
+        }))
     }
 
     const fechamentoItemsPayload = decodedItems.map((item) => ({
@@ -537,25 +641,48 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
             .eq('id', fechamento.id)
-        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'closing-items-failed' }))
+
+        if (
+            isClosureSchemaUnavailableError(fechamentoItemsError) &&
+            !decodedItems.some((item) => item.source_kind === 'manual_elyakim')
+        ) {
+            const { error: fallbackTransactionsError } = await insertFinancialTransactions({
+                supabaseAdmin,
+                items: decodedItems,
+                paymentDate,
+                createdBy: permission.userId,
+                fallbackLabel: fallbackTransactionLabel,
+            })
+
+            if (fallbackTransactionsError) {
+                console.error('Erro ao registrar transações após falha de itens do fechamento:', fallbackTransactionsError)
+                redirect(buildFinancialRedirect({
+                    tab: 'liberado',
+                    seller,
+                    error: 'closing-items-failed',
+                    detail: extractErrorMessage(fallbackTransactionsError),
+                }))
+            }
+
+            revalidatePath('/admin/financeiro')
+            redirect(buildFinancialRedirect({ tab: 'liberado', seller, status: 'closing-created-no-history' }))
+        }
+
+        redirect(buildFinancialRedirect({
+            tab: 'liberado',
+            seller,
+            error: 'closing-items-failed',
+            detail: extractErrorMessage(fechamentoItemsError),
+        }))
     }
 
-    const transacoesPayload = decodedItems.map((item) => ({
-        beneficiary_user_id: item.beneficiary_user_id,
-        origin_lead_id: item.origin_lead_id ?? null,
-        type: item.transaction_type,
-        amount: item.transaction_type === 'despesa'
-            ? -Number(item.amount)
-            : Number(item.amount),
-        description: item.description || `Fechamento ${competencia}`,
-        status: 'pago',
-        due_date: paymentDate,
-        created_by: permission.userId,
-    }))
-
-    const { error: transacoesError } = await supabaseAdmin
-        .from('financeiro_transacoes')
-        .insert(transacoesPayload)
+    const { error: transacoesError } = await insertFinancialTransactions({
+        supabaseAdmin,
+        items: decodedItems,
+        paymentDate,
+        createdBy: permission.userId,
+        fallbackLabel: fallbackTransactionLabel,
+    })
 
     if (transacoesError) {
         console.error('Erro ao registrar transações do fechamento:', transacoesError)
@@ -563,7 +690,12 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
             .eq('id', fechamento.id)
-        redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'closing-transactions-failed' }))
+        redirect(buildFinancialRedirect({
+            tab: 'liberado',
+            seller,
+            error: 'closing-transactions-failed',
+            detail: extractErrorMessage(transacoesError),
+        }))
     }
 
     const manualInserted = insertedItems?.filter((item: any) => item.source_kind === 'manual_elyakim') ?? []
