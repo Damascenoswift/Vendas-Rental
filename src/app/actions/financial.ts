@@ -556,6 +556,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'negative-total' }))
     }
 
+    const supabase = await createClient()
     const supabaseAdmin = createSupabaseServiceClient()
     const salesEligibility = await getSalesEligibilityMap(
         supabaseAdmin,
@@ -567,7 +568,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
     }
 
     const { data: fechamento, error: fechamentoError } = await createClosingRecord({
-        supabaseAdmin,
+        supabaseAdmin: supabase,
         competencia,
         totalItens: decodedItems.length,
         totalValor,
@@ -583,7 +584,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             !decodedItems.some((item) => item.source_kind === 'manual_elyakim')
         ) {
             const { error: fallbackTransactionsError } = await insertFinancialTransactions({
-                supabaseAdmin,
+                supabaseAdmin: supabase,
                 items: decodedItems,
                 paymentDate,
                 createdBy: permission.userId,
@@ -630,14 +631,14 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         },
     }))
 
-    const { data: insertedItems, error: fechamentoItemsError } = await supabaseAdmin
+    const { data: insertedItems, error: fechamentoItemsError } = await supabase
         .from('financeiro_fechamento_itens')
         .insert(fechamentoItemsPayload)
         .select('id, source_kind, source_ref_id')
 
     if (fechamentoItemsError) {
         console.error('Erro ao inserir itens do fechamento:', fechamentoItemsError)
-        await supabaseAdmin
+        await supabase
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
             .eq('id', fechamento.id)
@@ -647,7 +648,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
             !decodedItems.some((item) => item.source_kind === 'manual_elyakim')
         ) {
             const { error: fallbackTransactionsError } = await insertFinancialTransactions({
-                supabaseAdmin,
+                supabaseAdmin: supabase,
                 items: decodedItems,
                 paymentDate,
                 createdBy: permission.userId,
@@ -677,7 +678,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
     }
 
     const { error: transacoesError } = await insertFinancialTransactions({
-        supabaseAdmin,
+        supabaseAdmin: supabase,
         items: decodedItems,
         paymentDate,
         createdBy: permission.userId,
@@ -686,7 +687,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
 
     if (transacoesError) {
         console.error('Erro ao registrar transações do fechamento:', transacoesError)
-        await supabaseAdmin
+        await supabase
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
             .eq('id', fechamento.id)
@@ -708,7 +709,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
 
         for (const manualId of manualIds) {
             const fechamentoItemId = closureItemIdByManualId.get(manualId) ?? null
-            const { error: manualUpdateError } = await supabaseAdmin
+            const { error: manualUpdateError } = await supabase
                 .from('financeiro_relatorios_manuais_itens')
                 .update({
                     status: 'pago',
@@ -751,13 +752,14 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
     }
 
     const competencia = normalizeCompetenciaDate(parsed.data.competencia)
+    const supabase = await createClient()
     const supabaseAdmin = createSupabaseServiceClient()
     const salesEligibility = await getSalesEligibilityMap(supabaseAdmin, [parsed.data.beneficiary_user_id])
     if (!salesEligibility.get(parsed.data.beneficiary_user_id)) {
         redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-beneficiary' }))
     }
 
-    const { data: existingReport } = await supabaseAdmin
+    const { data: existingReport } = await supabase
         .from('financeiro_relatorios_manuais')
         .select('id')
         .eq('fonte', 'elyakim')
@@ -769,7 +771,7 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
 
     let reportId = existingReport?.id ?? null
     if (!reportId) {
-        const { data: reportInserted, error: reportError } = await supabaseAdmin
+        const { data: reportInserted, error: reportError } = await supabase
             .from('financeiro_relatorios_manuais')
             .insert({
                 fonte: 'elyakim',
@@ -788,7 +790,7 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
         reportId = reportInserted.id
     }
 
-    const { error: itemError } = await supabaseAdmin
+    const { error: itemError } = await supabase
         .from('financeiro_relatorios_manuais_itens')
         .insert({
             report_id: reportId,
