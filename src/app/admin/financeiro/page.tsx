@@ -170,8 +170,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     ] = await Promise.all([
         supabaseAdmin
             .from('proposals')
-            .select('id, created_at, total_value, calculation, seller_id, seller:users(id, name, email), cliente:indicacoes!proposals_client_id_fkey(id, nome, marca, status, assinada_em)')
-            .eq('status', 'sent')
+            .select('id, client_id, status, created_at, total_value, calculation, seller_id, seller:users(id, name, email), cliente:indicacoes!proposals_client_id_fkey(id, nome, marca, status, assinada_em, contract_proposal_id)')
             .order('created_at', { ascending: false }),
         supabaseAdmin
             .from('indicacoes')
@@ -343,16 +342,54 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     )
     const rentalMetadataByLead = new Map(rentalMetadataEntries)
 
-    const dorataProposalsFiltered = dorataProposals.filter((proposal: any) => {
+    const proposalStatusPriority: Record<string, number> = {
+        accepted: 0,
+        sent: 1,
+        draft: 2,
+    }
+
+    const dorataProposalCandidates = dorataProposals.filter((proposal: any) => {
         const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
         return cliente?.marca === 'dorata'
     })
+
+    const dorataProposalGroups = new Map<string, any[]>()
+    for (const proposal of dorataProposalCandidates) {
+        const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
+        const clientId = (cliente?.id as string | null) ?? (proposal?.client_id as string | null) ?? null
+        if (!clientId) continue
+
+        const current = dorataProposalGroups.get(clientId) ?? []
+        current.push(proposal)
+        dorataProposalGroups.set(clientId, current)
+    }
+
+    const dorataProposalsFiltered = Array.from(dorataProposalGroups.values())
+        .map((group) => {
+            const firstClient = Array.isArray(group[0]?.cliente) ? group[0]?.cliente[0] : group[0]?.cliente
+            const selectedContractProposalId = (firstClient?.contract_proposal_id as string | null) ?? null
+
+            if (selectedContractProposalId) {
+                const selectedProposal = group.find((proposal) => proposal.id === selectedContractProposalId)
+                if (selectedProposal) return selectedProposal
+            }
+
+            return group
+                .slice()
+                .sort((a, b) => {
+                    const rankA = proposalStatusPriority[a.status ?? ""] ?? 99
+                    const rankB = proposalStatusPriority[b.status ?? ""] ?? 99
+                    if (rankA !== rankB) return rankA - rankB
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                })[0] ?? null
+        })
+        .filter(Boolean)
 
     const dorataProposalClientIds = new Set(
         dorataProposalsFiltered
             .map((proposal: any) => {
                 const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
-                return cliente?.id
+                return cliente?.id ?? proposal?.client_id
             })
             .filter(Boolean)
     )
