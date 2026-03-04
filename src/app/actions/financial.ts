@@ -51,9 +51,17 @@ type FinancialPermissionResult =
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
-    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
-    if (!match) return null
-    return { column: match[1], table: match[2] }
+    const schemaCacheMatch = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+    if (schemaCacheMatch) {
+        return { column: schemaCacheMatch[1], table: schemaCacheMatch[2] }
+    }
+
+    const relationMatch = message.match(/column "([^"]+)" of relation "([^"]+)" does not exist/i)
+    if (relationMatch) {
+        return { column: relationMatch[1], table: relationMatch[2] }
+    }
+
+    return null
 }
 
 async function upsertPricingRuleWithFallback(
@@ -343,9 +351,10 @@ async function createClosingRecord(params: {
     observacao: string | null
 }) {
     let codigo = await buildClosureCode(params.supabaseAdmin, params.competencia)
+    const optionalColumns = new Set(["updated_at", "observacao", "fechado_por", "fechado_em"])
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-        let includeUpdatedAt = true
+        const excludedColumns = new Set<string>()
 
         while (true) {
             const payload: Record<string, unknown> = {
@@ -357,11 +366,12 @@ async function createClosingRecord(params: {
                 fechado_em: new Date().toISOString(),
                 fechado_por: params.fechadoPor,
                 observacao: params.observacao,
+                updated_at: new Date().toISOString(),
             }
 
-            if (includeUpdatedAt) {
-                payload.updated_at = new Date().toISOString()
-            }
+            excludedColumns.forEach((column) => {
+                delete payload[column]
+            })
 
             const result = await params.supabaseAdmin
                 .from('financeiro_fechamentos')
@@ -374,13 +384,8 @@ async function createClosingRecord(params: {
             }
 
             const missingColumn = parseMissingColumnError(result.error?.message)
-            if (
-                includeUpdatedAt &&
-                missingColumn &&
-                missingColumn.table === 'financeiro_fechamentos' &&
-                missingColumn.column === 'updated_at'
-            ) {
-                includeUpdatedAt = false
+            if (missingColumn && missingColumn.table === 'financeiro_fechamentos' && optionalColumns.has(missingColumn.column)) {
+                excludedColumns.add(missingColumn.column)
                 continue
             }
 
