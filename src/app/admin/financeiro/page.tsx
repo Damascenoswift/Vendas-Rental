@@ -198,18 +198,18 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .eq('is_done', true)
             .ilike('title', '%contrato assinado%')
             .order('completed_at', { ascending: false }),
-        supabaseAdmin
+        supabase
             .from('financeiro_fechamentos')
             .select('id, codigo, competencia, status, total_itens, total_valor, fechado_em, fechado_por, observacao, created_at')
             .order('fechado_em', { ascending: false })
             .order('created_at', { ascending: false })
             .limit(80),
-        supabaseAdmin
+        supabase
             .from('financeiro_fechamento_itens')
             .select('id, beneficiary_user_id, transaction_type, origin_lead_id, valor_pago, pagamento_em, descricao, fechamento:financeiro_fechamentos!financeiro_fechamento_itens_fechamento_id_fkey(status)')
             .order('pagamento_em', { ascending: false })
             .limit(1000),
-        supabaseAdmin
+        supabase
             .from('financeiro_relatorios_manuais_itens')
             .select('id, report_id, beneficiary_user_id, brand, transaction_type, client_name, origin_lead_id, valor, status, external_ref, observacao, created_at, paid_at, report:financeiro_relatorios_manuais!financeiro_relatorios_manuais_itens_report_id_fkey(competencia)')
             .order('created_at', { ascending: false })
