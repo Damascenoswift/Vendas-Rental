@@ -375,6 +375,24 @@ export async function getTasks(filters?: {
 
     if (!user) return []
 
+    let observerTaskIdSet: Set<string> | null = null
+    if (filters?.assigneeId) {
+        const { data: observerRows, error: observerError } = await supabase
+            .from('task_observers')
+            .select('task_id')
+            .eq('user_id', filters.assigneeId)
+
+        if (observerError) {
+            console.error("Error fetching observer task ids:", observerError)
+        }
+
+        observerTaskIdSet = new Set(
+            ((observerRows ?? []) as Array<{ task_id?: string | null }>)
+                .map((row) => (typeof row.task_id === 'string' ? row.task_id.trim() : ''))
+                .filter(Boolean)
+        )
+    }
+
     let query = supabase
         .from('tasks')
         .select(`
@@ -386,10 +404,6 @@ export async function getTasks(filters?: {
 
     if (filters?.department) {
         query = query.eq('department', filters.department)
-    }
-
-    if (filters?.assigneeId) {
-        query = query.eq('assignee_id', filters.assigneeId)
     }
 
     if (filters?.brand) {
@@ -410,11 +424,18 @@ export async function getTasks(filters?: {
         return []
     }
 
-    const rows = (data as any[]).map(item => ({
+    const allRows = (data as any[]).map(item => ({
         ...item,
         assignee: item.assignee,
         creator: item.creator
     })) as Task[]
+
+    const rows = filters?.assigneeId
+        ? allRows.filter((task) => {
+            if (task.assignee_id === filters.assigneeId) return true
+            return observerTaskIdSet?.has(task.id) ?? false
+        })
+        : allRows
 
     if (rows.length === 0) return rows
 

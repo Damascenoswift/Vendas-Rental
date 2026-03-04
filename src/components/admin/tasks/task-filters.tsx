@@ -31,7 +31,7 @@ const BRAND_OPTIONS: { value: TaskBrand; label: string }[] = [
 
 const SCOPE_OPTIONS: { value: TaskScope; label: string; requiresDepartment?: boolean }[] = [
     { value: "all", label: "Todas as tarefas" },
-    { value: "mine", label: "Minhas tarefas" },
+    { value: "mine", label: "Minhas + observadas" },
     { value: "department", label: "Tarefas do meu setor", requiresDepartment: true },
 ]
 
