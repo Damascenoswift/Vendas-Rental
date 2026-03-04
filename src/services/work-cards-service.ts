@@ -27,6 +27,7 @@ export interface WorkCard {
     brand: "dorata" | "rental"
     installation_key: string
     codigo_instalacao: string | null
+    work_address: string | null
     title: string | null
     status: WorkCardStatus
     completed_at: string | null
@@ -145,6 +146,30 @@ export interface WorkImage {
     signed_url: string | null
 }
 
+export interface WorkExpenseAttachment {
+    path: string
+    name: string
+    size: number | null
+    content_type: string | null
+    signed_url: string | null
+}
+
+export interface WorkExpense {
+    id: string
+    obra_id: string
+    user_id: string | null
+    description: string
+    amount: number
+    attachment: WorkExpenseAttachment | null
+    created_at: string
+    updated_at: string
+    user?: {
+        id?: string
+        name: string | null
+        email: string | null
+    } | null
+}
+
 const INTERNAL_WORK_ROLES = new Set([
     "adm_mestre",
     "adm_dorata",
@@ -158,11 +183,13 @@ const INTERNAL_WORK_ROLES = new Set([
 
 const WORK_IMAGES_BUCKET = "obra-images"
 const WORK_COMMENT_ATTACHMENTS_BUCKET = "obra-comment-attachments"
+const WORK_EXPENSE_ATTACHMENTS_BUCKET = "obra-expense-attachments"
 const WORK_IMAGE_PREVIEW_WIDTH = 720
 const WORK_IMAGE_PREVIEW_QUALITY = 55
 const WORK_IMAGE_PREVIEW_TTL_SECONDS = 60 * 60
 const WORK_IMAGE_FULL_TTL_SECONDS = 60 * 10
 const WORK_COMMENT_ATTACHMENT_TTL_SECONDS = 60 * 60
+const WORK_EXPENSE_ATTACHMENT_TTL_SECONDS = 60 * 60
 
 const PROJECT_TEMPLATE = [
     { sort_order: 1, title: "Validar dados técnicos do orçamento" },
@@ -272,8 +299,19 @@ function normalizeWorkCardsError(message?: string | null) {
         return "Banco desatualizado: execute a migração 090_work_cards_execution_deadline.sql."
     }
 
+    if (
+        normalized.includes("work_address") ||
+        normalized.includes("obra_expenses")
+    ) {
+        return "Banco desatualizado: execute a migração 104_work_cards_address_and_expenses.sql."
+    }
+
     if (normalized.includes("responsible_user_id")) {
         return "Banco desatualizado: execute a migração 099_work_process_responsible_user.sql."
+    }
+
+    if (normalized.includes("permission denied for table obra_expenses")) {
+        return "Permissões do banco desatualizadas: execute a migração 104_work_cards_address_and_expenses.sql."
     }
 
     if (
@@ -298,6 +336,13 @@ function normalizeWorkCardsError(message?: string | null) {
         normalized.includes("permission")
     ) {
         return "Permissões do storage desatualizadas: execute a migração 094_work_comments_attachments.sql."
+    }
+
+    if (
+        normalized.includes("obra-expense-attachments") &&
+        normalized.includes("permission")
+    ) {
+        return "Permissões do storage desatualizadas: execute a migração 104_work_cards_address_and_expenses.sql."
     }
 
     return raw
@@ -1215,6 +1260,7 @@ export async function upsertWorkCardFromProposal(params: {
     }
 
     await ensureProjectTemplate(workId)
+    await ensureExecutionTemplate(workId)
 
     const { error: demoteError } = await supabaseAdmin
         .from("obra_card_proposals" as any)
@@ -1302,6 +1348,7 @@ export async function getWorkCards(filters?: {
             brand,
             installation_key,
             codigo_instalacao,
+            work_address,
             title,
             status,
             completed_at,
@@ -1336,7 +1383,7 @@ export async function getWorkCards(filters?: {
 
     const sanitizedSearch = sanitizeSearchTerm(filters?.search)
     if (sanitizedSearch) {
-        query = query.or(`title.ilike.%${sanitizedSearch}%,codigo_instalacao.ilike.%${sanitizedSearch}%,installation_key.ilike.%${sanitizedSearch}%`)
+        query = query.or(`title.ilike.%${sanitizedSearch}%,codigo_instalacao.ilike.%${sanitizedSearch}%,installation_key.ilike.%${sanitizedSearch}%,work_address.ilike.%${sanitizedSearch}%`)
     }
 
     const { data, error } = await query
@@ -1442,6 +1489,32 @@ export async function getWorkCardById(workId: string) {
         ...found,
         latest_energisa_comment: latestEnergisa,
     } satisfies WorkCard
+}
+
+export async function updateWorkCardLocation(input: {
+    workId: string
+    workAddress: string
+}) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return { error: "Sem permissão." }
+
+    const normalizedAddress = input.workAddress.trim()
+    if (!normalizedAddress) {
+        return { error: "Informe o endereço da obra." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { error } = await supabaseAdmin
+        .from("obra_cards" as any)
+        .update({ work_address: normalizedAddress })
+        .eq("id", input.workId)
+
+    if (error) {
+        return { error: normalizeWorkCardsError(error.message) }
+    }
+
+    revalidatePath("/admin/obras")
+    return { success: true }
 }
 
 export async function getWorkProposalLinks(workId: string) {
@@ -1558,22 +1631,6 @@ export async function addWorkProcessItem(input: {
     if (!title) return { error: "Título obrigatório." }
 
     const supabaseAdmin = createSupabaseServiceClient()
-
-    if (input.phase === "EXECUCAO") {
-        const { data: card, error: cardError } = await supabaseAdmin
-            .from("obra_cards" as any)
-            .select("id, projeto_liberado_at")
-            .eq("id", input.workId)
-            .maybeSingle()
-
-        if (cardError || !card) {
-            return { error: cardError?.message ?? "Obra não encontrada." }
-        }
-
-        if (!card.projeto_liberado_at) {
-            return { error: "Libere o projeto antes de criar processos de execução." }
-        }
-    }
 
     const { data: maxOrderRows, error: maxOrderError } = await supabaseAdmin
         .from("obra_process_items" as any)
@@ -1696,20 +1753,6 @@ export async function setWorkProcessItemStatus(input: {
         return { error: currentError?.message ?? "Processo não encontrado." }
     }
 
-    const { data: card, error: cardError } = await supabaseAdmin
-        .from("obra_cards" as any)
-        .select("id, projeto_liberado_at")
-        .eq("id", current.obra_id)
-        .maybeSingle()
-
-    if (cardError || !card) {
-        return { error: cardError?.message ?? "Obra não encontrada." }
-    }
-
-    if (current.phase === "EXECUCAO" && !card.projeto_liberado_at) {
-        return { error: "Libere o projeto antes de iniciar a execução." }
-    }
-
     const now = new Date().toISOString()
     const payload: Record<string, unknown> = {
         status: input.status,
@@ -1823,46 +1866,25 @@ export async function releaseProjectForExecution(workId: string) {
     if (!user || !role) return { error: "Sem permissão." }
 
     const supabaseAdmin = createSupabaseServiceClient()
-
-    const [{ data: card, error: cardError }, { data: projectItems, error: projectError }] = await Promise.all([
-        supabaseAdmin
-            .from("obra_cards" as any)
-            .select("id, status, tasks_integration_enabled")
-            .eq("id", workId)
-            .maybeSingle(),
-        supabaseAdmin
-            .from("obra_process_items" as any)
-            .select("id, status")
-            .eq("obra_id", workId)
-            .eq("phase", "PROJETO"),
-    ])
+    const { data: card, error: cardError } = await supabaseAdmin
+        .from("obra_cards" as any)
+        .select("id, status, tasks_integration_enabled, projeto_liberado_at, projeto_liberado_by")
+        .eq("id", workId)
+        .maybeSingle()
 
     if (cardError || !card) {
         return { error: cardError?.message ?? "Obra não encontrada." }
     }
 
-    if (projectError) {
-        return { error: projectError.message }
-    }
-
-    const items = (projectItems ?? []) as Array<{ id: string; status: WorkProcessStatus }>
-    if (items.length === 0) {
-        return { error: "A obra não possui processos de projeto cadastrados." }
-    }
-
-    const pending = items.filter((item) => item.status !== "DONE")
-    if (pending.length > 0) {
-        return { error: "Conclua todos os processos de projeto antes de liberar a obra." }
-    }
-
     const now = new Date().toISOString()
+    const nextStatus: WorkCardStatus = card.status === "FECHADA" ? "PARA_INICIAR" : card.status
 
     const { error: updateError } = await supabaseAdmin
         .from("obra_cards" as any)
         .update({
-            status: "PARA_INICIAR",
-            projeto_liberado_at: now,
-            projeto_liberado_by: user.id,
+            status: nextStatus,
+            projeto_liberado_at: card.projeto_liberado_at ?? now,
+            projeto_liberado_by: card.projeto_liberado_by ?? user.id,
             completed_at: null,
         })
         .eq("id", workId)
@@ -1881,7 +1903,7 @@ export async function releaseProjectForExecution(workId: string) {
 
         await syncWorkTasksByCardStatus({
             obraId: workId,
-            status: "PARA_INICIAR",
+            status: nextStatus,
         })
     }
 
@@ -1889,6 +1911,166 @@ export async function releaseProjectForExecution(workId: string) {
     revalidatePath("/admin/tarefas")
 
     return { success: true }
+}
+
+type WorkExpenseRow = {
+    id: string
+    obra_id: string
+    user_id: string | null
+    description: string
+    amount: number | string
+    attachment_path: string | null
+    attachment_name: string | null
+    attachment_size: number | null
+    attachment_content_type: string | null
+    created_at: string
+    updated_at: string
+    user?: unknown
+}
+
+async function mapWorkExpenseRow(
+    supabaseAdmin: any,
+    row: WorkExpenseRow
+) {
+    const joinedUser = Array.isArray(row.user) ? (row.user[0] ?? null) : (row.user ?? null)
+    const parsedAmount = Number(row.amount)
+    const amount = Number.isFinite(parsedAmount) ? parsedAmount : 0
+
+    let attachment: WorkExpenseAttachment | null = null
+    if (row.attachment_path && row.attachment_name) {
+        const signedResult = await supabaseAdmin.storage
+            .from(WORK_EXPENSE_ATTACHMENTS_BUCKET)
+            .createSignedUrl(row.attachment_path, WORK_EXPENSE_ATTACHMENT_TTL_SECONDS, { download: true })
+
+        attachment = {
+            path: row.attachment_path,
+            name: row.attachment_name,
+            size: typeof row.attachment_size === "number" ? row.attachment_size : null,
+            content_type: row.attachment_content_type ?? null,
+            signed_url: signedResult.data?.signedUrl ?? null,
+        }
+    }
+
+    return {
+        id: row.id,
+        obra_id: row.obra_id,
+        user_id: row.user_id ?? null,
+        description: row.description,
+        amount,
+        attachment,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        user: joinedUser
+            ? {
+                name: (joinedUser as { name?: string | null }).name ?? null,
+                email: (joinedUser as { email?: string | null }).email ?? null,
+            }
+            : null,
+    } satisfies WorkExpense
+}
+
+export async function getWorkExpenses(workId: string) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return [] as WorkExpense[]
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
+        .from("obra_expenses" as any)
+        .select(`
+            id,
+            obra_id,
+            user_id,
+            description,
+            amount,
+            attachment_path,
+            attachment_name,
+            attachment_size,
+            attachment_content_type,
+            created_at,
+            updated_at,
+            user:users(name, email)
+        `)
+        .eq("obra_id", workId)
+        .order("created_at", { ascending: false })
+
+    if (error) {
+        console.error("Erro ao buscar despesas da obra:", error)
+        return [] as WorkExpense[]
+    }
+
+    const rows = (data ?? []) as WorkExpenseRow[]
+    return Promise.all(rows.map((row) => mapWorkExpenseRow(supabaseAdmin, row)))
+}
+
+export async function addWorkExpense(input: {
+    workId: string
+    description: string
+    amount: number
+    attachment?: {
+        path: string
+        name: string
+        size?: number | null
+        content_type?: string | null
+    } | null
+}) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return { error: "Sem permissão." }
+
+    const description = input.description.trim()
+    if (!description) return { error: "Descrição obrigatória." }
+
+    const parsedAmount = Number(input.amount)
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        return { error: "Informe um valor de despesa válido." }
+    }
+
+    const normalizedAmount = Math.round(parsedAmount * 100) / 100
+    const attachmentPath = input.attachment?.path?.trim() || null
+    const attachmentName = input.attachment?.name?.trim() || null
+
+    if ((attachmentPath && !attachmentName) || (!attachmentPath && attachmentName)) {
+        return { error: "Anexo inválido. Envie novamente o arquivo da despesa." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data, error } = await supabaseAdmin
+        .from("obra_expenses" as any)
+        .insert({
+            obra_id: input.workId,
+            user_id: user.id,
+            description,
+            amount: normalizedAmount,
+            attachment_path: attachmentPath,
+            attachment_name: attachmentName,
+            attachment_size: input.attachment?.size ?? null,
+            attachment_content_type: input.attachment?.content_type ?? null,
+        })
+        .select(`
+            id,
+            obra_id,
+            user_id,
+            description,
+            amount,
+            attachment_path,
+            attachment_name,
+            attachment_size,
+            attachment_content_type,
+            created_at,
+            updated_at,
+            user:users(name, email)
+        `)
+        .single()
+
+    if (error || !data) {
+        return { error: normalizeWorkCardsError(error?.message ?? "Falha ao registrar despesa da obra.") }
+    }
+
+    revalidatePath("/admin/obras")
+
+    return {
+        success: true,
+        expense: await mapWorkExpenseRow(supabaseAdmin, data as WorkExpenseRow),
+    }
 }
 
 type StoredWorkCommentAttachment = {

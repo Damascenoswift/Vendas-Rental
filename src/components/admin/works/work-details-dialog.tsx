@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import { Loader2, Paperclip, Trash2 } from "lucide-react"
 import {
     addWorkComment,
+    addWorkExpense,
     addWorkImage,
     addWorkProcessItem,
     deleteWorkComment,
@@ -12,6 +13,7 @@ import {
     deleteWorkProcessItem,
     getWorkCardById,
     getWorkComments,
+    getWorkExpenses,
     getWorkImageOriginalAssetUrls,
     getWorkImages,
     getWorkProcessItems,
@@ -20,9 +22,11 @@ import {
     releaseProjectForExecution,
     setWorkProcessItemStatus,
     toggleWorkTasksIntegration,
+    updateWorkCardLocation,
     updateWorkProcessItem,
     type WorkCard,
     type WorkComment,
+    type WorkExpense,
     type WorkImage,
     type WorkImageType,
     type WorkProcessItem,
@@ -36,6 +40,10 @@ import {
     uploadWorkCommentAttachments,
     validateWorkCommentAttachmentFiles
 } from "@/lib/work-comment-attachments"
+import {
+    uploadWorkExpenseAttachment,
+    validateWorkExpenseAttachment,
+} from "@/lib/work-expense-attachments"
 import { useToast } from "@/hooks/use-toast"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import {
@@ -91,6 +99,31 @@ function formatAttachmentSize(size: number | null | undefined) {
     if (size < 1024) return `${size} B`
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
     return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function formatCurrency(value: number) {
+    return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    }).format(value)
+}
+
+function parseCurrencyInput(value: string) {
+    const cleaned = value
+        .replace(/\s/g, "")
+        .replace(/[R$]/gi, "")
+
+    const normalized = cleaned.includes(",") && cleaned.includes(".")
+        ? cleaned.replace(/\./g, "").replace(",", ".")
+        : cleaned.includes(",")
+            ? cleaned.replace(",", ".")
+            : cleaned
+
+    const parsed = Number(normalized)
+    if (!Number.isFinite(parsed)) return null
+    return parsed
 }
 
 function getSnapshotValue(snapshot: unknown, path: string): unknown {
@@ -525,19 +558,25 @@ export function WorkDetailsDialog({
     const [responsibleUsers, setResponsibleUsers] = useState<WorkResponsibleUserOption[]>([])
     const [comments, setComments] = useState<WorkComment[]>([])
     const [images, setImages] = useState<WorkImage[]>([])
+    const [workExpenses, setWorkExpenses] = useState<WorkExpense[]>([])
     const [proposalLinks, setProposalLinks] = useState<WorkProposalLink[]>([])
+    const [workAddress, setWorkAddress] = useState("")
 
     const [newProjectItem, setNewProjectItem] = useState("")
     const [newExecutionItem, setNewExecutionItem] = useState("")
     const [newExecutionResponsibleId, setNewExecutionResponsibleId] = useState("")
     const [newEnergisaComment, setNewEnergisaComment] = useState("")
     const [newGeneralComment, setNewGeneralComment] = useState("")
+    const [newExpenseDescription, setNewExpenseDescription] = useState("")
+    const [newExpenseAmount, setNewExpenseAmount] = useState("")
+    const [newExpenseFile, setNewExpenseFile] = useState<File | null>(null)
     const [commentAttachmentFiles, setCommentAttachmentFiles] = useState<File[]>([])
 
     const [uploadType, setUploadType] = useState<WorkImageType>("ANTES")
     const [uploadCaption, setUploadCaption] = useState("")
     const [uploadFile, setUploadFile] = useState<File | null>(null)
     const commentAttachmentInputRef = useRef<HTMLInputElement>(null)
+    const expenseAttachmentInputRef = useRef<HTMLInputElement>(null)
 
     const [viewerOpen, setViewerOpen] = useState(false)
     const [viewerLoading, setViewerLoading] = useState(false)
@@ -563,10 +602,8 @@ export function WorkDetailsDialog({
 
     const canReleaseProject = useMemo(() => {
         if (!work) return false
-        if (work.projeto_liberado_at) return false
-        if (projectItems.length === 0) return false
-        return projectItems.every((item) => item.status === "DONE")
-    }, [projectItems, work])
+        return !work.projeto_liberado_at
+    }, [work])
 
     const latestEnergisaComment = useMemo(
         () => comments.find((item) => item.comment_type === "ENERGISA_RESPOSTA") ?? null,
@@ -588,24 +625,32 @@ export function WorkDetailsDialog({
         [responsibleUsers]
     )
 
+    const totalExpenses = useMemo(
+        () => workExpenses.reduce((sum, item) => sum + item.amount, 0),
+        [workExpenses]
+    )
+
     const loadData = useCallback(async () => {
         if (!workId) return
 
         setIsLoading(true)
         try {
-            const [card, items, commentsData, imagesData, links, users] = await Promise.all([
+            const [card, items, commentsData, imagesData, expensesData, links, users] = await Promise.all([
                 getWorkCardById(workId),
                 getWorkProcessItems(workId),
                 getWorkComments(workId),
                 getWorkImages(workId),
+                getWorkExpenses(workId),
                 getWorkProposalLinks(workId),
                 getWorkResponsibleUsers(),
             ])
 
             setWork(card)
+            setWorkAddress(card?.work_address ?? "")
             setProcessItems(items)
             setComments(commentsData)
             setImages(imagesData)
+            setWorkExpenses(expensesData)
             setProposalLinks(links)
             setResponsibleUsers(users)
         } finally {
@@ -629,6 +674,106 @@ export function WorkDetailsDialog({
             }
 
             showToast({ title: "Projeto liberado", variant: "success" })
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    async function handleSaveWorkAddress() {
+        if (!workId) return
+        const normalized = workAddress.trim()
+        if (!normalized) {
+            showToast({ title: "Endereço obrigatório", description: "Informe o endereço da obra.", variant: "error" })
+            return
+        }
+
+        setIsSaving(true)
+        try {
+            const result = await updateWorkCardLocation({
+                workId,
+                workAddress: normalized,
+            })
+
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
+
+            showToast({ title: "Endereço salvo", variant: "success" })
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    function handleExpenseAttachmentChange(event: ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0] ?? null
+        setNewExpenseFile(file)
+    }
+
+    async function handleAddWorkExpense() {
+        if (!workId) return
+        const description = newExpenseDescription.trim()
+        if (!description) {
+            showToast({ title: "Descrição obrigatória", description: "Descreva a despesa da obra.", variant: "error" })
+            return
+        }
+
+        const parsedAmount = parseCurrencyInput(newExpenseAmount)
+        if (!parsedAmount || parsedAmount <= 0) {
+            showToast({ title: "Valor inválido", description: "Informe um valor de despesa válido.", variant: "error" })
+            return
+        }
+
+        if (newExpenseFile) {
+            const attachmentError = validateWorkExpenseAttachment(newExpenseFile)
+            if (attachmentError) {
+                showToast({ title: "Anexo inválido", description: attachmentError, variant: "error" })
+                return
+            }
+        }
+
+        setIsSaving(true)
+        try {
+            let uploadedAttachment: {
+                path: string
+                name: string
+                size: number | null
+                content_type: string | null
+            } | null = null
+
+            if (newExpenseFile) {
+                const uploadResult = await uploadWorkExpenseAttachment(workId, newExpenseFile)
+                if (uploadResult.error || !uploadResult.attachment) {
+                    showToast({ title: "Erro no upload", description: uploadResult.error ?? "Falha ao anexar arquivo.", variant: "error" })
+                    return
+                }
+                uploadedAttachment = uploadResult.attachment
+            }
+
+            const result = await addWorkExpense({
+                workId,
+                description,
+                amount: parsedAmount,
+                attachment: uploadedAttachment,
+            })
+
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
+
+            setNewExpenseDescription("")
+            setNewExpenseAmount("")
+            setNewExpenseFile(null)
+            if (expenseAttachmentInputRef.current) {
+                expenseAttachmentInputRef.current.value = ""
+            }
+
+            showToast({ title: "Despesa registrada", variant: "success" })
             await loadData()
             onChanged?.()
         } finally {
@@ -1042,7 +1187,11 @@ export function WorkDetailsDialog({
                                 onClick={handleReleaseProject}
                                 disabled={isSaving || !canReleaseProject}
                             >
-                                {isSaving ? "Processando..." : "Projeto liberado para iniciar obra"}
+                                {isSaving
+                                    ? "Processando..."
+                                    : work.projeto_liberado_at
+                                        ? "Projeto já liberado"
+                                        : "Marcar projeto como liberado"}
                             </Button>
                             <div className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
                                 <Checkbox
@@ -1061,7 +1210,35 @@ export function WorkDetailsDialog({
                                 <span className="text-xs text-muted-foreground">
                                     Projeto liberado em {formatDateTime(work.projeto_liberado_at)}
                                 </span>
-                            ) : null}
+                            ) : (
+                                <span className="text-xs text-muted-foreground">
+                                    Execução disponível desde o envio para Obras.
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="rounded-md border bg-slate-50/60 p-4">
+                            <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold">Locação da obra</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Defina o endereço completo para equipe de execução.
+                                    </p>
+                                    <Input
+                                        value={workAddress}
+                                        onChange={(event) => setWorkAddress(event.target.value)}
+                                        placeholder="Ex.: Av. Historiador Rubens de Mendonça, 2368 - Bosque da Saúde, Cuiabá - MT"
+                                    />
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleSaveWorkAddress}
+                                    disabled={isSaving || !workAddress.trim()}
+                                    className="self-end"
+                                >
+                                    Salvar endereço
+                                </Button>
+                            </div>
                         </div>
 
                         <div className="grid gap-4 lg:grid-cols-2">
@@ -1294,6 +1471,95 @@ export function WorkDetailsDialog({
                             </div>
                         </div>
 
+                        <div className="space-y-3 rounded-md border p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                    <p className="text-sm font-semibold">Despesas da obra</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Lance custos para confrontar depois com o levantamento e margem da obra.
+                                    </p>
+                                </div>
+                                <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm font-medium">
+                                    Custo acumulado: {formatCurrency(totalExpenses)}
+                                </div>
+                            </div>
+                            <div className="grid gap-2 md:grid-cols-[1fr_180px_1fr_auto]">
+                                <Input
+                                    value={newExpenseDescription}
+                                    onChange={(event) => setNewExpenseDescription(event.target.value)}
+                                    placeholder="Descrição da despesa"
+                                />
+                                <Input
+                                    value={newExpenseAmount}
+                                    onChange={(event) => setNewExpenseAmount(event.target.value)}
+                                    placeholder="Valor (ex.: 1250,90)"
+                                    inputMode="decimal"
+                                />
+                                <Input
+                                    ref={expenseAttachmentInputRef}
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+                                    onChange={handleExpenseAttachmentChange}
+                                />
+                                <Button
+                                    variant="outline"
+                                    onClick={handleAddWorkExpense}
+                                    disabled={isSaving || !newExpenseDescription.trim() || !newExpenseAmount.trim()}
+                                >
+                                    Registrar despesa
+                                </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Anexo opcional por despesa (PDF, imagens, DOC/DOCX, XLS/XLSX; máximo 10MB).
+                            </p>
+                            {newExpenseFile ? (
+                                <div className="rounded-md border bg-slate-50 p-2 text-xs text-muted-foreground">
+                                    Arquivo selecionado: {newExpenseFile.name}
+                                </div>
+                            ) : null}
+                            <div className="max-h-64 space-y-2 overflow-auto rounded-md border p-2">
+                                {workExpenses.map((expense) => {
+                                    const author = expense.user?.name || expense.user?.email || "Usuário interno"
+                                    return (
+                                        <div key={expense.id} className="rounded-md bg-slate-50 p-2">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <p className="text-sm font-medium">{expense.description}</p>
+                                                <Badge variant="outline">{formatCurrency(expense.amount)}</Badge>
+                                            </div>
+                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                Lançado por {author} • {formatDateTime(expense.created_at)}
+                                            </p>
+                                            {expense.attachment ? (
+                                                expense.attachment.signed_url ? (
+                                                    <a
+                                                        href={expense.attachment.signed_url}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="mt-2 inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+                                                    >
+                                                        <Paperclip className="h-3.5 w-3.5" />
+                                                        <span>{expense.attachment.name}</span>
+                                                        <span className="text-muted-foreground">
+                                                            ({formatAttachmentSize(expense.attachment.size)})
+                                                        </span>
+                                                    </a>
+                                                ) : (
+                                                    <span className="mt-2 inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs text-muted-foreground">
+                                                        <Paperclip className="h-3.5 w-3.5" />
+                                                        <span>{expense.attachment.name}</span>
+                                                        <span>({formatAttachmentSize(expense.attachment.size)})</span>
+                                                    </span>
+                                                )
+                                            ) : null}
+                                        </div>
+                                    )
+                                })}
+                                {workExpenses.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Nenhuma despesa lançada.</p>
+                                ) : null}
+                            </div>
+                        </div>
+
                         <div className="grid gap-4 lg:grid-cols-2">
                             <div className="space-y-3 rounded-md border p-4">
                                 <p className="text-sm font-semibold">Processos de Projeto</p>
@@ -1355,11 +1621,9 @@ export function WorkDetailsDialog({
 
                             <div className="space-y-3 rounded-md border p-4">
                                 <p className="text-sm font-semibold">Processos de Execução</p>
-                                {!work.projeto_liberado_at ? (
-                                    <p className="text-xs text-muted-foreground">
-                                        Libere o projeto para habilitar a execução.
-                                    </p>
-                                ) : null}
+                                <p className="text-xs text-muted-foreground">
+                                    Execução liberada para preenchimento desde o início.
+                                </p>
                                 <div className="grid gap-2 md:grid-cols-[1fr_240px_auto]">
                                     <Input
                                         value={newExecutionItem}
@@ -1385,7 +1649,7 @@ export function WorkDetailsDialog({
                                     <Button
                                         variant="outline"
                                         onClick={() => handleAddProcessItem("EXECUCAO")}
-                                        disabled={isSaving || !work.projeto_liberado_at}
+                                        disabled={isSaving}
                                     >
                                         Adicionar
                                     </Button>
@@ -1409,7 +1673,7 @@ export function WorkDetailsDialog({
                                                 <Select
                                                     value={item.status}
                                                     onValueChange={(value) => handleProcessStatusChange(item.id, value as WorkProcessStatus)}
-                                                    disabled={isSaving || !work.projeto_liberado_at}
+                                                    disabled={isSaving}
                                                 >
                                                     <SelectTrigger className="h-8">
                                                         <SelectValue />

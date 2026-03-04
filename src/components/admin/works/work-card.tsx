@@ -129,6 +129,11 @@ export function WorkCardItem({
                     <p className="mt-1 text-xs text-muted-foreground">
                         Instalação: {item.codigo_instalacao || item.installation_key}
                     </p>
+                    {item.work_address ? (
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            Endereço: {item.work_address}
+                        </p>
+                    ) : null}
                 </div>
             </CardHeader>
 
