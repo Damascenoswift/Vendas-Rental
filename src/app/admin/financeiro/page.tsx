@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { redirect } from "next/navigation"
 import { closeCommissionBatchFromForm, createManualElyakimItemFromForm, getFinancialSummary } from "@/app/actions/financial"
+import { FinancialClosingDossierDialog, type FinancialClosingDossier, type FinancialClosingDossierItem } from "@/components/financial/closing-dossier-dialog"
 import { FinancialList } from "@/components/financial/financial-list"
 import { getUsers } from "@/app/actions/auth-admin"
 import { NewTransactionDialog } from "@/components/financial/new-transaction-dialog"
@@ -206,7 +207,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .limit(80),
         supabase
             .from('financeiro_fechamento_itens')
-            .select('id, beneficiary_user_id, transaction_type, origin_lead_id, valor_pago, pagamento_em, descricao, fechamento:financeiro_fechamentos!financeiro_fechamento_itens_fechamento_id_fkey(status)')
+            .select('id, fechamento_id, brand, beneficiary_user_id, transaction_type, source_kind, source_ref_id, origin_lead_id, descricao, valor_liberado, valor_pago, pagamento_em, snapshot, created_at, fechamento:financeiro_fechamentos!financeiro_fechamento_itens_fechamento_id_fkey(status)')
             .order('pagamento_em', { ascending: false })
             .limit(1000),
         supabase
@@ -788,6 +789,54 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         ? manualItemsRows.filter((item) => item.beneficiaryUserId === sellerFilterId)
         : manualItemsRows
 
+    const closingItemsRows = (closingItems as any[]).map((item) => {
+        const beneficiary = usersById.get(item.beneficiary_user_id)
+        const snapshot = item.snapshot && typeof item.snapshot === "object"
+            ? item.snapshot as Record<string, unknown>
+            : null
+
+        return {
+            id: item.id as string,
+            closingId: item.fechamento_id as string,
+            brand: ((item.brand as "rental" | "dorata") ?? "rental"),
+            beneficiaryUserId: item.beneficiary_user_id as string,
+            beneficiaryName: beneficiary?.name || beneficiary?.email || "Sem usuário",
+            beneficiaryEmail: beneficiary?.email || "",
+            transactionType: (item.transaction_type as string) ?? "comissao_venda",
+            sourceKind: ((item.source_kind as "rental_sistema" | "dorata_sistema" | "manual_elyakim") ?? "rental_sistema"),
+            sourceRefId: (item.source_ref_id as string) ?? "",
+            originLeadId: (item.origin_lead_id as string | null) ?? null,
+            description: (item.descricao as string | null) ?? null,
+            clientName: (snapshot?.client_name as string | null) ?? null,
+            valueReleased: Number(item.valor_liberado ?? 0),
+            valuePaid: Number(item.valor_pago ?? 0),
+            paymentDate: (item.pagamento_em as string | null) ?? null,
+            createdAt: (item.created_at as string | null) ?? null,
+        }
+    })
+
+    const closingItemsByClosingId = new Map<string, FinancialClosingDossierItem[]>()
+    for (const item of closingItemsRows) {
+        const current = closingItemsByClosingId.get(item.closingId) ?? []
+        current.push({
+            id: item.id,
+            brand: item.brand,
+            beneficiaryName: item.beneficiaryName,
+            beneficiaryEmail: item.beneficiaryEmail,
+            transactionType: item.transactionType,
+            sourceKind: item.sourceKind,
+            sourceRefId: item.sourceRefId,
+            originLeadId: item.originLeadId,
+            description: item.description,
+            clientName: item.clientName,
+            valueReleased: item.valueReleased,
+            valuePaid: item.valuePaid,
+            paymentDate: item.paymentDate,
+            createdAt: item.createdAt,
+        })
+        closingItemsByClosingId.set(item.closingId, current)
+    }
+
     const closeableItems: CloseableFinancialItem[] = []
 
     for (const row of filteredRentalForecastRows) {
@@ -891,7 +940,30 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         .filter((item) => item.brand === "dorata")
         .reduce((sum, item) => sum + item.amount, 0)
 
-    const filteredClosings = closings as any[]
+    const closingDossiers: FinancialClosingDossier[] = (closings as any[]).map((closing) => {
+        const closer = usersById.get(closing.fechado_por)
+        const items = (closingItemsByClosingId.get(closing.id as string) ?? [])
+            .slice()
+            .sort((a, b) => {
+                const dateA = new Date(a.paymentDate || a.createdAt || 0).getTime()
+                const dateB = new Date(b.paymentDate || b.createdAt || 0).getTime()
+                return dateB - dateA
+            })
+
+        return {
+            id: closing.id as string,
+            code: (closing.codigo as string) ?? "Sem código",
+            status: (closing.status as string) ?? "fechado",
+            competencia: (closing.competencia as string | null) ?? null,
+            closedAt: (closing.fechado_em as string | null) ?? null,
+            createdAt: (closing.created_at as string | null) ?? null,
+            closedByName: closer?.name || closer?.email || "Sistema",
+            observation: (closing.observacao as string | null) ?? null,
+            itemCount: Number(closing.total_itens ?? items.length ?? 0),
+            totalValue: Number(closing.total_valor ?? 0),
+            items,
+        }
+    })
 
     return (
         <div className="max-w-7xl mx-auto py-8 px-4 space-y-8">
@@ -1572,25 +1644,31 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filteredClosings.length === 0 ? (
+                                {closingDossiers.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                                             Nenhum fechamento registrado ainda.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredClosings.map((closing: any) => {
-                                        const closer = usersById.get(closing.fechado_por)
+                                    closingDossiers.map((closing) => {
                                         return (
                                             <TableRow key={closing.id}>
-                                                <TableCell className="font-medium">{closing.codigo}</TableCell>
-                                                <TableCell>{formatDate(closing.competencia)}</TableCell>
-                                                <TableCell>{formatDate(closing.fechado_em || closing.created_at)}</TableCell>
-                                                <TableCell>{closer?.name || closer?.email || "Sistema"}</TableCell>
-                                                <TableCell className="text-right">{closing.total_itens || 0}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(Number(closing.total_valor || 0))}</TableCell>
                                                 <TableCell>
-                                                    <Badge variant={closing.status === "fechado" ? "success" : "secondary"}>
+                                                    <div className="flex flex-col gap-1">
+                                                        <FinancialClosingDossierDialog closing={closing} />
+                                                        <span className="text-xs text-muted-foreground">
+                                                            Clique para abrir o dossiê
+                                                        </span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>{formatDate(closing.competencia)}</TableCell>
+                                                <TableCell>{formatDate(closing.closedAt || closing.createdAt)}</TableCell>
+                                                <TableCell>{closing.closedByName}</TableCell>
+                                                <TableCell className="text-right">{closing.itemCount || 0}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(Number(closing.totalValue || 0))}</TableCell>
+                                                <TableCell>
+                                                    <Badge variant={closing.status === "fechado" ? "success" : closing.status === "cancelado" ? "destructive" : "secondary"}>
                                                         {closing.status}
                                                     </Badge>
                                                 </TableCell>
