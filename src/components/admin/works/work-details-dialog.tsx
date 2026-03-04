@@ -20,6 +20,7 @@ import {
     getWorkProposalLinks,
     getWorkResponsibleUsers,
     releaseProjectForExecution,
+    setWorkCardStatus,
     setWorkProcessItemStatus,
     toggleWorkTasksIntegration,
     updateWorkCardLocation,
@@ -561,6 +562,7 @@ export function WorkDetailsDialog({
     const [workExpenses, setWorkExpenses] = useState<WorkExpense[]>([])
     const [proposalLinks, setProposalLinks] = useState<WorkProposalLink[]>([])
     const [workAddress, setWorkAddress] = useState("")
+    const [statusDraft, setStatusDraft] = useState<WorkCard["status"]>("FECHADA")
 
     const [newProjectItem, setNewProjectItem] = useState("")
     const [newExecutionItem, setNewExecutionItem] = useState("")
@@ -647,6 +649,7 @@ export function WorkDetailsDialog({
 
             setWork(card)
             setWorkAddress(card?.work_address ?? "")
+            setStatusDraft(card?.status ?? "FECHADA")
             setProcessItems(items)
             setComments(commentsData)
             setImages(imagesData)
@@ -702,6 +705,31 @@ export function WorkDetailsDialog({
             }
 
             showToast({ title: "Endereço salvo", variant: "success" })
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    async function handleUpdateWorkStatus(status?: WorkCard["status"]) {
+        if (!workId || !work) return
+        const nextStatus = status ?? statusDraft
+        if (nextStatus === work.status) return
+
+        setIsSaving(true)
+        try {
+            const result = await setWorkCardStatus({
+                workId,
+                status: nextStatus,
+            })
+
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
+
+            showToast({ title: "Status da obra atualizado", variant: "success" })
             await loadData()
             onChanged?.()
         } finally {
@@ -1183,6 +1211,40 @@ export function WorkDetailsDialog({
                 ) : (
                     <div className="space-y-6">
                         <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2 rounded-md border px-2 py-2">
+                                <Select
+                                    value={statusDraft}
+                                    onValueChange={(value) => setStatusDraft(value as WorkCard["status"])}
+                                    disabled={isSaving}
+                                >
+                                    <SelectTrigger className="h-8 w-[190px]">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="FECHADA">Obra Fechada</SelectItem>
+                                        <SelectItem value="PARA_INICIAR">Obra Para Iniciar</SelectItem>
+                                        <SelectItem value="EM_ANDAMENTO">Obra em Andamento</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleUpdateWorkStatus()}
+                                    disabled={isSaving || statusDraft === work.status}
+                                >
+                                    Salvar status
+                                </Button>
+                            </div>
+                            {work.status !== "FECHADA" ? (
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => handleUpdateWorkStatus("FECHADA")}
+                                    disabled={isSaving}
+                                >
+                                    Voltar para Obras Fechadas
+                                </Button>
+                            ) : null}
                             <Button
                                 onClick={handleReleaseProject}
                                 disabled={isSaving || !canReleaseProject}

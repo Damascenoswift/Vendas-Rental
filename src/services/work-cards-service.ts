@@ -1861,6 +1861,70 @@ export async function toggleWorkTasksIntegration(workId: string, enabled: boolea
     return { success: true }
 }
 
+export async function setWorkCardStatus(input: {
+    workId: string
+    status: WorkCardStatus
+}) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return { error: "Sem permissão." }
+
+    const nextStatus = input.status
+    if (!["FECHADA", "PARA_INICIAR", "EM_ANDAMENTO"].includes(nextStatus)) {
+        return { error: "Status inválido." }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: card, error: cardError } = await supabaseAdmin
+        .from("obra_cards" as any)
+        .select("id, status, tasks_integration_enabled, projeto_liberado_at, projeto_liberado_by")
+        .eq("id", input.workId)
+        .maybeSingle()
+
+    if (cardError || !card) {
+        return { error: cardError?.message ?? "Obra não encontrada." }
+    }
+
+    if ((card.status as WorkCardStatus) === nextStatus) {
+        return { success: true }
+    }
+
+    const now = new Date().toISOString()
+    const updatePayload: Record<string, unknown> = {
+        status: nextStatus,
+        completed_at: nextStatus === "FECHADA" ? now : null,
+    }
+
+    if (nextStatus === "PARA_INICIAR" || nextStatus === "EM_ANDAMENTO") {
+        updatePayload.projeto_liberado_at = card.projeto_liberado_at ?? now
+        updatePayload.projeto_liberado_by = card.projeto_liberado_by ?? user.id
+    }
+
+    const { error: updateError } = await supabaseAdmin
+        .from("obra_cards" as any)
+        .update(updatePayload)
+        .eq("id", input.workId)
+
+    if (updateError) {
+        return { error: normalizeWorkCardsError(updateError.message) }
+    }
+
+    if (nextStatus !== "FECHADA") {
+        await ensureExecutionTemplate(input.workId)
+    }
+
+    if (card.tasks_integration_enabled) {
+        await syncWorkTasksByCardStatus({
+            obraId: input.workId,
+            status: nextStatus,
+        })
+    }
+
+    revalidatePath("/admin/obras")
+    revalidatePath("/admin/tarefas")
+
+    return { success: true }
+}
+
 export async function releaseProjectForExecution(workId: string) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return { error: "Sem permissão." }
