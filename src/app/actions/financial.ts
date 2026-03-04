@@ -313,17 +313,94 @@ async function buildClosureCode(supabaseAdmin: any, competenciaDate: string) {
     const yearMonth = competenciaDate.slice(0, 7).replace('-', '')
     const prefix = `FECH-${yearMonth}`
 
-    const { count, error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
         .from('financeiro_fechamentos')
-        .select('id', { count: 'exact', head: true })
+        .select('codigo')
         .like('codigo', `${prefix}-%`)
 
     if (error) {
         return `${prefix}-${Date.now().toString().slice(-6)}`
     }
 
-    const next = (count ?? 0) + 1
+    const next = (data ?? []).reduce((max: number, row: { codigo?: string | null }) => {
+        const code = String(row.codigo ?? '')
+        if (!code.startsWith(`${prefix}-`)) return max
+
+        const parsed = Number(code.slice(prefix.length + 1))
+        if (!Number.isInteger(parsed) || parsed <= 0) return max
+        return Math.max(max, parsed)
+    }, 0) + 1
+
     return `${prefix}-${String(next).padStart(4, '0')}`
+}
+
+async function createClosingRecord(params: {
+    supabaseAdmin: any
+    competencia: string
+    totalItens: number
+    totalValor: number
+    fechadoPor: string
+    observacao: string | null
+}) {
+    let codigo = await buildClosureCode(params.supabaseAdmin, params.competencia)
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        let includeUpdatedAt = true
+
+        while (true) {
+            const payload: Record<string, unknown> = {
+                codigo,
+                competencia: params.competencia,
+                status: 'fechado',
+                total_itens: params.totalItens,
+                total_valor: params.totalValor,
+                fechado_em: new Date().toISOString(),
+                fechado_por: params.fechadoPor,
+                observacao: params.observacao,
+            }
+
+            if (includeUpdatedAt) {
+                payload.updated_at = new Date().toISOString()
+            }
+
+            const result = await params.supabaseAdmin
+                .from('financeiro_fechamentos')
+                .insert(payload)
+                .select('id')
+                .single()
+
+            if (!result.error && result.data?.id) {
+                return result
+            }
+
+            const missingColumn = parseMissingColumnError(result.error?.message)
+            if (
+                includeUpdatedAt &&
+                missingColumn &&
+                missingColumn.table === 'financeiro_fechamentos' &&
+                missingColumn.column === 'updated_at'
+            ) {
+                includeUpdatedAt = false
+                continue
+            }
+
+            const isDuplicateCodeError =
+                /duplicate key value violates unique constraint/i.test(result.error?.message ?? '') &&
+                /codigo/i.test(result.error?.message ?? '')
+
+            if (attempt === 0 && isDuplicateCodeError) {
+                codigo = await buildClosureCode(params.supabaseAdmin, params.competencia)
+                break
+            }
+
+            return result
+        }
+    }
+
+    return {
+        data: null,
+        error: { message: 'Falha ao criar fechamento financeiro.' },
+    }
 }
 
 export async function closeCommissionBatchFromForm(formData: FormData): Promise<void> {
@@ -412,21 +489,14 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         redirect(buildFinancialRedirect({ tab: 'liberado', seller, error: 'invalid-beneficiary' }))
     }
 
-    const codigo = await buildClosureCode(supabaseAdmin, competencia)
-    const { data: fechamento, error: fechamentoError } = await supabaseAdmin
-        .from('financeiro_fechamentos')
-        .insert({
-            codigo,
-            competencia,
-            status: 'fechado',
-            total_itens: decodedItems.length,
-            total_valor: totalValor,
-            fechado_em: new Date().toISOString(),
-            fechado_por: permission.userId,
-            observacao,
-        })
-        .select('id')
-        .single()
+    const { data: fechamento, error: fechamentoError } = await createClosingRecord({
+        supabaseAdmin,
+        competencia,
+        totalItens: decodedItems.length,
+        totalValor,
+        fechadoPor: permission.userId,
+        observacao,
+    })
 
     if (fechamentoError || !fechamento?.id) {
         console.error('Erro ao criar fechamento financeiro:', fechamentoError)
@@ -472,7 +542,7 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         amount: item.transaction_type === 'despesa'
             ? -Number(item.amount)
             : Number(item.amount),
-        description: item.description || `Fechamento ${codigo}`,
+        description: item.description || `Fechamento ${competencia}`,
         status: 'pago',
         due_date: paymentDate,
         created_by: permission.userId,

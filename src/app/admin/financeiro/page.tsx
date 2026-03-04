@@ -425,6 +425,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
         return {
             id: proposal.id as string,
+            leadId: (cliente?.id as string | null) ?? (proposal.client_id as string | null) ?? null,
             created_at: proposal.created_at as string,
             sellerId: (proposal.seller?.id as string | null) ?? (proposal.seller_id as string | null) ?? null,
             seller: proposal.seller,
@@ -454,6 +455,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
             return {
                 id: indicacao.id as string,
+                leadId: indicacao.id as string,
                 created_at: indicacao.created_at as string,
                 sellerId: (indicacao.users?.id as string | null) ?? (indicacao.user_id as string | null) ?? null,
                 seller: indicacao.users,
@@ -768,22 +770,22 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     }
 
     for (const row of filteredDorataForecasts) {
-        if (!row.signed || !row.sellerId) continue
-        const paid = paidDorataByLeadBeneficiary.get(`${row.id}:${row.sellerId}`) ?? 0
+        if (!row.signed || !row.sellerId || !row.leadId) continue
+        const paid = paidDorataByLeadBeneficiary.get(`${row.leadId}:${row.sellerId}`) ?? 0
         const availableAmount = Math.max(row.commissionValue - paid, 0)
         if (availableAmount <= 0) continue
 
         const beneficiary = usersById.get(row.sellerId)
         closeableItems.push({
             source_kind: "dorata_sistema",
-            source_ref_id: `dorata:${row.id}:${row.sellerId}:comissao_dorata`,
+            source_ref_id: `dorata:${row.leadId}:${row.sellerId}:comissao_dorata`,
             brand: "dorata",
             beneficiary_user_id: row.sellerId,
             beneficiary_name: beneficiary?.name || beneficiary?.email || row.seller?.name || row.seller?.email || "Sem usuário",
             transaction_type: "comissao_dorata",
             amount: availableAmount,
             description: `Fechamento Dorata - ${(row as any).nome ?? row.id.slice(0, 8)}`,
-            origin_lead_id: row.id,
+            origin_lead_id: row.leadId,
             client_name: (row as any).nome ?? `Orçamento ${row.id.slice(0, 8)}`,
             source_competencia: null,
         })
