@@ -81,6 +81,13 @@ function isMissingRelationError(message?: string | null, relation?: string) {
     return regex.test(message)
 }
 
+function isMissingTableSchemaCacheError(message?: string | null, table?: string) {
+    if (!message || !table) return false
+    const escapedTable = table.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`Could not find the table ['"]?${escapedTable}['"]? in the schema cache`, 'i')
+    return regex.test(message)
+}
+
 function isClosureSchemaUnavailableError(error: unknown) {
     const message = extractErrorMessage(error)
     const missingColumn = parseMissingColumnError(message)
@@ -94,6 +101,16 @@ function isClosureSchemaUnavailableError(error: unknown) {
     return (
         isMissingRelationError(message, 'financeiro_fechamentos') ||
         isMissingRelationError(message, 'financeiro_fechamento_itens')
+    )
+}
+
+function isTransactionsSchemaUnavailableError(error: unknown) {
+    const message = extractErrorMessage(error)
+    return (
+        isMissingRelationError(message, 'financeiro_transacoes') ||
+        isMissingRelationError(message, 'public.financeiro_transacoes') ||
+        isMissingTableSchemaCacheError(message, 'public.financeiro_transacoes') ||
+        isMissingTableSchemaCacheError(message, 'financeiro_transacoes')
     )
 }
 
@@ -687,6 +704,12 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
 
     if (transacoesError) {
         console.error('Erro ao registrar transações do fechamento:', transacoesError)
+
+        if (isTransactionsSchemaUnavailableError(transacoesError)) {
+            revalidatePath('/admin/financeiro')
+            redirect(buildFinancialRedirect({ tab: 'historico', seller, status: 'closing-created-no-ledger' }))
+        }
+
         await supabase
             .from('financeiro_fechamentos')
             .update({ status: 'cancelado' })
@@ -892,7 +915,9 @@ export async function getFinancialSummary() {
         .limit(100)
 
     if (error) {
-        console.error(error)
+        if (!isTransactionsSchemaUnavailableError(error)) {
+            console.error(error)
+        }
         return []
     }
 

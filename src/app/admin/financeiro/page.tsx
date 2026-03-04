@@ -170,6 +170,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         paidInvoicesResult,
         signedContractChecklistsResult,
         closingsResult,
+        closingItemsResult,
         manualItemsResult,
     ] = await Promise.all([
         supabaseAdmin
@@ -204,6 +205,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .order('created_at', { ascending: false })
             .limit(80),
         supabaseAdmin
+            .from('financeiro_fechamento_itens')
+            .select('id, beneficiary_user_id, transaction_type, origin_lead_id, valor_pago, pagamento_em, descricao, fechamento:financeiro_fechamentos!financeiro_fechamento_itens_fechamento_id_fkey(status)')
+            .order('pagamento_em', { ascending: false })
+            .limit(1000),
+        supabaseAdmin
             .from('financeiro_relatorios_manuais_itens')
             .select('id, report_id, beneficiary_user_id, brand, transaction_type, client_name, origin_lead_id, valor, status, external_ref, observacao, created_at, paid_at, report:financeiro_relatorios_manuais!financeiro_relatorios_manuais_itens_report_id_fkey(competencia)')
             .order('created_at', { ascending: false })
@@ -216,6 +222,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const paidInvoices = paidInvoicesResult.data ?? []
     const signedContractChecklists = signedContractChecklistsResult.data ?? []
     const closings = closingsResult.data ?? []
+    const closingItems = closingItemsResult.data ?? []
     const manualItems = manualItemsResult.data ?? []
 
     const formatCurrency = (value: number) => new Intl.NumberFormat("pt-BR", {
@@ -281,22 +288,45 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const paidCommissionByLeadBeneficiary = new Map<string, number>()
     const paidOverrideByLeadBeneficiary = new Map<string, number>()
     const paidDorataByLeadBeneficiary = new Map<string, number>()
-    for (const tx of transactions as any[]) {
-        if (tx.status !== 'pago') continue
-        if (!tx.origin_lead_id || !tx.beneficiary_user_id) continue
-        if (!salesEligibleUserIds.has(tx.beneficiary_user_id)) continue
-        const amount = toNumber(tx.amount)
-        if (amount <= 0) continue
-        const key = `${tx.origin_lead_id}:${tx.beneficiary_user_id}`
+    const useClosureItemsAsPaidSource = (transactions as any[]).length === 0 && (closingItems as any[]).length > 0
+    if (useClosureItemsAsPaidSource) {
+        for (const item of closingItems as any[]) {
+            const closingRecord = Array.isArray(item.fechamento) ? item.fechamento[0] : item.fechamento
+            if (closingRecord?.status === 'cancelado') continue
+            if (!item.origin_lead_id || !item.beneficiary_user_id) continue
+            if (!salesEligibleUserIds.has(item.beneficiary_user_id)) continue
+            const amount = toNumber(item.valor_pago)
+            if (amount <= 0) continue
+            const key = `${item.origin_lead_id}:${item.beneficiary_user_id}`
 
-        if (tx.type === 'comissao_venda') {
-            paidCommissionByLeadBeneficiary.set(key, (paidCommissionByLeadBeneficiary.get(key) ?? 0) + amount)
+            if (item.transaction_type === 'comissao_venda') {
+                paidCommissionByLeadBeneficiary.set(key, (paidCommissionByLeadBeneficiary.get(key) ?? 0) + amount)
+            }
+            if (item.transaction_type === 'override_gestao') {
+                paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
+            }
+            if (item.transaction_type === 'comissao_dorata') {
+                paidDorataByLeadBeneficiary.set(key, (paidDorataByLeadBeneficiary.get(key) ?? 0) + amount)
+            }
         }
-        if (tx.type === 'override_gestao') {
-            paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
-        }
-        if (tx.type === 'comissao_dorata') {
-            paidDorataByLeadBeneficiary.set(key, (paidDorataByLeadBeneficiary.get(key) ?? 0) + amount)
+    } else {
+        for (const tx of transactions as any[]) {
+            if (tx.status !== 'pago') continue
+            if (!tx.origin_lead_id || !tx.beneficiary_user_id) continue
+            if (!salesEligibleUserIds.has(tx.beneficiary_user_id)) continue
+            const amount = toNumber(tx.amount)
+            if (amount <= 0) continue
+            const key = `${tx.origin_lead_id}:${tx.beneficiary_user_id}`
+
+            if (tx.type === 'comissao_venda') {
+                paidCommissionByLeadBeneficiary.set(key, (paidCommissionByLeadBeneficiary.get(key) ?? 0) + amount)
+            }
+            if (tx.type === 'override_gestao') {
+                paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
+            }
+            if (tx.type === 'comissao_dorata') {
+                paidDorataByLeadBeneficiary.set(key, (paidDorataByLeadBeneficiary.get(key) ?? 0) + amount)
+            }
         }
     }
 
@@ -633,6 +663,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         "manual-created": { tone: "success", text: "Item manual criado. Ele já entrou na lista de fechamento." },
         "closing-created": { tone: "success", text: "Fechamento registrado. O lote foi enviado para o histórico." },
         "closing-created-no-history": { tone: "success", text: "Pagamento registrado e removido do liberado, mas o histórico de lotes não está disponível neste banco." },
+        "closing-created-no-ledger": { tone: "success", text: "Fechamento registrado. Este banco não expõe a tabela de transações, então o histórico do lote passou a valer como comprovante do pagamento." },
         "permission": { tone: "error", text: "Você não tem permissão para concluir essa ação." },
         "no-items": { tone: "error", text: "Selecione ao menos um item antes de fechar o pagamento." },
         "invalid-selection": { tone: "error", text: "A seleção do fechamento ficou inválida. Atualize a página e tente novamente." },
@@ -685,9 +716,41 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const salesTransactions = (transactions as any[])
         .filter((tx) => tx.beneficiary_user_id && salesEligibleUserIds.has(tx.beneficiary_user_id))
 
-    const filteredTransactions = sellerFilterId
-        ? salesTransactions.filter((tx) => tx.beneficiary_user_id === sellerFilterId)
+    const fallbackSalesTransactions = useClosureItemsAsPaidSource
+        ? (closingItems as any[])
+            .filter((item) => {
+                const closingRecord = Array.isArray(item.fechamento) ? item.fechamento[0] : item.fechamento
+                return closingRecord?.status !== 'cancelado'
+            })
+            .filter((item) => item.beneficiary_user_id && salesEligibleUserIds.has(item.beneficiary_user_id))
+            .map((item) => {
+                const beneficiary = usersById.get(item.beneficiary_user_id)
+                return {
+                    id: item.id as string,
+                    created_at: (item.pagamento_em as string | null) ?? new Date().toISOString(),
+                    amount: Number(item.valor_pago ?? 0),
+                    type: (item.transaction_type as string) ?? 'comissao_venda',
+                    status: 'pago',
+                    description: (item.descricao as string | null) ?? 'Fechamento de comissão',
+                    beneficiary: beneficiary
+                        ? {
+                            name: (beneficiary.name as string) || (beneficiary.email as string) || '—',
+                            email: (beneficiary.email as string) || '',
+                        }
+                        : null,
+                    creator: null,
+                    beneficiary_user_id: item.beneficiary_user_id as string,
+                }
+            })
+        : []
+
+    const paymentSourceRows = useClosureItemsAsPaidSource
+        ? fallbackSalesTransactions
         : salesTransactions
+
+    const filteredTransactions = sellerFilterId
+        ? paymentSourceRows.filter((tx: any) => tx.beneficiary_user_id === sellerFilterId)
+        : paymentSourceRows
 
     const dorataPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_dorata')
     const rentalPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_venda')
