@@ -195,6 +195,10 @@ export function Sidebar({ className }: SidebarProps) {
                         Gestão
                     </h2>
                     <div className="space-y-1">
+                        {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
+                            <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
+                        )}
+
                         {['adm_mestre', 'adm_dorata', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                             <NavItem href="/admin/energia" label="Energia" icon={Zap} />
                         )}
@@ -257,9 +261,6 @@ export function Sidebar({ className }: SidebarProps) {
                             )}
 
                             <NavItem href="/admin/orcamentos" label="Orçamentos" icon={Calculator} />
-                            {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
-                            )}
 
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <NavItem href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />
