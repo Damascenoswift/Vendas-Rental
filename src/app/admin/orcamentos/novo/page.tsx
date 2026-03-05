@@ -1,6 +1,6 @@
 
 import { getProducts } from "@/services/product-service"
-import { getPricingRules, getProposalEditorData } from "@/services/proposal-service"
+import { getPricingRules, getProposalEditorData, getProposalSellerAssignmentContext } from "@/services/proposal-service"
 import { ProposalCalculator } from "@/components/admin/proposals/proposal-calculator"
 
 export const dynamic = "force-dynamic"
@@ -18,6 +18,7 @@ export default async function NewProposalPage({ searchParams }: NewProposalPageP
     let products: Awaited<ReturnType<typeof getProducts>> = []
     let pricingRules: Awaited<ReturnType<typeof getPricingRules>> = []
     let duplicateProposal: Awaited<ReturnType<typeof getProposalEditorData>> = null
+    let sellerAssignment: Awaited<ReturnType<typeof getProposalSellerAssignmentContext>> = null
     let loadError: string | null = null
 
     try {
@@ -39,6 +40,12 @@ export default async function NewProposalPage({ searchParams }: NewProposalPageP
         } catch (error) {
             console.error("Erro ao carregar orçamento para duplicação:", error)
         }
+    }
+
+    try {
+        sellerAssignment = await getProposalSellerAssignmentContext({ brand: "dorata" })
+    } catch (error) {
+        console.error("Erro ao carregar contexto de vendedores para orçamento:", error)
     }
 
     if (loadError) {
@@ -73,6 +80,9 @@ export default async function NewProposalPage({ searchParams }: NewProposalPageP
                 initialProposal={duplicateProposal}
                 initialMode={duplicateProposal?.source_mode === "complete" ? "complete" : "simple"}
                 intent="create"
+                sellerOptions={sellerAssignment?.sellers ?? []}
+                canAssignSeller={sellerAssignment?.canAssignToOthers ?? false}
+                currentUserId={sellerAssignment?.currentUserId ?? null}
             />
         </div>
     )

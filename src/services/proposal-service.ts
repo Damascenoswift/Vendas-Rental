@@ -6,6 +6,8 @@ import { Database } from "@/types/database"
 import { revalidatePath } from "next/cache"
 import { calculateProposal, type ProposalCalcInput, type ProposalCalculation } from "@/lib/proposal-calculation"
 import { ensureCrmCardForIndication, type CrmBrand } from "@/services/crm-card-service"
+import { hasSalesAccess } from "@/lib/sales-access"
+import { assertSupervisorCanAssignInternalVendor, getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 
 export type PricingRule = Database['public']['Tables']['pricing_rules']['Row']
 export type PricingRuleUpdate = Database['public']['Tables']['pricing_rules']['Update']
@@ -53,6 +55,65 @@ export type ProposalEditorData = {
     items: ProposalItem[]
 }
 
+type UserRole = Database["public"]["Enums"]["user_role_enum"]
+type BrandEnum = Database["public"]["Enums"]["brand_enum"]
+
+type ProposalSellerLookupRow = {
+    id: string
+    name: string | null
+    email: string | null
+    role: UserRole | null
+    status: string | null
+    sales_access: boolean | null
+    allowed_brands: BrandEnum[] | null
+}
+
+export type ProposalSellerOption = {
+    id: string
+    name: string | null
+    email: string | null
+    role: UserRole | null
+}
+
+export type ProposalSellerAssignmentContext = {
+    currentUserId: string
+    canAssignToOthers: boolean
+    sellers: ProposalSellerOption[]
+}
+
+const ACTIVE_USER_STATUSES = new Set(["active", "ATIVO"])
+
+function isActiveUserStatus(status?: string | null) {
+    if (!status) return true
+    return ACTIVE_USER_STATUSES.has(status)
+}
+
+function canAssignProposalToAnotherSeller(role?: string | null) {
+    return role === "adm_mestre" || role === "adm_dorata" || role === "supervisor"
+}
+
+function hasBrandAccess(allowedBrands: BrandEnum[] | null | undefined, brand: CrmBrand) {
+    if (!Array.isArray(allowedBrands) || allowedBrands.length === 0) return true
+    return allowedBrands.includes(brand)
+}
+
+function toProposalSellerOption(row: ProposalSellerLookupRow): ProposalSellerOption {
+    return {
+        id: row.id,
+        name: row.name ?? null,
+        email: row.email ?? null,
+        role: row.role ?? null,
+    }
+}
+
+function sortSellerOptions(options: ProposalSellerOption[]) {
+    return [...options].sort((a, b) => {
+        const left = (a.name || a.email || "").toLowerCase()
+        const right = (b.name || b.email || "").toLowerCase()
+        return left.localeCompare(right, "pt-BR")
+    })
+}
+
 function buildFullName(contact?: ProposalContactInput | null) {
     if (!contact) return ""
     const fullName = contact.full_name?.trim()
@@ -92,6 +153,169 @@ function parseMissingColumnError(message?: string | null) {
     const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
     if (!match) return null
     return { column: match[1], table: match[2] }
+}
+
+export async function getProposalSellerAssignmentContext(params?: {
+    brand?: CrmBrand
+}): Promise<ProposalSellerAssignmentContext | null> {
+    const supabase = await createClient()
+    const {
+        data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) return null
+
+    const brand = params?.brand ?? "dorata"
+    const supabaseAdmin = createSupabaseServiceClient()
+    const actorResult = await supabaseAdmin
+        .from("users")
+        .select("id, name, email, role, status, sales_access, allowed_brands")
+        .eq("id", user.id)
+        .maybeSingle()
+
+    if (actorResult.error || !actorResult.data) {
+        if (actorResult.error) {
+            console.error("Erro ao carregar contexto de vendedor para orçamento:", actorResult.error)
+        }
+        return {
+            currentUserId: user.id,
+            canAssignToOthers: false,
+            sellers: [],
+        }
+    }
+
+    const actor = actorResult.data as ProposalSellerLookupRow
+    const canAssignToOthers = canAssignProposalToAnotherSeller(actor.role)
+
+    let rows: ProposalSellerLookupRow[] = [actor]
+    if (canAssignToOthers) {
+        if (actor.role === "supervisor") {
+            const visibleIds = await getSupervisorVisibleUserIds(user.id)
+            if (visibleIds.length > 0) {
+                const { data: supervisorRows, error: supervisorRowsError } = await supabaseAdmin
+                    .from("users")
+                    .select("id, name, email, role, status, sales_access, allowed_brands")
+                    .in("id", visibleIds)
+
+                if (supervisorRowsError) {
+                    console.error("Erro ao buscar vendedores visíveis para supervisor:", supervisorRowsError)
+                } else {
+                    rows = supervisorRows as ProposalSellerLookupRow[]
+                }
+            }
+        } else {
+            const { data: allRows, error: allRowsError } = await supabaseAdmin
+                .from("users")
+                .select("id, name, email, role, status, sales_access, allowed_brands")
+
+            if (allRowsError) {
+                console.error("Erro ao buscar vendedores para orçamento:", allRowsError)
+            } else {
+                rows = allRows as ProposalSellerLookupRow[]
+            }
+        }
+    }
+
+    const sellersMap = new Map<string, ProposalSellerOption>()
+    const filteredRows = rows.filter((row) => {
+        if (!row?.id) return false
+        if (!isActiveUserStatus(row.status)) return false
+        if (!hasSalesAccess(row as { role?: string | null; sales_access?: boolean | null })) return false
+        if (!hasBrandAccess(row.allowed_brands, brand)) return false
+        return true
+    })
+
+    for (const row of filteredRows) {
+        sellersMap.set(row.id, toProposalSellerOption(row))
+    }
+
+    if (!sellersMap.has(actor.id)) {
+        sellersMap.set(actor.id, toProposalSellerOption(actor))
+    }
+
+    return {
+        currentUserId: actor.id,
+        canAssignToOthers,
+        sellers: sortSellerOptions(Array.from(sellersMap.values())),
+    }
+}
+
+async function resolveProposalSellerId(params: {
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    actorId: string
+    requestedSellerId?: string | null
+    brand: CrmBrand
+}): Promise<{ success: true; sellerId: string } | { success: false; error: string }> {
+    const requestedSellerId = sanitizeText(params.requestedSellerId)
+    if (!requestedSellerId || requestedSellerId === params.actorId) {
+        return { success: true, sellerId: params.actorId }
+    }
+
+    const { data: actor, error: actorError } = await params.supabaseAdmin
+        .from("users")
+        .select("id, role")
+        .eq("id", params.actorId)
+        .maybeSingle()
+
+    if (actorError || !actor) {
+        if (actorError) {
+            console.error("Erro ao validar perfil do usuário para orçamento:", actorError)
+        }
+        return { success: false, error: "Não foi possível validar permissões para direcionar o orçamento." }
+    }
+
+    const actorRole = (actor as { role?: string | null }).role ?? null
+    if (!canAssignProposalToAnotherSeller(actorRole)) {
+        return { success: false, error: "Você não tem permissão para direcionar orçamento para outro vendedor." }
+    }
+
+    if (actorRole === "supervisor") {
+        const permission = await assertSupervisorCanAssignInternalVendor(params.actorId, requestedSellerId)
+        if (!permission.allowed) {
+            return {
+                success: false,
+                error: permission.message || "Supervisor só pode direcionar para vendedor interno subordinado.",
+            }
+        }
+    }
+
+    const { data: targetUser, error: targetUserError } = await params.supabaseAdmin
+        .from("users")
+        .select("id, role, status, sales_access, allowed_brands")
+        .eq("id", requestedSellerId)
+        .maybeSingle()
+
+    if (targetUserError || !targetUser) {
+        if (targetUserError) {
+            console.error("Erro ao validar vendedor do orçamento:", targetUserError)
+        }
+        return { success: false, error: "Vendedor selecionado não encontrado." }
+    }
+
+    const normalizedTarget = targetUser as {
+        id: string
+        role?: string | null
+        status?: string | null
+        sales_access?: boolean | null
+        allowed_brands?: BrandEnum[] | null
+    }
+
+    if (!isActiveUserStatus(normalizedTarget.status)) {
+        return { success: false, error: "Vendedor selecionado está inativo." }
+    }
+
+    if (!hasSalesAccess(normalizedTarget)) {
+        return { success: false, error: "Usuário selecionado não possui acesso a vendas." }
+    }
+
+    if (!hasBrandAccess(normalizedTarget.allowed_brands ?? null, params.brand)) {
+        return {
+            success: false,
+            error: `Usuário selecionado não possui acesso à marca ${params.brand === "dorata" ? "Dorata" : "Rental"}.`,
+        }
+    }
+
+    return { success: true, sellerId: normalizedTarget.id }
 }
 
 // Pricing Rules
@@ -138,6 +362,18 @@ export async function createProposal(
     const commissionPercent = await getCommissionPercent(supabase)
     const supabaseAdmin = createSupabaseServiceClient()
     const brand: CrmBrand = options?.crm_brand ?? "dorata"
+    const sellerResolution = await resolveProposalSellerId({
+        supabaseAdmin,
+        actorId: user.id,
+        requestedSellerId: proposalData.seller_id ?? null,
+        brand,
+    })
+
+    if (!sellerResolution.success) {
+        return { success: false, error: sellerResolution.error }
+    }
+
+    const resolvedSellerId = sellerResolution.sellerId
 
     let clientId = proposalData.client_id ?? options?.client?.indicacao_id ?? null
     const contact = options?.client?.contact ?? null
@@ -313,7 +549,7 @@ export async function createProposal(
                 const crmResult = await ensureCrmCardForIndication({
                     indicacaoId: indicacao.id,
                     title: nome,
-                    assigneeId: proposalData.seller_id ?? user.id,
+                    assigneeId: resolvedSellerId,
                     createdBy: user.id,
                     brand,
                     status: "EM_ANALISE",
@@ -449,7 +685,7 @@ export async function createProposal(
         const crmResult = await ensureCrmCardForIndication({
             indicacaoId: clientId,
             title: crmTitle,
-            assigneeId: proposalData.seller_id ?? user.id,
+            assigneeId: resolvedSellerId,
             createdBy: user.id,
             brand,
         })
@@ -462,7 +698,7 @@ export async function createProposal(
     const proposalPayload: Record<string, any> = {
         ...proposalData,
         client_id: clientId ?? proposalData.client_id ?? null,
-        seller_id: proposalData.seller_id ?? user?.id ?? null,
+        seller_id: resolvedSellerId,
         contact_id: contactId ?? null,
         source_mode: proposalData.source_mode ?? 'legacy',
     }
@@ -680,6 +916,21 @@ export async function updateProposal(
         ...proposalData,
         status: normalizeProposalStatusForForm((proposalData.status as ProposalStatus | null | undefined) ?? null),
         updated_at: new Date().toISOString(),
+    }
+
+    if ("seller_id" in updatePayload) {
+        const sellerResolution = await resolveProposalSellerId({
+            supabaseAdmin,
+            actorId: user.id,
+            requestedSellerId: updatePayload.seller_id as string | null | undefined,
+            brand: "dorata",
+        })
+
+        if (!sellerResolution.success) {
+            return { success: false, error: sellerResolution.error }
+        }
+
+        updatePayload.seller_id = sellerResolution.sellerId
     }
 
     if (!includeSourceMode) {

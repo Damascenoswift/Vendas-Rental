@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import { getProducts } from "@/services/product-service"
-import { getPricingRules, getProposalEditorData } from "@/services/proposal-service"
+import { getPricingRules, getProposalEditorData, getProposalSellerAssignmentContext } from "@/services/proposal-service"
 import { ProposalCalculator } from "@/components/admin/proposals/proposal-calculator"
 
 export const dynamic = "force-dynamic"
@@ -18,10 +18,11 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
     const { id } = await params
     const { upgrade } = await searchParams
 
-    const [products, pricingRules, proposal] = await Promise.all([
+    const [products, pricingRules, proposal, sellerAssignment] = await Promise.all([
         getProducts(),
         getPricingRules(),
         getProposalEditorData(id),
+        getProposalSellerAssignmentContext({ brand: "dorata" }),
     ])
 
     if (!proposal) {
@@ -51,6 +52,9 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
                 initialMode={initialMode}
                 intent="edit"
                 upgradeFromSimple={shouldUpgradeToComplete}
+                sellerOptions={sellerAssignment?.sellers ?? []}
+                canAssignSeller={sellerAssignment?.canAssignToOthers ?? false}
+                currentUserId={sellerAssignment?.currentUserId ?? null}
             />
         </div>
     )

@@ -9,6 +9,7 @@ import type {
     ProposalInsert,
     PricingRule,
     ProposalStatus,
+    ProposalSellerOption,
 } from "@/services/proposal-service"
 import {
     calculateProposal,
@@ -40,6 +41,9 @@ interface ProposalCalculatorProps {
     pricingRules?: PricingRule[]
     initialProposal?: ProposalEditorData | null
     intent?: "create" | "edit"
+    sellerOptions?: ProposalSellerOption[]
+    canAssignSeller?: boolean
+    currentUserId?: string | null
 }
 
 type ExtraItem = { id: string; name: string; value: number }
@@ -183,6 +187,9 @@ export function ProposalCalculatorComplete({
     pricingRules = [],
     initialProposal = null,
     intent = "create",
+    sellerOptions = [],
+    canAssignSeller = false,
+    currentUserId = null,
 }: ProposalCalculatorProps) {
     const panelProducts = products.filter((p) => p.type === "module")
     const inverterProducts = products.filter((p) => p.type === "inverter")
@@ -359,6 +366,12 @@ export function ProposalCalculatorComplete({
         Boolean(initialProposal?.status) &&
         initialProposal?.status !== "draft" &&
         initialProposal?.status !== "sent"
+    const canSelectSeller = canAssignSeller && sellerOptions.length > 0
+    const preferredSellerId = initialProposal?.seller_id ?? currentUserId ?? ""
+    const defaultSellerId = canSelectSeller
+        ? (sellerOptions.some((seller) => seller.id === preferredSellerId) ? preferredSellerId : (sellerOptions[0]?.id ?? ""))
+        : preferredSellerId
+    const [selectedSellerId, setSelectedSellerId] = useState(defaultSellerId)
     const [input, setInput] = useState<ProposalCalcInput>(() => {
         const baseInput: ProposalCalcInput = {
             dimensioning: {
@@ -970,6 +983,19 @@ export function ProposalCalculatorComplete({
             }
         }
 
+        const sellerIdForSave = canSelectSeller
+            ? selectedSellerId || initialProposal?.seller_id || currentUserId || null
+            : null
+
+        if (canSelectSeller && !sellerIdForSave) {
+            showToast({
+                variant: "error",
+                title: "Vendedor obrigatório",
+                description: "Selecione o vendedor responsável para salvar o orçamento.",
+            })
+            return
+        }
+
         setLoading(true)
         try {
             const items: ProposalItemInsert[] = []
@@ -1031,6 +1057,7 @@ export function ProposalCalculatorComplete({
                 total_power: calculated.output.dimensioning.kWp,
                 calculation: calculated,
                 source_mode: "complete",
+                ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
 
             const itemsForSave = items.length > 0
@@ -1309,6 +1336,23 @@ export function ProposalCalculatorComplete({
                                     : "Apenas orcamentos enviados entram na previsao de comissao."}
                             </p>
                         </div>
+                        {canSelectSeller ? (
+                            <div className="space-y-2">
+                                <Label>Vendedor responsável</Label>
+                                <Select value={selectedSellerId} onValueChange={setSelectedSellerId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione o vendedor" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {sellerOptions.map((seller) => (
+                                            <SelectItem key={seller.id} value={seller.id}>
+                                                {seller.name || seller.email || seller.id}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        ) : null}
                         <div className="space-y-2">
                             <Label>kWp calculado</Label>
                             <Input value={calculated.output.dimensioning.kWp.toFixed(2)} disabled />

@@ -4,6 +4,7 @@ import { useState } from "react"
 import type { Product } from "@/services/product-service"
 import type { PricingRule } from "@/services/proposal-service"
 import type { ProposalEditorData } from "@/services/proposal-service"
+import type { ProposalSellerOption } from "@/services/proposal-service"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import {
@@ -23,6 +24,9 @@ interface ProposalCalculatorProps {
     initialProposal?: ProposalEditorData | null
     intent?: "create" | "edit"
     upgradeFromSimple?: boolean
+    sellerOptions?: ProposalSellerOption[]
+    canAssignSeller?: boolean
+    currentUserId?: string | null
 }
 
 type ProposalMode = "simple" | "complete"
@@ -34,6 +38,9 @@ export function ProposalCalculator({
     initialProposal = null,
     intent = "create",
     upgradeFromSimple = false,
+    sellerOptions = [],
+    canAssignSeller = false,
+    currentUserId = null,
 }: ProposalCalculatorProps) {
     const [mode, setMode] = useState<ProposalMode>(initialMode)
     const modeLocked = intent === "edit"
@@ -91,6 +98,9 @@ export function ProposalCalculator({
                     pricingRules={pricingRules}
                     initialProposal={simpleInitialProposal}
                     intent={intent}
+                    sellerOptions={sellerOptions}
+                    canAssignSeller={canAssignSeller}
+                    currentUserId={currentUserId}
                 />
             ) : (
                 <ProposalCalculatorComplete
@@ -98,6 +108,9 @@ export function ProposalCalculator({
                     pricingRules={pricingRules}
                     initialProposal={completeInitialProposal}
                     intent={intent}
+                    sellerOptions={sellerOptions}
+                    canAssignSeller={canAssignSeller}
+                    currentUserId={currentUserId}
                 />
             )}
         </div>

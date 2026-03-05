@@ -3,7 +3,13 @@
 import { useMemo, useState } from "react"
 import type { Product } from "@/services/product-service"
 import { createProposal, updateProposal } from "@/services/proposal-service"
-import type { PricingRule, ProposalInsert, ProposalEditorData, ProposalStatus } from "@/services/proposal-service"
+import type {
+    PricingRule,
+    ProposalInsert,
+    ProposalEditorData,
+    ProposalStatus,
+    ProposalSellerOption,
+} from "@/services/proposal-service"
 import {
     calculateProposal,
     solveMonthlyRateFromInstallment,
@@ -33,6 +39,9 @@ interface ProposalCalculatorProps {
     pricingRules?: PricingRule[]
     initialProposal?: ProposalEditorData | null
     intent?: "create" | "edit"
+    sellerOptions?: ProposalSellerOption[]
+    canAssignSeller?: boolean
+    currentUserId?: string | null
 }
 
 type RuleMap = Record<string, number>
@@ -134,6 +143,9 @@ export function ProposalCalculatorSimple({
     pricingRules = [],
     initialProposal = null,
     intent = "create",
+    sellerOptions = [],
+    canAssignSeller = false,
+    currentUserId = null,
 }: ProposalCalculatorProps) {
     const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
     const defaultModulePower = rules.potencia_modulo_w ?? 700
@@ -204,6 +216,12 @@ export function ProposalCalculatorSimple({
         Boolean(initialProposal?.status) &&
         initialProposal?.status !== "draft" &&
         initialProposal?.status !== "sent"
+    const canSelectSeller = canAssignSeller && sellerOptions.length > 0
+    const preferredSellerId = initialProposal?.seller_id ?? currentUserId ?? ""
+    const defaultSellerId = canSelectSeller
+        ? (sellerOptions.some((seller) => seller.id === preferredSellerId) ? preferredSellerId : (sellerOptions[0]?.id ?? ""))
+        : preferredSellerId
+    const [selectedSellerId, setSelectedSellerId] = useState(defaultSellerId)
 
     const [qtdModulos, setQtdModulos] = useState(
         initialInput?.dimensioning?.qtd_modulos ?? 0
@@ -535,6 +553,19 @@ export function ProposalCalculatorSimple({
             }
         }
 
+        const sellerIdForSave = canSelectSeller
+            ? selectedSellerId || initialProposal?.seller_id || currentUserId || null
+            : null
+
+        if (canSelectSeller && !sellerIdForSave) {
+            showToast({
+                variant: "error",
+                title: "Vendedor obrigatório",
+                description: "Selecione o vendedor responsável para salvar o orçamento.",
+            })
+            return
+        }
+
         setLoading(true)
         try {
             const proposalData: ProposalInsert & { source_mode: "simple" } = {
@@ -546,6 +577,7 @@ export function ProposalCalculatorSimple({
                 total_power: calculated.output.dimensioning.kWp,
                 calculation: calculated,
                 source_mode: "simple",
+                ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
 
             const result = isEditMode
@@ -821,6 +853,23 @@ export function ProposalCalculatorSimple({
                                     </p>
                                 ) : null}
                             </div>
+                            {canSelectSeller ? (
+                                <div className="space-y-2">
+                                    <Label>Vendedor responsável</Label>
+                                    <Select value={selectedSellerId} onValueChange={setSelectedSellerId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Selecione o vendedor" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {sellerOptions.map((seller) => (
+                                                <SelectItem key={seller.id} value={seller.id}>
+                                                    {seller.name || seller.email || seller.id}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-2">
