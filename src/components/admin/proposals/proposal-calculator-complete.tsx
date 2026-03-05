@@ -144,6 +144,12 @@ function normalizeTradeMode(value: string | null | undefined): NonNullable<Propo
     return value === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
 }
 
+function normalizeInverterType(value: string | null | undefined): ProposalCalcInput["dimensioning"]["tipo_inversor"] {
+    if (value === "MICRO") return "MICRO"
+    if (value === "AMPLIACAO") return "AMPLIACAO"
+    return "STRING"
+}
+
 function roundByMode(value: number, mode: ProposalCalcParams["micro_rounding_mode"]) {
     if (!Number.isFinite(value)) return 0
     if (mode === "FLOOR") return Math.floor(value)
@@ -224,7 +230,7 @@ export function ProposalCalculatorComplete({
     }, [products])
 
     const initialProposalItems = initialProposal?.items ?? []
-    const initialInverterMode = initialCalculationInput?.dimensioning?.tipo_inversor ?? "STRING"
+    const initialInverterMode = normalizeInverterType(initialCalculationInput?.dimensioning?.tipo_inversor)
     const initialModuleItem = initialProposalItems.find((item) => {
         const productId = item.product_id ?? ""
         return productById.get(productId)?.type === "module"
@@ -409,6 +415,7 @@ export function ProposalCalculatorComplete({
             dimensioning: {
                 ...baseInput.dimensioning,
                 ...(initialCalculationInput.dimensioning ?? {}),
+                tipo_inversor: normalizeInverterType(initialCalculationInput.dimensioning?.tipo_inversor),
             },
             kit: {
                 ...baseInput.kit,
@@ -498,7 +505,11 @@ export function ProposalCalculatorComplete({
         () => normalizedStringInverters.reduce((acc, row) => acc + row.quantity, 0),
         [normalizedStringInverters]
     )
+    const isStringInverterMode = input.dimensioning.tipo_inversor === "STRING"
+    const isMicroInverterMode = input.dimensioning.tipo_inversor === "MICRO"
+    const isExpansionInverterMode = input.dimensioning.tipo_inversor === "AMPLIACAO"
     const microInverterQuantityForCost = useMemo(() => {
+        if (!isMicroInverterMode) return 0
         const informedMicroQuantity = Number(input.dimensioning.qtd_inversor_micro || 0)
         if (Number.isFinite(informedMicroQuantity) && informedMicroQuantity > 0) {
             return informedMicroQuantity
@@ -514,6 +525,7 @@ export function ProposalCalculatorComplete({
     }, [
         input.dimensioning.qtd_inversor_micro,
         input.dimensioning.qtd_modulos,
+        isMicroInverterMode,
         params.micro_per_modules_divisor,
         params.micro_rounding_mode,
     ])
@@ -523,10 +535,12 @@ export function ProposalCalculatorComplete({
     )
     const inverterTotalCostForKit = useMemo(
         () =>
-            input.dimensioning.tipo_inversor === "MICRO"
+            isMicroInverterMode
                 ? microInverterTotalCost
-                : stringInverterTotalCost,
-        [input.dimensioning.tipo_inversor, microInverterTotalCost, stringInverterTotalCost]
+                : isStringInverterMode
+                    ? stringInverterTotalCost
+                    : 0,
+        [isMicroInverterMode, isStringInverterMode, microInverterTotalCost, stringInverterTotalCost]
     )
     const derivedModuleCostPerWatt = useMemo(() => {
         const modulesQuantity = Number(input.dimensioning.qtd_modulos || 0)
@@ -557,16 +571,27 @@ export function ProposalCalculatorComplete({
             ...input,
             dimensioning: {
                 ...input.dimensioning,
-                qtd_inversor_string: stringInverterTotalQty,
-                string_inverters: normalizedStringInverters.length > 0 ? normalizedStringInverters : undefined,
+                potencia_inversor_string_kw: isStringInverterMode ? input.dimensioning.potencia_inversor_string_kw : 0,
+                qtd_inversor_string: isStringInverterMode ? stringInverterTotalQty : 0,
+                qtd_inversor_micro: isMicroInverterMode ? input.dimensioning.qtd_inversor_micro : 0,
+                string_inverters: isStringInverterMode && normalizedStringInverters.length > 0 ? normalizedStringInverters : undefined,
             },
             kit: {
                 ...input.kit,
                 module_cost_per_watt: derivedModuleCostPerWatt,
-                string_inverter_total_cost: stringInverterTotalCost,
+                micro_unit_cost: isMicroInverterMode ? input.kit.micro_unit_cost : 0,
+                string_inverter_total_cost: isStringInverterMode ? stringInverterTotalCost : 0,
             },
         }),
-        [derivedModuleCostPerWatt, input, normalizedStringInverters, stringInverterTotalCost, stringInverterTotalQty]
+        [
+            derivedModuleCostPerWatt,
+            input,
+            isMicroInverterMode,
+            isStringInverterMode,
+            normalizedStringInverters,
+            stringInverterTotalCost,
+            stringInverterTotalQty,
+        ]
     )
 
     const calculated = useMemo(() => calculateProposal(calculationInput), [calculationInput])
@@ -1228,7 +1253,7 @@ export function ProposalCalculatorComplete({
                             <Select
                                 value={input.dimensioning.tipo_inversor}
                                 onValueChange={(value) =>
-                                    updateDimensioning({ tipo_inversor: value as ProposalCalcInput["dimensioning"]["tipo_inversor"] })
+                                    updateDimensioning({ tipo_inversor: normalizeInverterType(value) })
                                 }
                             >
                                 <SelectTrigger>
@@ -1237,6 +1262,7 @@ export function ProposalCalculatorComplete({
                                 <SelectContent>
                                     <SelectItem value="STRING">String</SelectItem>
                                     <SelectItem value="MICRO">Micro inversor</SelectItem>
+                                    <SelectItem value="AMPLIACAO">Ampliação (sem inversor)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -1248,13 +1274,15 @@ export function ProposalCalculatorComplete({
                                 step="0.01"
                                 value={input.dimensioning.potencia_inversor_string_kw ?? 0}
                                 disabled={
-                                    input.dimensioning.tipo_inversor === "STRING" &&
+                                    input.dimensioning.tipo_inversor !== "STRING" ||
                                     stringInverterRows.some((row) => Boolean(row.product_id))
                                 }
                                 onChange={(e) => updateDimensioning({ potencia_inversor_string_kw: toNumber(e.target.value) })}
                             />
                             <p className="text-xs text-muted-foreground">
-                                Sem linhas de inversor string, o cálculo usa este valor (ou oversizing quando 0).
+                                {isExpansionInverterMode
+                                    ? "Modo ampliação: este orçamento não inclui inversor."
+                                    : "Sem linhas de inversor string, o cálculo usa este valor (ou oversizing quando 0)."}
                             </p>
                         </div>
                         <div className="space-y-2">
@@ -1368,7 +1396,7 @@ export function ProposalCalculatorComplete({
                                 <Input
                                     type="number"
                                     step="0.01"
-                                    value={stringInverterTotalCost}
+                                    value={isStringInverterMode ? stringInverterTotalCost : 0}
                                     disabled
                                 />
                             </div>
@@ -1377,12 +1405,24 @@ export function ProposalCalculatorComplete({
                         <div className="space-y-3 rounded-md border p-3">
                             <div className="flex items-center justify-between">
                                 <Label>Inversores string</Label>
-                                <Button type="button" variant="outline" size="sm" onClick={handleAddStringInverterRow}>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleAddStringInverterRow}
+                                    disabled={!isStringInverterMode}
+                                >
                                     <Plus className="mr-2 h-4 w-4" />
                                     Adicionar inversor
                                 </Button>
                             </div>
-                            {stringInverterRows.length === 0 ? (
+                            {!isStringInverterMode ? (
+                                <p className="text-xs text-muted-foreground">
+                                    {isExpansionInverterMode
+                                        ? "Modo ampliação selecionado: este orçamento não terá inversor."
+                                        : "Tipo micro selecionado: os inversores string não entram no cálculo."}
+                                </p>
+                            ) : stringInverterRows.length === 0 ? (
                                 <p className="text-xs text-muted-foreground">
                                     Adicione um ou mais inversores string. A potência de cada item entra no cálculo final.
                                 </p>
@@ -1489,6 +1529,7 @@ export function ProposalCalculatorComplete({
                                     type="number"
                                     step="0.01"
                                     value={input.kit.micro_unit_cost}
+                                    disabled={!isMicroInverterMode}
                                     onChange={(e) => updateKit({ micro_unit_cost: toNumber(e.target.value) })}
                                 />
                             </div>
@@ -1500,8 +1541,8 @@ export function ProposalCalculatorComplete({
 
                         <div className="grid gap-4 md:grid-cols-1">
                             <div className="space-y-2">
-                                <Label>Micro inversor (opcional)</Label>
-                                <Select value={microProductId} onValueChange={handleMicroSelect}>
+                                <Label>Micro inversor</Label>
+                                <Select value={microProductId} onValueChange={handleMicroSelect} disabled={!isMicroInverterMode}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Selecionar" />
                                     </SelectTrigger>
@@ -1513,6 +1554,13 @@ export function ProposalCalculatorComplete({
                                         ))}
                                     </SelectContent>
                                 </Select>
+                                {!isMicroInverterMode ? (
+                                    <p className="text-xs text-muted-foreground">
+                                        {isExpansionInverterMode
+                                            ? "Modo ampliação selecionado: não é necessário selecionar micro inversor."
+                                            : "Selecione o tipo Micro inversor para habilitar este campo."}
+                                    </p>
+                                ) : null}
                             </div>
                         </div>
                     </CardContent>

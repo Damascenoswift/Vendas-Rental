@@ -104,8 +104,20 @@ function normalizeTradeMode(value: string | null | undefined): NonNullable<Propo
     return value === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
 }
 
+function normalizeInverterType(value: string | null | undefined): ProposalCalcInput["dimensioning"]["tipo_inversor"] {
+    if (value === "MICRO") return "MICRO"
+    if (value === "AMPLIACAO") return "AMPLIACAO"
+    return "STRING"
+}
+
 function normalizeStatusForForm(status: ProposalStatus | null | undefined): "draft" | "sent" {
     return status === "draft" ? "draft" : "sent"
+}
+
+function toInverterTypeLabel(value: ProposalCalcInput["dimensioning"]["tipo_inversor"]) {
+    if (value === "MICRO") return "Micro inversor"
+    if (value === "AMPLIACAO") return "Ampliação (sem inversor)"
+    return "String"
 }
 
 function toStatusLabel(status: string | null | undefined) {
@@ -203,7 +215,7 @@ export function ProposalCalculatorSimple({
         initialInput?.dimensioning?.indice_producao ?? defaultProductionIndex
     )
     const [tipoInversor, setTipoInversor] = useState<ProposalCalcInput["dimensioning"]["tipo_inversor"]>(
-        initialInput?.dimensioning?.tipo_inversor ?? "STRING"
+        normalizeInverterType(initialInput?.dimensioning?.tipo_inversor)
     )
     const [qtdInversorString, setQtdInversorString] = useState(
         initialInput?.dimensioning?.qtd_inversor_string ?? 1
@@ -267,6 +279,9 @@ export function ProposalCalculatorSimple({
     const calculationInput = useMemo<ProposalCalcInput>(() => {
         const denominator = qtdModulos * potenciaModuloW
         const moduleCostPerWatt = denominator > 0 ? kitGeradorValor / denominator : 0
+        const inverterStringQtyForCalculation = tipoInversor === "STRING" ? qtdInversorString : 0
+        const inverterMicroQtyForCalculation = tipoInversor === "MICRO" ? qtdInversorMicro : 0
+        const inverterStringPowerForCalculation = tipoInversor === "STRING" ? potenciaInversorStringKw : 0
 
         return {
             dimensioning: {
@@ -275,9 +290,9 @@ export function ProposalCalculatorSimple({
                 indice_producao: indiceProducao,
                 tipo_inversor: tipoInversor,
                 fator_oversizing: 1,
-                potencia_inversor_string_kw: potenciaInversorStringKw,
-                qtd_inversor_string: qtdInversorString,
-                qtd_inversor_micro: qtdInversorMicro,
+                potencia_inversor_string_kw: inverterStringPowerForCalculation,
+                qtd_inversor_string: inverterStringQtyForCalculation,
+                qtd_inversor_micro: inverterMicroQtyForCalculation,
             },
             kit: {
                 module_cost_per_watt: moduleCostPerWatt,
@@ -729,6 +744,7 @@ export function ProposalCalculatorSimple({
                                     <SelectContent>
                                         <SelectItem value="STRING">String</SelectItem>
                                         <SelectItem value="MICRO">Micro inversor</SelectItem>
+                                        <SelectItem value="AMPLIACAO">Ampliação (sem inversor)</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -738,6 +754,7 @@ export function ProposalCalculatorSimple({
                                     type="number"
                                     min="0"
                                     value={qtdInversorString}
+                                    disabled={tipoInversor !== "STRING"}
                                     onChange={(e) => setQtdInversorString(toNumber(e.target.value))}
                                 />
                             </div>
@@ -748,6 +765,7 @@ export function ProposalCalculatorSimple({
                                     min="0"
                                     step="0.01"
                                     value={potenciaInversorStringKw}
+                                    disabled={tipoInversor !== "STRING"}
                                     onChange={(e) => setPotenciaInversorStringKw(toNumber(e.target.value))}
                                 />
                             </div>
@@ -757,10 +775,13 @@ export function ProposalCalculatorSimple({
                                     type="number"
                                     min="0"
                                     value={qtdInversorMicro}
+                                    disabled={tipoInversor !== "MICRO"}
                                     onChange={(e) => setQtdInversorMicro(toNumber(e.target.value))}
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                    Sugestão automática atual: {calculated.output.dimensioning.inversor.qtd_micro_sugerida}
+                                    {tipoInversor === "AMPLIACAO"
+                                        ? "Modo ampliação: este orçamento não inclui inversor."
+                                        : `Sugestão automática atual: ${calculated.output.dimensioning.inversor.qtd_micro_sugerida}`}
                                 </p>
                             </div>
                             <div className="space-y-2">
@@ -813,7 +834,7 @@ export function ProposalCalculatorSimple({
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo de inversor</Label>
-                                <Input value={calculated.output.dimensioning.inversor.tipo} disabled />
+                                <Input value={toInverterTypeLabel(calculated.output.dimensioning.inversor.tipo)} disabled />
                             </div>
                             <div className="space-y-2">
                                 <Label>Qtd. inversor string</Label>

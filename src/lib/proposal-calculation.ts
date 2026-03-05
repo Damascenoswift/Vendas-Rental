@@ -20,13 +20,14 @@ export type ProposalStringInverterInput = {
 }
 
 export type ProposalTradeMode = "TOTAL_VALUE" | "INSTALLMENTS"
+export type ProposalInverterType = "STRING" | "MICRO" | "AMPLIACAO"
 
 export type ProposalCalcInput = {
     dimensioning: {
         qtd_modulos: number
         potencia_modulo_w: number
         indice_producao: number
-        tipo_inversor: "STRING" | "MICRO"
+        tipo_inversor: ProposalInverterType
         fator_oversizing: number
         potencia_inversor_string_kw?: number
         qtd_inversor_string?: number
@@ -74,7 +75,7 @@ export type ProposalCalcOutput = {
         kWp: number
         kWh_estimado: number
         inversor: {
-            tipo: "STRING" | "MICRO"
+            tipo: ProposalInverterType
             pot_string_kw: number
             qtd_string: number
             qtd_micro: number
@@ -281,6 +282,10 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const potenciaModuloW = Number(input.dimensioning.potencia_modulo_w || 0)
     const indiceProducao = Number(input.dimensioning.indice_producao || 0)
     const fatorOversizing = Number(input.dimensioning.fator_oversizing || params.default_oversizing_factor)
+    const inverterType = input.dimensioning.tipo_inversor
+    const isStringInverter = inverterType === "STRING"
+    const isMicroInverter = inverterType === "MICRO"
+    const isExpansion = inverterType === "AMPLIACAO"
 
     const kWp = (qtdModulos * potenciaModuloW) / 1000
     const kWhEstimado = (qtdModulos * potenciaModuloW * indiceProducao) / 1000
@@ -289,7 +294,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const qtdMicroSugerida = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
     const qtdStringInformada = Number(input.dimensioning.qtd_inversor_string || 0)
     const qtdMicroInformada = Number(input.dimensioning.qtd_inversor_micro || 0)
-    const qtdMicro = qtdMicroInformada > 0 ? qtdMicroInformada : qtdMicroSugerida
+    const qtdMicro = isExpansion ? 0 : (qtdMicroInformada > 0 ? qtdMicroInformada : qtdMicroSugerida)
     const potMicroTotalKw = qtdMicro * params.micro_unit_power_kw
 
     const moduleCostPerWatt = Number(input.kit.module_cost_per_watt || 0)
@@ -315,25 +320,31 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const potStringFromRowsKw = normalizedStringInverters.reduce((acc, item) => acc + (item.power_kw * item.quantity), 0)
     const totalStringCostFromRows = normalizedStringInverters.reduce((acc, item) => acc + (item.unit_cost * item.quantity), 0)
 
-    const potStringKw = hasStringInverterRows
-        ? potStringFromRowsKw
-        : potenciaInversorStringInformada > 0
-            ? potenciaInversorStringInformada
-            : (fatorOversizing ? kWp / fatorOversizing : 0)
-    const qtdString = hasStringInverterRows
-        ? qtdStringFromRows
-        : qtdStringInformada > 0
-            ? qtdStringInformada
-            : 0
+    const potStringKw = isExpansion
+        ? 0
+        : hasStringInverterRows
+            ? potStringFromRowsKw
+            : potenciaInversorStringInformada > 0
+                ? potenciaInversorStringInformada
+                : (fatorOversizing ? kWp / fatorOversizing : 0)
+    const qtdString = isExpansion
+        ? 0
+        : hasStringInverterRows
+            ? qtdStringFromRows
+            : qtdStringInformada > 0
+                ? qtdStringInformada
+                : 0
     const stringInverterTotalCost = hasStringInverterRows
         ? totalStringCostFromRows
         : Number(input.kit.string_inverter_total_cost || 0)
     const moduleUnitCost = moduleCostPerWatt * potenciaModuloW
 
     const custoModulosTotal = qtdModulos * (moduleUnitCost + cablingUnitCost)
-    const custoInversorTotal = input.dimensioning.tipo_inversor === "STRING"
+    const custoInversorTotal = isStringInverter
         ? stringInverterTotalCost
-        : qtdMicro * microUnitCost
+        : isMicroInverter
+            ? qtdMicro * microUnitCost
+            : 0
     const custoKit = custoModulosTotal + custoInversorTotal
 
     const qtdPlacasSolo = Number(input.structure.qtd_placas_solo || 0)
@@ -415,7 +426,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             kWp,
             kWh_estimado: kWhEstimado,
             inversor: {
-                tipo: input.dimensioning.tipo_inversor,
+                tipo: inverterType,
                 pot_string_kw: potStringKw,
                 qtd_string: qtdString,
                 qtd_micro: qtdMicro,
