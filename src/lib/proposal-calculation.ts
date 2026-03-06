@@ -137,6 +137,12 @@ export type ProposalCalculation = {
         value: number
         base_value: number
     }
+    commission_split?: {
+        enabled: boolean
+        seller_id: string
+        percent: number
+        percent_display: number
+    }
 }
 
 const DEFAULT_PARAMS: ProposalCalcParams = {

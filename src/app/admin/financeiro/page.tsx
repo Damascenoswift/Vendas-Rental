@@ -52,6 +52,34 @@ type SellerRow = {
     email: string
 }
 
+type DorataForecastSeller = {
+    id?: string | null
+    name?: string | null
+    email?: string | null
+} | null
+
+type DorataForecastRow = {
+    id: string
+    saleId: string
+    leadId: string | null
+    created_at: string
+    sellerId: string | null
+    seller: DorataForecastSeller
+    nome: string | null
+    contractValue: number
+    commissionPercent: number
+    commissionPercentDisplay: number
+    commissionPercentSource: string
+    commissionValue: number
+    signedAt: string | null
+    signed: boolean
+    commissionStatus: string
+    splitLabel: string | null
+    isSplitRecipient: boolean
+}
+
+const COMMISSION_SPLIT_PERCENT_OPTIONS = new Set<number>([1, 1.5, 2, 2.5, 3])
+
 function toNumber(value: unknown) {
     const num = Number(value)
     return Number.isFinite(num) ? num : 0
@@ -67,6 +95,30 @@ function toPercentDisplay(rawValue: unknown, fallbackPercent = 0) {
     const raw = toNumber(rawValue)
     if (!Number.isFinite(raw)) return fallbackPercent
     return raw > 1 ? raw : raw * 100
+}
+
+function parseProposalCommissionSplit(calculation: any) {
+    const split = calculation?.commission_split
+    if (!split || typeof split !== "object" || Array.isArray(split)) return null
+    if (split.enabled === false) return null
+
+    const sellerId = typeof split.seller_id === "string" ? split.seller_id.trim() : ""
+    if (!sellerId) return null
+
+    const fromDisplay = toPercentDisplay(split.percent_display, 0)
+    const fromPercent = toPercentDisplay(split.percent, 0)
+    const percentDisplayRaw = fromDisplay > 0 ? fromDisplay : fromPercent
+    const percentDisplay = Math.round(percentDisplayRaw * 10) / 10
+
+    if (!Number.isFinite(percentDisplay) || !COMMISSION_SPLIT_PERCENT_OPTIONS.has(percentDisplay)) {
+        return null
+    }
+
+    return {
+        sellerId,
+        percentDisplay,
+        percent: percentDisplay / 100,
+    }
 }
 
 function normalizeText(value: string | null | undefined) {
@@ -429,15 +481,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .filter(Boolean)
     )
 
-    const dorataForecastsFromProposals = dorataProposalsFiltered.map((proposal: any) => {
+    const dorataForecastsFromProposals: DorataForecastRow[] = dorataProposalsFiltered.flatMap((proposal: any): DorataForecastRow[] => {
         const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
         const calculation = proposal.calculation as any
         const storedCommission = calculation?.commission
         const contractValue = Number(storedCommission?.base_value ?? proposal.total_value ?? 0)
         const storedPercentRaw = Number(storedCommission?.percent ?? defaultDorataCommissionPercent)
         const storedPercent = storedPercentRaw > 1 ? storedPercentRaw / 100 : storedPercentRaw
-        const customPercent = dorataPercentBySaleId.get(proposal.id as string)
-        const customPercentDisplay = dorataPercentDisplayBySaleId.get(proposal.id as string)
+        const saleId = proposal.id as string
+        const customPercent = dorataPercentBySaleId.get(saleId)
+        const customPercentDisplay = dorataPercentDisplayBySaleId.get(saleId)
         const commissionPercent = customPercent ?? storedPercent
         const commissionPercentDisplay = customPercentDisplay ?? (storedPercentRaw > 1 ? storedPercentRaw : storedPercentRaw * 100)
         const commissionValue = Number(
@@ -457,26 +510,95 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             : (storedCommission?.percent != null || storedCommission?.value != null)
                 ? "Orçamento"
                 : "Padrão"
+        const seller = Array.isArray(proposal.seller) ? proposal.seller[0] : proposal.seller
+        const sellerId = (seller?.id as string | null) ?? (proposal.seller_id as string | null) ?? null
+        const leadId = (cliente?.id as string | null) ?? (proposal.client_id as string | null) ?? null
+        const splitConfig = parseProposalCommissionSplit(calculation)
 
-        return {
-            id: proposal.id as string,
-            leadId: (cliente?.id as string | null) ?? (proposal.client_id as string | null) ?? null,
-            created_at: proposal.created_at as string,
-            sellerId: (proposal.seller?.id as string | null) ?? (proposal.seller_id as string | null) ?? null,
-            seller: proposal.seller,
-            nome: proposalClientName,
-            contractValue,
-            commissionPercent,
-            commissionPercentDisplay,
-            commissionPercentSource,
-            commissionValue,
-            signedAt,
-            signed,
-            commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
+        if (!splitConfig || !sellerId || splitConfig.sellerId === sellerId) {
+            return [{
+                id: `${saleId}:${sellerId ?? "sem-vendedor"}`,
+                saleId,
+                leadId,
+                created_at: proposal.created_at as string,
+                sellerId,
+                seller,
+                nome: proposalClientName,
+                contractValue,
+                commissionPercent,
+                commissionPercentDisplay,
+                commissionPercentSource,
+                commissionValue,
+                signedAt,
+                signed,
+                commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
+                splitLabel: null,
+                isSplitRecipient: false,
+            }]
         }
+
+        const splitSellerUser = usersById.get(splitConfig.sellerId)
+        const splitSeller = splitSellerUser
+            ? {
+                id: splitSellerUser.id,
+                name: splitSellerUser.name,
+                email: splitSellerUser.email,
+            }
+            : null
+        const splitSellerName = splitSeller?.name || splitSeller?.email || "Outro vendedor"
+        const sellerName = seller?.name || seller?.email || "Vendedor principal"
+        const splitCommissionValue = Math.max(Math.min(contractValue * splitConfig.percent, commissionValue), 0)
+        const ownerCommissionValue = Math.max(commissionValue - splitCommissionValue, 0)
+        const ownerPercentDisplay = contractValue > 0
+            ? (ownerCommissionValue / contractValue) * 100
+            : Math.max(commissionPercentDisplay - splitConfig.percentDisplay, 0)
+        const splitPercentDisplay = contractValue > 0
+            ? (splitCommissionValue / contractValue) * 100
+            : splitConfig.percentDisplay
+
+        return [
+            {
+                id: `${saleId}:${sellerId}`,
+                saleId,
+                leadId,
+                created_at: proposal.created_at as string,
+                sellerId,
+                seller,
+                nome: proposalClientName,
+                contractValue,
+                commissionPercent: ownerPercentDisplay / 100,
+                commissionPercentDisplay: ownerPercentDisplay,
+                commissionPercentSource: `${commissionPercentSource} (dividida)`,
+                commissionValue: ownerCommissionValue,
+                signedAt,
+                signed,
+                commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
+                splitLabel: `Dividida com ${splitSellerName} (${splitConfig.percentDisplay.toFixed(1).replace(".", ",")}%)`,
+                isSplitRecipient: false,
+            },
+            {
+                id: `${saleId}:${splitConfig.sellerId}`,
+                saleId,
+                leadId,
+                created_at: proposal.created_at as string,
+                sellerId: splitConfig.sellerId,
+                seller: splitSeller,
+                nome: proposalClientName,
+                contractValue,
+                commissionPercent: splitPercentDisplay / 100,
+                commissionPercentDisplay: splitPercentDisplay,
+                commissionPercentSource: "Divisão do orçamento",
+                commissionValue: splitCommissionValue,
+                signedAt,
+                signed,
+                commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
+                splitLabel: `Comissão dividida por ${sellerName}`,
+                isSplitRecipient: true,
+            },
+        ]
     })
 
-    const dorataForecastsFromIndicacoes = dorataIndicacoes
+    const dorataForecastsFromIndicacoes: DorataForecastRow[] = dorataIndicacoes
         .filter((indicacao: any) => !dorataProposalClientIds.has(indicacao.id))
         .map((indicacao: any) => {
             const contractValue = Number(indicacao.valor ?? 0)
@@ -489,7 +611,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             const signed = Boolean(signedAt) || indicacao.status === "CONCLUIDA"
 
             return {
-                id: indicacao.id as string,
+                id: `${indicacao.id as string}:${(indicacao.users?.id as string | null) ?? (indicacao.user_id as string | null) ?? "sem-vendedor"}`,
+                saleId: indicacao.id as string,
                 leadId: indicacao.id as string,
                 created_at: indicacao.created_at as string,
                 sellerId: (indicacao.users?.id as string | null) ?? (indicacao.user_id as string | null) ?? null,
@@ -503,6 +626,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 signedAt,
                 signed,
                 commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
+                splitLabel: null,
+                isSplitRecipient: false,
             }
         })
 
@@ -694,18 +819,32 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         percent: sellerPercentDisplayByUserId.get(seller.id) ?? rentalDefaultPercentDisplay,
         isCustom: sellerPercentDisplayByUserId.has(seller.id),
     }))
-    const clientCommissionSettingsRows = filteredDorataForecasts.map((row) => {
+    const dorataSettingsBySaleId = new Map<string, (typeof filteredDorataForecasts)[number]>()
+    for (const row of filteredDorataForecasts) {
+        const current = dorataSettingsBySaleId.get(row.saleId)
+        if (!current || (current.isSplitRecipient && !row.isSplitRecipient)) {
+            dorataSettingsBySaleId.set(row.saleId, row)
+        }
+    }
+
+    const clientCommissionSettingsRows = Array.from(dorataSettingsBySaleId.values()).map((row) => {
         const sellerData = Array.isArray(row.seller) ? row.seller[0] : row.seller
         return {
-            leadId: row.id,
-            clientName: row.nome || row.id.slice(0, 8),
+            leadId: row.saleId,
+            clientName: row.nome || row.saleId.slice(0, 8),
             sellerName: sellerData?.name || sellerData?.email || "Sistema",
             percent: row.commissionPercentDisplay,
-            isCustom: dorataPercentDisplayBySaleId.has(row.id),
+            isCustom: dorataPercentDisplayBySaleId.has(row.saleId),
         }
     })
 
-    const totalDorataContract = filteredDorataForecasts.reduce((sum, item) => sum + item.contractValue, 0)
+    const dorataContractByLead = new Map<string, number>()
+    for (const item of filteredDorataForecasts) {
+        const key = item.leadId || item.saleId
+        if (!key || dorataContractByLead.has(key)) continue
+        dorataContractByLead.set(key, item.contractValue)
+    }
+    const totalDorataContract = Array.from(dorataContractByLead.values()).reduce((sum, value) => sum + value, 0)
     const totalDorataCommission = filteredDorataForecasts.reduce((sum, item) => sum + item.commissionValue, 0)
 
     const totalRentalBase = filteredRentalForecastRows.reduce((sum, item) => sum + item.baseValue, 0)
@@ -904,9 +1043,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             beneficiary_name: beneficiary?.name || beneficiary?.email || row.seller?.name || row.seller?.email || "Sem usuário",
             transaction_type: "comissao_dorata",
             amount: availableAmount,
-            description: `Fechamento Dorata - ${(row as any).nome ?? row.id.slice(0, 8)}`,
+            description: `Fechamento Dorata${row.isSplitRecipient ? " (divisão)" : ""} - ${row.nome ?? row.saleId.slice(0, 8)}`,
             origin_lead_id: row.leadId,
-            client_name: (row as any).nome ?? `Orçamento ${row.id.slice(0, 8)}`,
+            client_name: row.nome ?? `Orçamento ${row.saleId.slice(0, 8)}`,
             source_competencia: null,
         })
     }
@@ -1227,8 +1366,22 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         filteredDorataForecasts.map((item) => (
                                             <TableRow key={item.id}>
                                                 <TableCell>{formatDate(item.created_at)}</TableCell>
-                                                <TableCell>{item.seller?.name || item.seller?.email || 'Sistema'}</TableCell>
-                                                <TableCell>{item.nome || "—"}</TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-1">
+                                                        <span>{item.seller?.name || item.seller?.email || 'Sistema'}</span>
+                                                        {item.isSplitRecipient ? (
+                                                            <span className="text-xs text-muted-foreground">Comissão dividida</span>
+                                                        ) : null}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex flex-col gap-1">
+                                                        <span>{item.nome || "—"}</span>
+                                                        {item.splitLabel ? (
+                                                            <span className="text-xs text-muted-foreground">{item.splitLabel}</span>
+                                                        ) : null}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
                                                 <TableCell className="text-right">
                                                     <div className="flex flex-col items-end">

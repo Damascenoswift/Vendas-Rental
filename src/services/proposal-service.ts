@@ -82,6 +82,10 @@ export type ProposalSellerAssignmentContext = {
 }
 
 const ACTIVE_USER_STATUSES = new Set(["active", "ATIVO"])
+const COMMISSION_SPLIT_PERCENT_OPTIONS = [1, 1.5, 2, 2.5, 3] as const
+const COMMISSION_SPLIT_PERCENT_SET = new Set<number>(
+    COMMISSION_SPLIT_PERCENT_OPTIONS.map((value) => Math.round(value * 10) / 10)
+)
 
 function isActiveUserStatus(status?: string | null) {
     if (!status) return true
@@ -153,6 +157,102 @@ function parseMissingColumnError(message?: string | null) {
     const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
     if (!match) return null
     return { column: match[1], table: match[2] }
+}
+
+function parseDecimalNumber(value: unknown) {
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : NaN
+    }
+    if (typeof value === "string") {
+        const sanitized = value.trim().replace(",", ".")
+        if (!sanitized) return NaN
+        const parsed = Number(sanitized)
+        return Number.isFinite(parsed) ? parsed : NaN
+    }
+    return NaN
+}
+
+function parseCommissionSplitPercentDisplay(value: unknown) {
+    const parsed = parseDecimalNumber(value)
+    if (!Number.isFinite(parsed)) return null
+    const normalized = Math.round(parsed * 10) / 10
+    return COMMISSION_SPLIT_PERCENT_SET.has(normalized) ? normalized : null
+}
+
+function parseCommissionSplitPercentDisplayFromCalculation(calculation: ProposalCalculation) {
+    const split = calculation.commission_split
+    if (!split || typeof split !== "object" || Array.isArray(split)) return null
+
+    const parsedFromDisplay = parseCommissionSplitPercentDisplay(split.percent_display)
+    if (parsedFromDisplay !== null) return parsedFromDisplay
+
+    const parsedPercent = parseDecimalNumber(split.percent)
+    if (!Number.isFinite(parsedPercent)) return null
+    return parseCommissionSplitPercentDisplay(parsedPercent * 100)
+}
+
+async function resolveProposalCommissionSplit(params: {
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    actorId: string
+    ownerSellerId: string
+    calculation: ProposalCalculation | null
+    brand: CrmBrand
+}): Promise<
+    | { success: true; commissionSplit: NonNullable<ProposalCalculation["commission_split"]> | null }
+    | { success: false; error: string }
+> {
+    const calculation = params.calculation
+    if (!calculation) return { success: true, commissionSplit: null }
+
+    const split = calculation.commission_split
+    if (!split || typeof split !== "object" || Array.isArray(split)) {
+        return { success: true, commissionSplit: null }
+    }
+
+    if (split.enabled === false) {
+        return { success: true, commissionSplit: null }
+    }
+
+    const requestedSplitSellerId = sanitizeText(split.seller_id)
+    if (!requestedSplitSellerId) {
+        return { success: false, error: "Selecione o vendedor para dividir a comissão." }
+    }
+
+    const splitPercentDisplay = parseCommissionSplitPercentDisplayFromCalculation(calculation)
+    if (splitPercentDisplay === null) {
+        return {
+            success: false,
+            error: "Selecione um percentual válido para dividir a comissão (1%, 1,5%, 2%, 2,5% ou 3%).",
+        }
+    }
+
+    const splitSellerResolution = await resolveProposalSellerId({
+        supabaseAdmin: params.supabaseAdmin,
+        actorId: params.actorId,
+        requestedSellerId: requestedSplitSellerId,
+        brand: params.brand,
+    })
+    if (!splitSellerResolution.success) {
+        return { success: false, error: splitSellerResolution.error }
+    }
+
+    const splitSellerId = splitSellerResolution.sellerId
+    if (splitSellerId === params.ownerSellerId) {
+        return {
+            success: false,
+            error: "O vendedor da divisão precisa ser diferente do vendedor responsável do orçamento.",
+        }
+    }
+
+    return {
+        success: true,
+        commissionSplit: {
+            enabled: true,
+            seller_id: splitSellerId,
+            percent: splitPercentDisplay / 100,
+            percent_display: splitPercentDisplay,
+        },
+    }
 }
 
 export async function getProposalSellerAssignmentContext(params?: {
@@ -713,6 +813,24 @@ export async function createProposal(
             value: contractValue * commissionPercent,
             base_value: contractValue
         }
+
+        const splitResolution = await resolveProposalCommissionSplit({
+            supabaseAdmin,
+            actorId: user.id,
+            ownerSellerId: resolvedSellerId,
+            calculation,
+            brand,
+        })
+        if (!splitResolution.success) {
+            return { success: false, error: splitResolution.error }
+        }
+
+        if (splitResolution.commissionSplit) {
+            calculation.commission_split = splitResolution.commissionSplit
+        } else {
+            delete calculation.commission_split
+        }
+
         proposalPayload.calculation = calculation as any
     }
 
@@ -931,6 +1049,49 @@ export async function updateProposal(
         }
 
         updatePayload.seller_id = sellerResolution.sellerId
+    }
+
+    const updateCalculation = asProposalCalculation(updatePayload.calculation)
+    if (updateCalculation) {
+        let ownerSellerId = sanitizeText(updatePayload.seller_id as string | null | undefined)
+
+        if (!ownerSellerId) {
+            const { data: proposalOwner, error: proposalOwnerError } = await supabaseAdmin
+                .from("proposals")
+                .select("seller_id")
+                .eq("id", proposalId)
+                .maybeSingle()
+
+            if (proposalOwnerError) {
+                console.error("Erro ao carregar vendedor atual da proposta:", proposalOwnerError)
+                return { success: false, error: "Não foi possível validar o vendedor principal da proposta." }
+            }
+
+            if (!proposalOwner) {
+                return { success: false, error: "Proposta não encontrada para validar divisão de comissão." }
+            }
+
+            ownerSellerId = sanitizeText((proposalOwner as { seller_id?: string | null }).seller_id ?? null)
+        }
+
+        const splitResolution = await resolveProposalCommissionSplit({
+            supabaseAdmin,
+            actorId: user.id,
+            ownerSellerId: ownerSellerId || user.id,
+            calculation: updateCalculation,
+            brand: "dorata",
+        })
+        if (!splitResolution.success) {
+            return { success: false, error: splitResolution.error }
+        }
+
+        if (splitResolution.commissionSplit) {
+            updateCalculation.commission_split = splitResolution.commissionSplit
+        } else {
+            delete updateCalculation.commission_split
+        }
+
+        updatePayload.calculation = updateCalculation
     }
 
     if (!includeSourceMode) {

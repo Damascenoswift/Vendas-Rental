@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import type { Product } from "@/services/product-service"
 import { createProposal, updateProposal } from "@/services/proposal-service"
 import type {
@@ -62,6 +62,11 @@ type ManualContactState = {
     last_name: string
     whatsapp: string
 }
+
+const COMMISSION_SPLIT_PERCENT_OPTIONS = [1, 1.5, 2, 2.5, 3] as const
+const COMMISSION_SPLIT_PERCENT_SET = new Set<number>(
+    COMMISSION_SPLIT_PERCENT_OPTIONS.map((value) => Math.round(value * 10) / 10)
+)
 
 function toNumber(value: string) {
     const raw = (value ?? "").trim()
@@ -136,6 +141,17 @@ function toStatusLabel(status: string | null | undefined) {
     if (status === "accepted") return "Aceito"
     if (status === "rejected") return "Rejeitado"
     return status
+}
+
+function parseCommissionSplitPercentDisplay(value: unknown) {
+    const parsed = toNumber(String(value ?? ""))
+    if (!Number.isFinite(parsed)) return null
+    const normalized = Math.round(parsed * 10) / 10
+    return COMMISSION_SPLIT_PERCENT_SET.has(normalized) ? normalized : null
+}
+
+function formatSplitPercentOption(value: number) {
+    return `${value.toFixed(1).replace(/\.0$/, "").replace(".", ",")}%`
 }
 
 export function ProposalCalculatorSimple({
@@ -222,6 +238,21 @@ export function ProposalCalculatorSimple({
         ? (sellerOptions.some((seller) => seller.id === preferredSellerId) ? preferredSellerId : (sellerOptions[0]?.id ?? ""))
         : preferredSellerId
     const [selectedSellerId, setSelectedSellerId] = useState(defaultSellerId)
+    const initialCommissionSplit = initialProposal?.calculation?.commission_split
+    const initialCommissionSplitPercentDisplay =
+        parseCommissionSplitPercentDisplay(
+            initialCommissionSplit?.percent_display ??
+            (initialCommissionSplit?.percent != null ? Number(initialCommissionSplit.percent) * 100 : null)
+        ) ?? COMMISSION_SPLIT_PERCENT_OPTIONS[0]
+    const [commissionSplitEnabled, setCommissionSplitEnabled] = useState(
+        Boolean(initialCommissionSplit?.enabled !== false && initialCommissionSplit?.seller_id)
+    )
+    const [commissionSplitPercentDisplay, setCommissionSplitPercentDisplay] = useState(
+        initialCommissionSplitPercentDisplay
+    )
+    const [commissionSplitSellerId, setCommissionSplitSellerId] = useState(
+        initialCommissionSplit?.seller_id ?? ""
+    )
 
     const [qtdModulos, setQtdModulos] = useState(
         initialInput?.dimensioning?.qtd_modulos ?? 0
@@ -379,6 +410,29 @@ export function ProposalCalculatorSimple({
     const usesInventory = products.length > 0
     const kitDuplicado = calculated.output.kit.custo_kit * 2
     const estruturaDuplicada = calculated.output.structure.valor_estrutura_solo * 2
+    const sellerIdForSplit = canSelectSeller
+        ? selectedSellerId || initialProposal?.seller_id || currentUserId || ""
+        : ""
+    const commissionSplitSellerOptions = useMemo(
+        () => sellerOptions.filter((seller) => seller.id !== sellerIdForSplit),
+        [sellerIdForSplit, sellerOptions]
+    )
+
+    useEffect(() => {
+        if (!commissionSplitEnabled) return
+        if (commissionSplitSellerId && commissionSplitSellerId === sellerIdForSplit) {
+            setCommissionSplitSellerId("")
+        }
+    }, [commissionSplitEnabled, commissionSplitSellerId, sellerIdForSplit])
+
+    useEffect(() => {
+        if (!commissionSplitEnabled) return
+        if (commissionSplitSellerId) return
+        const fallbackSellerId = commissionSplitSellerOptions[0]?.id ?? ""
+        if (fallbackSellerId) {
+            setCommissionSplitSellerId(fallbackSellerId)
+        }
+    }, [commissionSplitEnabled, commissionSplitSellerId, commissionSplitSellerOptions])
 
     const handleTotalUsinaChange = (value: string) => {
         const targetTotal = toNumber(value)
@@ -566,8 +620,50 @@ export function ProposalCalculatorSimple({
             return
         }
 
+        const shouldSplitCommission = canSelectSeller && commissionSplitEnabled
+        if (shouldSplitCommission) {
+            if (commissionSplitSellerOptions.length === 0) {
+                showToast({
+                    variant: "error",
+                    title: "Divisão indisponível",
+                    description: "Não há outro vendedor disponível para dividir a comissão.",
+                })
+                return
+            }
+            if (!commissionSplitSellerId) {
+                showToast({
+                    variant: "error",
+                    title: "Vendedor da divisão obrigatório",
+                    description: "Selecione com quem a comissão será dividida.",
+                })
+                return
+            }
+            if (commissionSplitSellerId === sellerIdForSave) {
+                showToast({
+                    variant: "error",
+                    title: "Divisão inválida",
+                    description: "O vendedor da divisão deve ser diferente do vendedor responsável.",
+                })
+                return
+            }
+        }
+
         setLoading(true)
         try {
+            const calculationWithCommissionSplit = {
+                ...calculated,
+                ...(shouldSplitCommission
+                    ? {
+                        commission_split: {
+                            enabled: true,
+                            seller_id: commissionSplitSellerId,
+                            percent: commissionSplitPercentDisplay / 100,
+                            percent_display: commissionSplitPercentDisplay,
+                        },
+                    }
+                    : {}),
+            }
+
             const proposalData: ProposalInsert & { source_mode: "simple" } = {
                 status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
                 total_value: calculated.output.totals.total_a_vista,
@@ -575,7 +671,7 @@ export function ProposalCalculatorSimple({
                 additional_cost: calculated.output.extras.extras_total,
                 profit_margin: calculated.output.margin.margem_valor,
                 total_power: calculated.output.dimensioning.kWp,
-                calculation: calculated,
+                calculation: calculationWithCommissionSplit,
                 source_mode: "simple",
                 ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
@@ -868,6 +964,64 @@ export function ProposalCalculatorSimple({
                                             ))}
                                         </SelectContent>
                                     </Select>
+                                </div>
+                            ) : null}
+                            {canSelectSeller ? (
+                                <div className="space-y-3 rounded-md border p-3 md:col-span-2">
+                                    <div className="flex items-center gap-2">
+                                        <Checkbox
+                                            checked={commissionSplitEnabled}
+                                            onChange={(e) => setCommissionSplitEnabled(e.target.checked)}
+                                        />
+                                        <Label>Dividir comissão com outro vendedor</Label>
+                                    </div>
+                                    {commissionSplitEnabled ? (
+                                        <div className="grid gap-4 md:grid-cols-2">
+                                            <div className="space-y-2">
+                                                <Label>Percentual da divisão</Label>
+                                                <Select
+                                                    value={String(commissionSplitPercentDisplay)}
+                                                    onValueChange={(value) => {
+                                                        const parsed = parseCommissionSplitPercentDisplay(value)
+                                                        if (parsed !== null) {
+                                                            setCommissionSplitPercentDisplay(parsed)
+                                                        }
+                                                    }}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Selecione o percentual" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {COMMISSION_SPLIT_PERCENT_OPTIONS.map((percent) => (
+                                                            <SelectItem key={percent} value={String(percent)}>
+                                                                {formatSplitPercentOption(percent)}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Vendedor para dividir</Label>
+                                                <Select value={commissionSplitSellerId} onValueChange={setCommissionSplitSellerId}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Selecione o vendedor" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {commissionSplitSellerOptions.map((seller) => (
+                                                            <SelectItem key={seller.id} value={seller.id}>
+                                                                {seller.name || seller.email || seller.id}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                {commissionSplitSellerOptions.length === 0 ? (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Não há outro vendedor disponível para divisão.
+                                                    </p>
+                                                ) : null}
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
                             ) : null}
                         </div>
