@@ -159,6 +159,64 @@ function parseMissingColumnError(message?: string | null) {
     return { column: match[1], table: match[2] }
 }
 
+function extractMergedSecondaryProposalIds(calculation: ProposalCalculation | null | undefined) {
+    if (!calculation || typeof calculation !== "object" || Array.isArray(calculation)) {
+        return [] as string[]
+    }
+
+    const bundle = (calculation as Record<string, unknown>).bundle
+    if (!bundle || typeof bundle !== "object" || Array.isArray(bundle)) {
+        return [] as string[]
+    }
+
+    const rawIds = (bundle as Record<string, unknown>).secondary_proposal_ids
+    if (!Array.isArray(rawIds)) {
+        return [] as string[]
+    }
+
+    const uniqueIds = new Set<string>()
+    for (const entry of rawIds) {
+        if (typeof entry !== "string") continue
+        const normalized = sanitizeText(entry)
+        if (!normalized) continue
+        uniqueIds.add(normalized)
+    }
+
+    return Array.from(uniqueIds)
+}
+
+function mergeProposalItemsKeepingCosts(
+    proposalId: string,
+    items: Array<{ product_id: string | null; quantity: number; unit_price: number; total_price: number }>
+) {
+    const grouped = new Map<string, { proposal_id: string; product_id: string | null; quantity: number; unit_price: number; total_price: number }>()
+
+    for (const item of items) {
+        const productId = item.product_id ?? null
+        const unitPrice = Number(item.unit_price || 0)
+        const quantity = Number(item.quantity || 0)
+        const totalPrice = Number(item.total_price || 0)
+        const key = `${productId ?? "__null__"}::${unitPrice.toFixed(6)}`
+
+        const existing = grouped.get(key)
+        if (!existing) {
+            grouped.set(key, {
+                proposal_id: proposalId,
+                product_id: productId,
+                quantity: quantity,
+                unit_price: unitPrice,
+                total_price: totalPrice,
+            })
+            continue
+        }
+
+        existing.quantity += quantity
+        existing.total_price += totalPrice
+    }
+
+    return Array.from(grouped.values())
+}
+
 function parseDecimalNumber(value: unknown) {
     if (typeof value === "number") {
         return Number.isFinite(value) ? value : NaN
@@ -1052,6 +1110,7 @@ export async function updateProposal(
     }
 
     const updateCalculation = asProposalCalculation(updatePayload.calculation)
+    const mergedSecondaryProposalIds = extractMergedSecondaryProposalIds(updateCalculation)
     if (updateCalculation) {
         let ownerSellerId = sanitizeText(updatePayload.seller_id as string | null | undefined)
 
@@ -1137,10 +1196,49 @@ export async function updateProposal(
         return { success: false, error: `Falha ao atualizar itens do orçamento: ${deleteItemsError.message}` }
     }
 
-    const itemsWithProposalId = items.map((item) => ({
+    let itemsWithProposalId = items.map((item) => ({
         ...item,
         proposal_id: proposalId,
     }))
+
+    if (mergedSecondaryProposalIds.length > 0) {
+        const secondaryIds = mergedSecondaryProposalIds.filter((mergedId) => mergedId !== proposalId)
+
+        if (secondaryIds.length > 0) {
+            const { data: secondaryItems, error: secondaryItemsError } = await supabaseAdmin
+                .from("proposal_items")
+                .select("product_id, quantity, unit_price, total_price")
+                .in("proposal_id", secondaryIds)
+
+            if (secondaryItemsError) {
+                return { success: false, error: `Falha ao carregar itens do orçamento vinculado: ${secondaryItemsError.message}` }
+            }
+
+            const linkedItems = ((secondaryItems ?? []) as Array<{
+                product_id: string | null
+                quantity: number
+                unit_price: number
+                total_price: number
+            }>).map((item) => ({
+                product_id: item.product_id ?? null,
+                quantity: Number(item.quantity ?? 0),
+                unit_price: Number(item.unit_price ?? 0),
+                total_price: Number(item.total_price ?? 0),
+            }))
+
+            const currentItemsNormalized = itemsWithProposalId.map((item) => ({
+                product_id: item.product_id ?? null,
+                quantity: Number(item.quantity ?? 0),
+                unit_price: Number(item.unit_price ?? 0),
+                total_price: Number(item.total_price ?? 0),
+            }))
+
+            itemsWithProposalId = mergeProposalItemsKeepingCosts(
+                proposalId,
+                [...currentItemsNormalized, ...linkedItems]
+            )
+        }
+    }
 
     if (itemsWithProposalId.length > 0) {
         const { error: insertItemsError } = await supabaseAdmin

@@ -12,6 +12,8 @@ import type {
 } from "@/services/proposal-service"
 import {
     calculateProposal,
+    calculateInstallmentFromRate,
+    calculateFinancedBalanceAfterGrace,
     solveMonthlyRateFromInstallment,
     type ProposalCalcInput,
     type ProposalCalcParams
@@ -33,6 +35,7 @@ import { Loader2, Calculator } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
+import type { ProposalMergeCandidate } from "@/components/admin/proposals/proposal-calculator"
 
 interface ProposalCalculatorProps {
     products: Product[]
@@ -42,6 +45,7 @@ interface ProposalCalculatorProps {
     sellerOptions?: ProposalSellerOption[]
     canAssignSeller?: boolean
     currentUserId?: string | null
+    mergedProposal?: ProposalMergeCandidate | null
 }
 
 type RuleMap = Record<string, number>
@@ -162,6 +166,7 @@ export function ProposalCalculatorSimple({
     sellerOptions = [],
     canAssignSeller = false,
     currentUserId = null,
+    mergedProposal = null,
 }: ProposalCalculatorProps) {
     const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
     const defaultModulePower = rules.potencia_modulo_w ?? 700
@@ -417,6 +422,72 @@ export function ProposalCalculatorSimple({
         () => sellerOptions.filter((seller) => seller.id !== sellerIdForSplit),
         [sellerIdForSplit, sellerOptions]
     )
+    const mergedProposalValue = mergedProposal ? Math.max(Number(mergedProposal.total_value || 0), 0) : 0
+    const mergedProposalPower = mergedProposal ? Math.max(Number(mergedProposal.total_power || 0), 0) : 0
+    const mergedModuleCount = mergedProposal ? Math.max(Number(mergedProposal.module_count || 0), 0) : 0
+    const mergedMaterialTotal = mergedProposal ? Math.max(Number(mergedProposal.material_total || 0), 0) : 0
+    const unifiedTotalAvista = calculated.output.totals.total_a_vista + mergedProposalValue
+    const unifiedTotalPower = calculated.output.dimensioning.kWp + mergedProposalPower
+    const unifiedModuleCount = qtdModulos + mergedModuleCount
+    const unifiedMaterialTotal = calculated.output.totals.views.view_material + mergedMaterialTotal
+    const unifiedFinance = useMemo(() => {
+        if (!financeEnabled) {
+            return {
+                entrada_percentual: 0,
+                valor_financiado: 0,
+                saldo_pos_carencia: 0,
+                parcela_mensal_base: 0,
+                parcela_permuta_mensal: 0,
+                parcela_mensal: 0,
+                total_pago: unifiedTotalAvista,
+                total_pago_liquido: unifiedTotalAvista,
+            }
+        }
+
+        const financedValue = Math.max(unifiedTotalAvista - entradaValor, 0)
+        const baseInstallment = calculateInstallmentFromRate({
+            financed_value: financedValue,
+            monthly_rate: jurosMensal,
+            grace_months: carenciaMeses,
+            grace_interest_mode: params.grace_interest_mode,
+            installments: numParcelas,
+        })
+        const installmentTradeDiscount =
+            tradeEnabled && tradeMode === "INSTALLMENTS"
+                ? Math.min(Math.max(tradeValue, 0), Math.max(baseInstallment, 0))
+                : 0
+        const installment = Math.max(baseInstallment - installmentTradeDiscount, 0)
+        const parcels = Math.max(numParcelas, 0)
+        const totalPaid = entradaValor + (baseInstallment * parcels)
+        const totalPaidNet = entradaValor + (installment * parcels)
+
+        return {
+            entrada_percentual: unifiedTotalAvista > 0 ? entradaValor / unifiedTotalAvista : 0,
+            valor_financiado: financedValue,
+            saldo_pos_carencia: calculateFinancedBalanceAfterGrace({
+                financed_value: financedValue,
+                monthly_rate: jurosMensal,
+                grace_months: carenciaMeses,
+                grace_interest_mode: params.grace_interest_mode,
+            }),
+            parcela_mensal_base: baseInstallment,
+            parcela_permuta_mensal: installmentTradeDiscount,
+            parcela_mensal: installment,
+            total_pago: totalPaid,
+            total_pago_liquido: totalPaidNet,
+        }
+    }, [
+        financeEnabled,
+        unifiedTotalAvista,
+        entradaValor,
+        jurosMensal,
+        carenciaMeses,
+        params.grace_interest_mode,
+        numParcelas,
+        tradeEnabled,
+        tradeMode,
+        tradeValue,
+    ])
 
     useEffect(() => {
         if (!commissionSplitEnabled) return
@@ -650,8 +721,31 @@ export function ProposalCalculatorSimple({
 
         setLoading(true)
         try {
-            const calculationWithCommissionSplit = {
+            const calculationWithCommissionSplit: Record<string, unknown> = {
                 ...calculated,
+                output: {
+                    ...calculated.output,
+                    dimensioning: {
+                        ...calculated.output.dimensioning,
+                        kWp: unifiedTotalPower,
+                    },
+                    totals: {
+                        ...calculated.output.totals,
+                        total_a_vista: unifiedTotalAvista,
+                    },
+                    finance: {
+                        ...calculated.output.finance,
+                        entrada_percentual: unifiedFinance.entrada_percentual,
+                        valor_financiado: unifiedFinance.valor_financiado,
+                        saldo_pos_carencia: unifiedFinance.saldo_pos_carencia,
+                        parcela_mensal_base: unifiedFinance.parcela_mensal_base,
+                        parcela_permuta_mensal: unifiedFinance.parcela_permuta_mensal,
+                        parcela_mensal: unifiedFinance.parcela_mensal,
+                        total_pago: unifiedFinance.total_pago,
+                        total_pago_liquido: unifiedFinance.total_pago_liquido,
+                        juros_pagos: Math.max(unifiedFinance.total_pago - unifiedTotalAvista, 0),
+                    },
+                },
                 ...(shouldSplitCommission
                     ? {
                         commission_split: {
@@ -663,15 +757,27 @@ export function ProposalCalculatorSimple({
                     }
                     : {}),
             }
+            if (mergedProposal) {
+                calculationWithCommissionSplit.bundle = {
+                    enabled: true,
+                    secondary_proposal_ids: [mergedProposal.id],
+                    consolidated: {
+                        total_value: unifiedTotalAvista,
+                        total_power: unifiedTotalPower,
+                        module_count: unifiedModuleCount,
+                        material_total: unifiedMaterialTotal,
+                    },
+                }
+            }
 
             const proposalData: ProposalInsert & { source_mode: "simple" } = {
                 status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
-                total_value: calculated.output.totals.total_a_vista,
+                total_value: unifiedTotalAvista,
                 equipment_cost: calculated.output.kit.custo_kit,
                 additional_cost: calculated.output.extras.extras_total,
                 profit_margin: calculated.output.margin.margem_valor,
-                total_power: calculated.output.dimensioning.kWp,
-                calculation: calculationWithCommissionSplit,
+                total_power: unifiedTotalPower,
+                calculation: calculationWithCommissionSplit as ProposalInsert["calculation"],
                 source_mode: "simple",
                 ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
@@ -1388,6 +1494,90 @@ export function ProposalCalculatorSimple({
                                     </div>
                                 )}
                             </div>
+                        )}
+                        {mergedProposal && (
+                            <>
+                                <Separator />
+                                <div className="space-y-2 text-sm">
+                                    <p className="font-semibold">Visão unificada</p>
+                                    <div className="rounded-md border px-3 py-2">
+                                        <div className="text-xs font-medium">Orçamento 01 (atual)</div>
+                                        <div className="mt-1 flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Módulos</span>
+                                            <span>{qtdModulos.toLocaleString("pt-BR")}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Potência</span>
+                                            <span>{calculated.output.dimensioning.kWp.toFixed(2)} kWp</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Material</span>
+                                            <span>{formatCurrency(calculated.output.totals.views.view_material)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Total à vista</span>
+                                            <span>{formatCurrency(calculated.output.totals.total_a_vista)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="rounded-md border px-3 py-2">
+                                        <div className="text-xs font-medium">Orçamento 02 (vinculado)</div>
+                                        <div className="mt-1 flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Módulos</span>
+                                            <span>{mergedModuleCount.toLocaleString("pt-BR")}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Potência</span>
+                                            <span>{mergedProposalPower.toFixed(2)} kWp</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Material</span>
+                                            <span>{formatCurrency(mergedMaterialTotal)}</span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                            <span className="text-muted-foreground">Total à vista</span>
+                                            <span>{formatCurrency(mergedProposalValue)}</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-between font-medium">
+                                        <span>Módulos totais</span>
+                                        <span>{unifiedModuleCount.toLocaleString("pt-BR")}</span>
+                                    </div>
+                                    <div className="flex justify-between font-medium">
+                                        <span>Potência total unificada</span>
+                                        <span>{unifiedTotalPower.toFixed(2)} kWp</span>
+                                    </div>
+                                    <div className="flex justify-between font-medium">
+                                        <span>Material total unificado</span>
+                                        <span>{formatCurrency(unifiedMaterialTotal)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-medium">
+                                        <span>Total à vista unificado</span>
+                                        <span>{formatCurrency(unifiedTotalAvista)}</span>
+                                    </div>
+                                    {financeEnabled && (
+                                        <>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Valor financiado unificado</span>
+                                                <span>{formatCurrency(unifiedFinance.valor_financiado)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Parcela unificada</span>
+                                                <span>{formatCurrency(unifiedFinance.parcela_mensal)}</span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-muted-foreground">Total com juros unificado</span>
+                                                <span>{formatCurrency(unifiedFinance.total_pago)}</span>
+                                            </div>
+                                            {tradeEnabled && tradeMode === "INSTALLMENTS" && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-muted-foreground">Total após permuta (unificado)</span>
+                                                    <span>{formatCurrency(unifiedFinance.total_pago_liquido)}</span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            </>
                         )}
                     </CardContent>
                     <CardFooter>
