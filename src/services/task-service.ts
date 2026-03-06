@@ -350,6 +350,46 @@ export interface TaskContactOption {
     mobile: string | null
 }
 
+const CONTACT_BASE_COLUMNS = ["id"] as const
+const CONTACT_OPTIONAL_COLUMNS = ["full_name", "first_name", "last_name", "email", "whatsapp", "phone", "mobile"] as const
+const CONTACT_ALL_COLUMNS = [...CONTACT_BASE_COLUMNS, ...CONTACT_OPTIONAL_COLUMNS] as const
+
+function buildContactColumns(columns: readonly string[]) {
+    return columns.join(", ")
+}
+
+function buildContactSearchFilter(search: string, availableColumns: Set<string>) {
+    const normalized = search.replace(/[(),']/g, " ").trim()
+    if (!normalized) return ""
+
+    const filterColumns = [
+        "full_name",
+        "first_name",
+        "last_name",
+        "email",
+        "whatsapp",
+        "phone",
+        "mobile",
+    ].filter((column) => availableColumns.has(column))
+
+    if (filterColumns.length === 0) return ""
+
+    return filterColumns.map((column) => `${column}.ilike.%${normalized}%`).join(",")
+}
+
+function normalizeContactRow(row: Record<string, unknown>): TaskContactOption {
+    return {
+        id: String(row.id ?? ""),
+        full_name: (row.full_name as string | null | undefined) ?? null,
+        first_name: (row.first_name as string | null | undefined) ?? null,
+        last_name: (row.last_name as string | null | undefined) ?? null,
+        email: (row.email as string | null | undefined) ?? null,
+        whatsapp: (row.whatsapp as string | null | undefined) ?? null,
+        phone: (row.phone as string | null | undefined) ?? null,
+        mobile: (row.mobile as string | null | undefined) ?? null,
+    }
+}
+
 export interface TaskProposalOption {
     id: string
     status: string | null
@@ -569,29 +609,44 @@ export async function searchTaskContacts(search?: string) {
     if (!user) return []
 
     const supabaseAdmin = createSupabaseServiceClient()
-    let query = supabaseAdmin
-        .from('contacts')
-        .select('id, full_name, first_name, last_name, email, whatsapp, phone, mobile')
-        .limit(20)
+    let selectableColumns: string[] = [...CONTACT_ALL_COLUMNS]
+    const sanitizedSearch = search ? search.replace(/[(),']/g, " ").trim() : ""
 
-    if (search) {
-        const sanitized = search.replace(/[(),']/g, " ").trim()
-        if (sanitized) {
-            query = query.or(
-                `full_name.ilike.%${sanitized}%,email.ilike.%${sanitized}%,whatsapp.ilike.%${sanitized}%,phone.ilike.%${sanitized}%,mobile.ilike.%${sanitized}%`
-            )
+    while (true) {
+        const availableColumnsSet = new Set(selectableColumns)
+        let query = supabaseAdmin
+            .from("contacts")
+            .select(buildContactColumns(selectableColumns))
+            .limit(20)
+
+        if (sanitizedSearch) {
+            const filter = buildContactSearchFilter(sanitizedSearch, availableColumnsSet)
+            if (filter) {
+                query = query.or(filter)
+            }
+        } else {
+            query = query.order("created_at", { ascending: false })
         }
-    } else {
-        query = query.order('created_at', { ascending: false })
-    }
 
-    const { data, error } = await query
-    if (error) {
+        const { data, error } = await query
+        if (!error) {
+            return ((data ?? []) as unknown as Record<string, unknown>[]).map(normalizeContactRow)
+        }
+
+        const missingColumn = parseMissingColumnError(error.message)
+        const isContactColumnError =
+            missingColumn?.table === "contacts" &&
+            Boolean(missingColumn.column) &&
+            selectableColumns.includes(missingColumn.column)
+
+        if (isContactColumnError && missingColumn?.column && missingColumn.column !== "id") {
+            selectableColumns = selectableColumns.filter((column) => column !== missingColumn.column)
+            continue
+        }
+
         console.error("Error fetching task contacts:", error)
         return []
     }
-
-    return data as TaskContactOption[]
 }
 
 export async function getTaskContactById(contactId: string) {
@@ -600,18 +655,33 @@ export async function getTaskContactById(contactId: string) {
     if (!user) return null
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { data, error } = await supabaseAdmin
-        .from('contacts')
-        .select('id, full_name, first_name, last_name, email, whatsapp, phone, mobile')
-        .eq('id', contactId)
-        .maybeSingle()
+    let selectableColumns: string[] = [...CONTACT_ALL_COLUMNS]
 
-    if (error) {
+    while (true) {
+        const { data, error } = await supabaseAdmin
+            .from("contacts")
+            .select(buildContactColumns(selectableColumns))
+            .eq("id", contactId)
+            .maybeSingle()
+
+        if (!error) {
+            return data ? normalizeContactRow(data as unknown as Record<string, unknown>) : null
+        }
+
+        const missingColumn = parseMissingColumnError(error.message)
+        const isContactColumnError =
+            missingColumn?.table === "contacts" &&
+            Boolean(missingColumn.column) &&
+            selectableColumns.includes(missingColumn.column)
+
+        if (isContactColumnError && missingColumn?.column && missingColumn.column !== "id") {
+            selectableColumns = selectableColumns.filter((column) => column !== missingColumn.column)
+            continue
+        }
+
         console.error("Error fetching task contact:", error)
         return null
     }
-
-    return data as TaskContactOption | null
 }
 
 export async function getTaskProposalOptions(brand?: Brand) {

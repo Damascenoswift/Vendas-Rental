@@ -49,6 +49,19 @@ interface LeadSelectProps {
     leadBrand?: 'rental' | 'dorata'
 }
 
+function formatPhone(value?: string | null) {
+    const digits = (value ?? "").replace(/\D/g, "")
+    if (!digits) return ""
+
+    if (digits.length === 11) {
+        return digits.replace(/^(\d{2})(\d{5})(\d{4})$/, "($1) $2-$3")
+    }
+    if (digits.length === 10) {
+        return digits.replace(/^(\d{2})(\d{4})(\d{4})$/, "($1) $2-$3")
+    }
+    return value ?? ""
+}
+
 export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mode = 'both', leadBrand }: LeadSelectProps) {
     const [open, setOpen] = React.useState(false)
     const [leads, setLeads] = React.useState<Lead[]>([])
@@ -193,7 +206,7 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                         <div className="flex flex-col">
                                             <span>{lead.nome}</span>
                                             <span className="text-xs text-muted-foreground">
-                                                Doc: {lead.documento || 'N/A'}
+                                                Indicação • Doc: {lead.documento || 'N/A'}
                                                 {lead.unidade_consumidora && ` • UC: ${lead.unidade_consumidora}`}
                                                 {lead.codigo_cliente && ` • Cód: ${lead.codigo_cliente}`}
                                                 {lead.codigo_instalacao && ` • Inst: ${lead.codigo_instalacao}`}
@@ -234,7 +247,10 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                             <div className="flex flex-col">
                                                 <span>{name}</span>
                                                 <span className="text-xs text-muted-foreground">
-                                                    {contact.email || contact.whatsapp || contact.phone || contact.mobile || ""}
+                                                    {[
+                                                        "Contato",
+                                                        contact.email || formatPhone(contact.whatsapp) || formatPhone(contact.phone) || formatPhone(contact.mobile),
+                                                    ].filter(Boolean).join(" • ")}
                                                 </span>
                                             </div>
                                         </CommandItem>
