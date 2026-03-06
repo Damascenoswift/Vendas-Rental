@@ -247,6 +247,10 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                         key={`contact-${contact.id}`}
                                         value={`contact-${name}-${contact.id}`}
                                         className="cursor-pointer text-foreground"
+                                        onMouseDown={(event) => {
+                                            event.preventDefault()
+                                            handleSelectContact(contact)
+                                        }}
                                         onSelect={() => {
                                             handleSelectContact(contact)
                                         }}
@@ -286,6 +290,10 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                         key={`lead-${lead.id}`}
                                         value={`lead-${lead.nome}-${lead.id}`}
                                         className="cursor-pointer text-foreground"
+                                        onMouseDown={(event) => {
+                                            event.preventDefault()
+                                            handleSelectLead(lead)
+                                        }}
                                         onSelect={() => {
                                             handleSelectLead(lead)
                                         }}
