@@ -69,9 +69,20 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
     const [search, setSearch] = React.useState("")
     const [selectedLead, setSelectedLead] = React.useState<Lead | null>(null)
     const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null)
+    const [sourceFilter, setSourceFilter] = React.useState<"all" | "contacts" | "leads">(
+        mode === "both" ? "contacts" : "all"
+    )
     const debouncedSearch = useDebounce(search, 300)
-    const showLeads = mode !== 'contacts'
-    const showContacts = mode !== 'leads'
+    const showLeads = mode === "leads" || (mode === "both" && sourceFilter !== "contacts")
+    const showContacts = mode === "contacts" || (mode === "both" && sourceFilter !== "leads")
+
+    React.useEffect(() => {
+        if (mode === "both") {
+            setSourceFilter("contacts")
+            return
+        }
+        setSourceFilter("all")
+    }, [mode])
 
     const getContactName = React.useCallback((contact: Contact) => {
         return contact.full_name
@@ -178,6 +189,46 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="z-[90] w-[420px] p-0 shadow-xl">
+                {mode === "both" ? (
+                    <div className="flex items-center gap-1 border-b bg-muted/30 p-2">
+                        <button
+                            type="button"
+                            className={cn(
+                                "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                                sourceFilter === "contacts"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground hover:bg-muted"
+                            )}
+                            onClick={() => setSourceFilter("contacts")}
+                        >
+                            Contatos
+                        </button>
+                        <button
+                            type="button"
+                            className={cn(
+                                "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                                sourceFilter === "leads"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground hover:bg-muted"
+                            )}
+                            onClick={() => setSourceFilter("leads")}
+                        >
+                            Indicações
+                        </button>
+                        <button
+                            type="button"
+                            className={cn(
+                                "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                                sourceFilter === "all"
+                                    ? "bg-primary text-primary-foreground"
+                                    : "text-muted-foreground hover:bg-muted"
+                            )}
+                            onClick={() => setSourceFilter("all")}
+                        >
+                            Todos
+                        </button>
+                    </div>
+                ) : null}
                 <Command shouldFilter={false}>
                     <CommandInput
                         placeholder="Buscar cliente por nome..."
@@ -186,42 +237,6 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                     />
                     <CommandList>
                         <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                        {showLeads && (
-                            <CommandGroup heading="Indicações">
-                                {leads.map((lead) => (
-                                    <CommandItem
-                                        key={`lead-${lead.id}`}
-                                        value={`lead-${lead.nome}-${lead.id}`}
-                                        className="cursor-pointer text-foreground"
-                                        onSelect={() => {
-                                            handleSelectLead(lead)
-                                        }}
-                                >
-                                        <Check
-                                            className={cn(
-                                                "mr-2 h-4 w-4",
-                                                value === lead.id ? "opacity-100" : "opacity-0"
-                                            )}
-                                        />
-                                        <div className="flex flex-col">
-                                            <span>{lead.nome}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                                Indicação • Doc: {lead.documento || 'N/A'}
-                                                {lead.unidade_consumidora && ` • UC: ${lead.unidade_consumidora}`}
-                                                {lead.codigo_cliente && ` • Cód: ${lead.codigo_cliente}`}
-                                                {lead.codigo_instalacao && ` • Inst: ${lead.codigo_instalacao}`}
-                                            </span>
-                                        </div>
-                                    </CommandItem>
-                                ))}
-                                {leads.length === 0 && (
-                                    <div className="px-3 py-2 text-xs text-muted-foreground">
-                                        Nenhuma indicação encontrada.
-                                    </div>
-                                )}
-                            </CommandGroup>
-                        )}
-
                         {showContacts && (
                             <CommandGroup heading="Contatos">
                                 {contacts.map((contact) => {
@@ -259,6 +274,42 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                                 {contacts.length === 0 && (
                                     <div className="px-3 py-2 text-xs text-muted-foreground">
                                         Nenhum contato encontrado.
+                                    </div>
+                                )}
+                            </CommandGroup>
+                        )}
+
+                        {showLeads && (
+                            <CommandGroup heading="Indicações">
+                                {leads.map((lead) => (
+                                    <CommandItem
+                                        key={`lead-${lead.id}`}
+                                        value={`lead-${lead.nome}-${lead.id}`}
+                                        className="cursor-pointer text-foreground"
+                                        onSelect={() => {
+                                            handleSelectLead(lead)
+                                        }}
+                                    >
+                                        <Check
+                                            className={cn(
+                                                "mr-2 h-4 w-4",
+                                                value === lead.id ? "opacity-100" : "opacity-0"
+                                            )}
+                                        />
+                                        <div className="flex flex-col">
+                                            <span>{lead.nome}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                Indicação • Doc: {lead.documento || 'N/A'}
+                                                {lead.unidade_consumidora && ` • UC: ${lead.unidade_consumidora}`}
+                                                {lead.codigo_cliente && ` • Cód: ${lead.codigo_cliente}`}
+                                                {lead.codigo_instalacao && ` • Inst: ${lead.codigo_instalacao}`}
+                                            </span>
+                                        </div>
+                                    </CommandItem>
+                                ))}
+                                {leads.length === 0 && (
+                                    <div className="px-3 py-2 text-xs text-muted-foreground">
+                                        Nenhuma indicação encontrada.
                                     </div>
                                 )}
                             </CommandGroup>
