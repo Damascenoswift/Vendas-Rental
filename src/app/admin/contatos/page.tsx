@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ContactsImportCard } from "@/components/admin/contacts/contacts-import-card"
 
 export const dynamic = "force-dynamic"
 
@@ -118,7 +117,7 @@ export default async function AdminContactsPage({
             <div className="flex flex-col gap-2">
                 <h1 className="text-3xl font-bold">Contatos</h1>
                 <p className="text-muted-foreground">
-                    Busque, visualize e importe contatos para o CRM.
+                    Busque e visualize contatos usados no CRM e nos orçamentos.
                 </p>
             </div>
 
@@ -141,72 +140,68 @@ export default async function AdminContactsPage({
                 </div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="rounded-md border bg-white">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Nome</TableHead>
-                                <TableHead>Email</TableHead>
-                                <TableHead>WhatsApp</TableHead>
-                                <TableHead>Telefone</TableHead>
-                                <TableHead>Cidade</TableHead>
-                                <TableHead>Criado em</TableHead>
-                                <TableHead>ID</TableHead>
-                                <TableHead className="text-right">Ações</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {contacts?.map((contact) => {
-                                const name =
-                                    contact.full_name ||
-                                    [contact.first_name, contact.last_name].filter(Boolean).join(" ") ||
-                                    contact.email ||
-                                    "Sem nome"
-                                const location =
-                                    [contact.city, contact.state].filter(Boolean).join(" / ") || "-"
-                                const dateValue = contact.source_created_at ?? contact.created_at
-                                const formattedDate = dateValue
-                                    ? new Intl.DateTimeFormat("pt-BR", {
-                                        day: "2-digit",
-                                        month: "2-digit",
-                                        year: "numeric",
-                                    }).format(new Date(dateValue))
-                                    : "-"
+            <div className="rounded-md border bg-white">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Nome</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>WhatsApp</TableHead>
+                            <TableHead>Telefone</TableHead>
+                            <TableHead>Cidade</TableHead>
+                            <TableHead>Criado em</TableHead>
+                            <TableHead>ID</TableHead>
+                            <TableHead className="text-right">Ações</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {contacts?.map((contact) => {
+                            const name =
+                                contact.full_name ||
+                                [contact.first_name, contact.last_name].filter(Boolean).join(" ") ||
+                                contact.email ||
+                                "Sem nome"
+                            const location =
+                                [contact.city, contact.state].filter(Boolean).join(" / ") || "-"
+                            const dateValue = contact.source_created_at ?? contact.created_at
+                            const formattedDate = dateValue
+                                ? new Intl.DateTimeFormat("pt-BR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                }).format(new Date(dateValue))
+                                : "-"
 
-                                return (
-                                    <TableRow key={contact.id}>
-                                        <TableCell className="font-medium">
-                                            <Link href={`/admin/contatos/${contact.id}`} className="hover:underline">
-                                                {name}
-                                            </Link>
-                                        </TableCell>
-                                        <TableCell>{contact.email || "-"}</TableCell>
-                                        <TableCell>{contact.whatsapp || "-"}</TableCell>
-                                        <TableCell>{contact.phone || contact.mobile || "-"}</TableCell>
-                                        <TableCell>{location}</TableCell>
-                                        <TableCell>{formattedDate}</TableCell>
-                                        <TableCell>{contact.external_id || "-"}</TableCell>
-                                        <TableCell className="text-right">
-                                            <Button asChild variant="outline" size="sm">
-                                                <Link href={`/admin/contatos/${contact.id}`}>Ver 360</Link>
-                                            </Button>
-                                        </TableCell>
-                                    </TableRow>
-                                )
-                            })}
-                            {(!contacts || contacts.length === 0) && (
-                                <TableRow>
-                                    <TableCell colSpan={8} className="h-24 text-center">
-                                        Nenhum contato encontrado.
+                            return (
+                                <TableRow key={contact.id}>
+                                    <TableCell className="font-medium">
+                                        <Link href={`/admin/contatos/${contact.id}`} className="hover:underline">
+                                            {name}
+                                        </Link>
+                                    </TableCell>
+                                    <TableCell>{contact.email || "-"}</TableCell>
+                                    <TableCell>{contact.whatsapp || "-"}</TableCell>
+                                    <TableCell>{contact.phone || contact.mobile || "-"}</TableCell>
+                                    <TableCell>{location}</TableCell>
+                                    <TableCell>{formattedDate}</TableCell>
+                                    <TableCell>{contact.external_id || "-"}</TableCell>
+                                    <TableCell className="text-right">
+                                        <Button asChild variant="outline" size="sm">
+                                            <Link href={`/admin/contatos/${contact.id}`}>Ver 360</Link>
+                                        </Button>
                                     </TableCell>
                                 </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
-
-                <ContactsImportCard />
+                            )
+                        })}
+                        {(!contacts || contacts.length === 0) && (
+                            <TableRow>
+                                <TableCell colSpan={8} className="h-24 text-center">
+                                    Nenhum contato encontrado.
+                                </TableCell>
+                            </TableRow>
+                        )}
+                    </TableBody>
+                </Table>
             </div>
 
             <div className="flex flex-col items-center justify-between gap-4 md:flex-row">

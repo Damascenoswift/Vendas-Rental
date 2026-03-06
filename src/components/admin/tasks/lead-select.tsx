@@ -5,14 +5,7 @@ import { Check, ChevronsUpDown } from "lucide-react"
 import { useDebounce } from "@/hooks/use-debounce"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import {
-    Command,
-    CommandEmpty,
-    CommandGroup,
-    CommandInput,
-    CommandItem,
-    CommandList,
-} from "@/components/ui/command"
+import { Input } from "@/components/ui/input"
 import {
     Popover,
     PopoverContent,
@@ -43,10 +36,10 @@ interface Contact {
 interface LeadSelectProps {
     value?: string
     onChange: (value?: string) => void
-    onSelectLead?: (lead: Lead, source?: 'indicacao' | 'contact') => void
+    onSelectLead?: (lead: Lead, source?: "indicacao" | "contact") => void
     onSelectContact?: (contact: Contact) => void
-    mode?: 'contacts' | 'leads' | 'both'
-    leadBrand?: 'rental' | 'dorata'
+    mode?: "contacts" | "leads" | "both"
+    leadBrand?: "rental" | "dorata"
 }
 
 function formatPhone(value?: string | null) {
@@ -62,19 +55,39 @@ function formatPhone(value?: string | null) {
     return value ?? ""
 }
 
-export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mode = 'both', leadBrand }: LeadSelectProps) {
+export function LeadSelect({
+    value,
+    onChange,
+    onSelectLead,
+    onSelectContact,
+    mode = "both",
+    leadBrand,
+}: LeadSelectProps) {
     const [open, setOpen] = React.useState(false)
+    const [search, setSearch] = React.useState("")
     const [leads, setLeads] = React.useState<Lead[]>([])
     const [contacts, setContacts] = React.useState<Contact[]>([])
-    const [search, setSearch] = React.useState("")
     const [selectedLead, setSelectedLead] = React.useState<Lead | null>(null)
     const [selectedContact, setSelectedContact] = React.useState<Contact | null>(null)
     const [sourceFilter, setSourceFilter] = React.useState<"all" | "contacts" | "leads">(
         mode === "both" ? "contacts" : "all"
     )
-    const debouncedSearch = useDebounce(search, 300)
+    const debouncedSearch = useDebounce(search, 250)
+
     const showLeads = mode === "leads" || (mode === "both" && sourceFilter !== "contacts")
     const showContacts = mode === "contacts" || (mode === "both" && sourceFilter !== "leads")
+
+    const getContactName = React.useCallback((contact: Contact) => {
+        return (
+            contact.full_name
+            || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
+            || contact.email
+            || contact.whatsapp
+            || contact.phone
+            || contact.mobile
+            || "Contato"
+        )
+    }, [])
 
     React.useEffect(() => {
         if (mode === "both") {
@@ -83,16 +96,6 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
         }
         setSourceFilter("all")
     }, [mode])
-
-    const getContactName = React.useCallback((contact: Contact) => {
-        return contact.full_name
-            || [contact.first_name, contact.last_name].filter(Boolean).join(" ")
-            || contact.email
-            || contact.whatsapp
-            || contact.phone
-            || contact.mobile
-            || "Contato"
-    }, [])
 
     React.useEffect(() => {
         if (!value) {
@@ -125,33 +128,38 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
         }
     }, [mode])
 
-    // Search leads
     React.useEffect(() => {
-        async function fetchLeads() {
+        let mounted = true
+        async function fetchClients() {
             const [leadData, contactData] = await Promise.all([
                 showLeads ? searchTaskLeads(debouncedSearch, leadBrand) : Promise.resolve([]),
                 showContacts ? searchTaskContacts(debouncedSearch) : Promise.resolve([]),
             ])
-            if (leadData) setLeads(leadData)
-            if (contactData) setContacts(contactData)
+
+            if (!mounted) return
+            setLeads(leadData ?? [])
+            setContacts(contactData ?? [])
         }
-        fetchLeads()
-    }, [debouncedSearch, showLeads, showContacts, leadBrand])
+
+        void fetchClients()
+        return () => {
+            mounted = false
+        }
+    }, [debouncedSearch, leadBrand, showContacts, showLeads])
 
     const selectedLabel = React.useMemo(() => {
         if (selectedLead) {
-            return `${selectedLead.nome}${selectedLead.documento ? ` - ${selectedLead.documento}` : ''}`
+            return `${selectedLead.nome}${selectedLead.documento ? ` - ${selectedLead.documento}` : ""}`
         }
         if (selectedContact) {
-            const name = getContactName(selectedContact)
-            return name
+            return getContactName(selectedContact)
         }
         return "Buscar cliente..."
-    }, [selectedLead, selectedContact, getContactName])
+    }, [getContactName, selectedContact, selectedLead])
 
     const handleSelectLead = (lead: Lead) => {
         onChange(lead.id)
-        onSelectLead?.(lead, 'indicacao')
+        onSelectLead?.(lead, "indicacao")
         setSelectedLead(lead)
         setSelectedContact(null)
         setOpen(false)
@@ -161,19 +169,24 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
         const name = getContactName(contact)
 
         onChange(mode === "contacts" ? contact.id : undefined)
-        onSelectLead?.({
-            id: contact.id,
-            nome: name,
-            documento: null,
-            unidade_consumidora: null,
-            codigo_cliente: null,
-            codigo_instalacao: null,
-        }, 'contact')
+        onSelectLead?.(
+            {
+                id: contact.id,
+                nome: name,
+                documento: null,
+                unidade_consumidora: null,
+                codigo_cliente: null,
+                codigo_instalacao: null,
+            },
+            "contact"
+        )
         onSelectContact?.(contact)
         setSelectedContact(contact)
         setSelectedLead(null)
         setOpen(false)
     }
+
+    const hasVisibleItems = (showContacts && contacts.length > 0) || (showLeads && leads.length > 0)
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -229,101 +242,104 @@ export function LeadSelect({ value, onChange, onSelectLead, onSelectContact, mod
                         </button>
                     </div>
                 ) : null}
-                <Command shouldFilter={false}>
-                    <CommandInput
-                        placeholder="Buscar cliente por nome..."
+
+                <div className="border-b p-2">
+                    <Input
                         value={search}
-                        onValueChange={setSearch}
+                        onChange={(event) => setSearch(event.target.value)}
+                        placeholder="Buscar cliente por nome..."
                     />
-                    <CommandList>
-                        <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                        {showContacts && (
-                            <CommandGroup heading="Contatos">
-                                {contacts.map((contact) => {
+                </div>
+
+                <div className="max-h-[320px] overflow-y-auto p-2">
+                    {!hasVisibleItems ? (
+                        <div className="py-6 text-center text-sm text-muted-foreground">
+                            Nenhum cliente encontrado.
+                        </div>
+                    ) : null}
+
+                    {showContacts ? (
+                        <div className="space-y-1">
+                            <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Contatos</p>
+                            {contacts.length > 0 ? (
+                                contacts.map((contact) => {
                                     const name = getContactName(contact)
+                                    const subtitle = [
+                                        "Contato",
+                                        contact.email || formatPhone(contact.whatsapp) || formatPhone(contact.phone) || formatPhone(contact.mobile),
+                                    ]
+                                        .filter(Boolean)
+                                        .join(" • ")
+                                    const isSelected =
+                                        (mode === "contacts" ? value === contact.id : selectedContact?.id === contact.id)
 
                                     return (
-                                    <CommandItem
-                                        key={`contact-${contact.id}`}
-                                        value={`contact-${name}-${contact.id}`}
-                                        className="cursor-pointer text-foreground"
-                                        onMouseDown={(event) => {
-                                            event.preventDefault()
-                                            handleSelectContact(contact)
-                                        }}
-                                        onSelect={() => {
-                                            handleSelectContact(contact)
-                                        }}
-                                        >
-                                            <Check
-                                                className={cn(
-                                                    "mr-2 h-4 w-4",
-                                                    (mode === "contacts" ? value === contact.id : selectedContact?.id === contact.id)
-                                                        ? "opacity-100"
-                                                        : "opacity-0"
-                                                )}
-                                            />
-                                            <div className="flex flex-col">
-                                                <span>{name}</span>
-                                                <span className="text-xs text-muted-foreground">
-                                                    {[
-                                                        "Contato",
-                                                        contact.email || formatPhone(contact.whatsapp) || formatPhone(contact.phone) || formatPhone(contact.mobile),
-                                                    ].filter(Boolean).join(" • ")}
-                                                </span>
-                                            </div>
-                                        </CommandItem>
-                                    )
-                                })}
-                                {contacts.length === 0 && (
-                                    <div className="px-3 py-2 text-xs text-muted-foreground">
-                                        Nenhum contato encontrado.
-                                    </div>
-                                )}
-                            </CommandGroup>
-                        )}
-
-                        {showLeads && (
-                            <CommandGroup heading="Indicações">
-                                {leads.map((lead) => (
-                                    <CommandItem
-                                        key={`lead-${lead.id}`}
-                                        value={`lead-${lead.nome}-${lead.id}`}
-                                        className="cursor-pointer text-foreground"
-                                        onMouseDown={(event) => {
-                                            event.preventDefault()
-                                            handleSelectLead(lead)
-                                        }}
-                                        onSelect={() => {
-                                            handleSelectLead(lead)
-                                        }}
-                                    >
-                                        <Check
+                                        <button
+                                            key={`contact-${contact.id}`}
+                                            type="button"
+                                            onClick={() => handleSelectContact(contact)}
                                             className={cn(
-                                                "mr-2 h-4 w-4",
-                                                value === lead.id ? "opacity-100" : "opacity-0"
+                                                "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors",
+                                                isSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted"
                                             )}
-                                        />
-                                        <div className="flex flex-col">
-                                            <span>{lead.nome}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                                Indicação • Doc: {lead.documento || 'N/A'}
-                                                {lead.unidade_consumidora && ` • UC: ${lead.unidade_consumidora}`}
-                                                {lead.codigo_cliente && ` • Cód: ${lead.codigo_cliente}`}
-                                                {lead.codigo_instalacao && ` • Inst: ${lead.codigo_instalacao}`}
+                                        >
+                                            <Check className={cn("mt-0.5 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                            <span className="flex min-w-0 flex-1 flex-col">
+                                                <span className="truncate">{name}</span>
+                                                <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
                                             </span>
-                                        </div>
-                                    </CommandItem>
-                                ))}
-                                {leads.length === 0 && (
-                                    <div className="px-3 py-2 text-xs text-muted-foreground">
-                                        Nenhuma indicação encontrada.
-                                    </div>
-                                )}
-                            </CommandGroup>
-                        )}
-                    </CommandList>
-                </Command>
+                                        </button>
+                                    )
+                                })
+                            ) : (
+                                <div className="px-2 py-2 text-xs text-muted-foreground">
+                                    Nenhum contato encontrado.
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+
+                    {showLeads ? (
+                        <div className={cn("space-y-1", showContacts ? "mt-3" : "")}>
+                            <p className="px-2 py-1 text-xs font-medium text-muted-foreground">Indicações</p>
+                            {leads.length > 0 ? (
+                                leads.map((lead) => {
+                                    const subtitle = [
+                                        `Indicação • Doc: ${lead.documento || "N/A"}`,
+                                        lead.unidade_consumidora ? `UC: ${lead.unidade_consumidora}` : null,
+                                        lead.codigo_cliente ? `Cód: ${lead.codigo_cliente}` : null,
+                                        lead.codigo_instalacao ? `Inst: ${lead.codigo_instalacao}` : null,
+                                    ]
+                                        .filter(Boolean)
+                                        .join(" • ")
+                                    const isSelected = value === lead.id
+
+                                    return (
+                                        <button
+                                            key={`lead-${lead.id}`}
+                                            type="button"
+                                            onClick={() => handleSelectLead(lead)}
+                                            className={cn(
+                                                "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors",
+                                                isSelected ? "bg-accent text-accent-foreground" : "hover:bg-muted"
+                                            )}
+                                        >
+                                            <Check className={cn("mt-0.5 h-4 w-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                            <span className="flex min-w-0 flex-1 flex-col">
+                                                <span className="truncate">{lead.nome}</span>
+                                                <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
+                                            </span>
+                                        </button>
+                                    )
+                                })
+                            ) : (
+                                <div className="px-2 py-2 text-xs text-muted-foreground">
+                                    Nenhuma indicação encontrada.
+                                </div>
+                            )}
+                        </div>
+                    ) : null}
+                </div>
             </PopoverContent>
         </Popover>
     )
