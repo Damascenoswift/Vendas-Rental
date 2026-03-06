@@ -20,6 +20,8 @@ import {
     Bell,
     MessageSquareText,
     Hammer,
+    PanelLeftClose,
+    PanelLeftOpen,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
@@ -38,6 +40,7 @@ export function Sidebar({ className }: SidebarProps) {
     const [isSigningOut, setIsSigningOut] = useState(false)
     const [logoLoadError, setLogoLoadError] = useState(false)
     const [unreadChatCount, setUnreadChatCount] = useState(0)
+    const [isCollapsed, setIsCollapsed] = useState(true)
 
     const handleSignOut = async () => {
         setIsSigningOut(true)
@@ -116,10 +119,27 @@ export function Sidebar({ className }: SidebarProps) {
     if (!profile || !role) return null
 
     return (
-        <div className={cn("pb-12 min-h-screen w-64 border-r bg-sidebar hidden lg:block", className)}>
+        <div
+            className={cn(
+                "pb-12 min-h-screen border-r bg-sidebar hidden lg:block transition-all duration-200",
+                isCollapsed ? "w-20" : "w-64",
+                className
+            )}
+        >
             <div className="space-y-4 py-4">
                 <div className="px-3 py-2">
-                    <div className="flex items-center gap-2 px-2 mb-6">
+                    <div className={cn("mb-3 flex", isCollapsed ? "justify-center" : "justify-end")}>
+                        <button
+                            type="button"
+                            onClick={() => setIsCollapsed((value) => !value)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            aria-label={isCollapsed ? "Expandir menu lateral" : "Minimizar menu lateral"}
+                            title={isCollapsed ? "Expandir menu lateral" : "Minimizar menu lateral"}
+                        >
+                            {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                        </button>
+                    </div>
+                    <div className={cn("flex items-center gap-2 mb-6", isCollapsed ? "justify-center px-0" : "px-2")}>
                         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold overflow-hidden">
                             {!logoLoadError ? (
                                 <Image
@@ -135,18 +155,20 @@ export function Sidebar({ className }: SidebarProps) {
                                 "R"
                             )}
                         </div>
-                        <h2 className="text-lg font-bold tracking-tight text-sidebar-foreground">
-                            Rental Energia
-                        </h2>
+                        {!isCollapsed && (
+                            <h2 className="text-lg font-bold tracking-tight text-sidebar-foreground">
+                                Rental Energia
+                            </h2>
+                        )}
                     </div>
 
                     <div className="space-y-1">
                         {worksOnlyScope ? (
                             <>
-                                <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
-                                <NavItem href="/admin/notificacoes" label="Notificações" icon={Bell} />
+                                <NavItem collapsed={isCollapsed} href="/admin/obras" label="Obras" icon={Hammer} />
+                                <NavItem collapsed={isCollapsed} href="/admin/notificacoes" label="Notificações" icon={Bell} />
                                 {canAccessInternalChat && (
-                                    <NavItem
+                                    <NavItem collapsed={isCollapsed}
                                         href="/admin/chat"
                                         label="Chat Interno"
                                         icon={MessageSquareText}
@@ -156,18 +178,18 @@ export function Sidebar({ className }: SidebarProps) {
                             </>
                         ) : (
                             <>
-                                <NavItem href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
+                                <NavItem collapsed={isCollapsed} href="/dashboard" label="Visão Geral" icon={LayoutDashboard} />
 
                                 {canAccessIndicacoes && (
-                                    <NavItem href="/admin/indicacoes" label="Indicações" icon={FileText} />
+                                    <NavItem collapsed={isCollapsed} href="/admin/indicacoes" label="Indicações" icon={FileText} />
                                 )}
 
                                 {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'vendedor_interno', 'vendedor_externo', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                    <NavItem href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
+                                    <NavItem collapsed={isCollapsed} href="/admin/tarefas" label="Tarefas" icon={CheckSquare} />
                                 )}
 
                                 {canAccessInternalChat && (
-                                    <NavItem
+                                    <NavItem collapsed={isCollapsed}
                                         href="/admin/chat"
                                         label="Chat Interno"
                                         icon={MessageSquareText}
@@ -175,14 +197,14 @@ export function Sidebar({ className }: SidebarProps) {
                                     />
                                 )}
 
-                                <NavItem href="/admin/notificacoes" label="Notificações" icon={Bell} />
+                                <NavItem collapsed={isCollapsed} href="/admin/notificacoes" label="Notificações" icon={Bell} />
 
                                 {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                    <NavItem href="/admin/leads" label="Leads Rápidos" icon={FileText} />
+                                    <NavItem collapsed={isCollapsed} href="/admin/leads" label="Leads Rápidos" icon={FileText} />
                                 )}
 
                                 {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                    <NavItem href="/investidor" label="Portal Investidor" icon={PieChart} />
+                                    <NavItem collapsed={isCollapsed} href="/investidor" label="Portal Investidor" icon={PieChart} />
                                 )}
                             </>
                         )}
@@ -191,32 +213,34 @@ export function Sidebar({ className }: SidebarProps) {
 
                 {!worksOnlyScope && (
                     <div className="px-3 py-2">
-                    <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
-                        Gestão
-                    </h2>
+                    {!isCollapsed && (
+                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                            Gestão
+                        </h2>
+                    )}
                     <div className="space-y-1">
                         {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                            <NavItem href="/admin/obras" label="Obras" icon={Hammer} />
+                            <NavItem collapsed={isCollapsed} href="/admin/obras" label="Obras" icon={Hammer} />
                         )}
 
                         {['adm_mestre', 'adm_dorata', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                            <NavItem href="/admin/energia" label="Energia" icon={Zap} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia" label="Energia" icon={Zap} />
                         )}
 
                         {(['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) || department === 'financeiro') && (
-                            <NavItem href="/admin/financeiro" label="Financeiro" icon={Wallet} />
+                            <NavItem collapsed={isCollapsed} href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 
                         {['supervisor', 'vendedor_interno'].includes(role) && (
-                            <NavItem href="/financeiro" label="Meu Financeiro" icon={Wallet} />
+                            <NavItem collapsed={isCollapsed} href="/financeiro" label="Meu Financeiro" icon={Wallet} />
                         )}
 
                         {(role === 'adm_mestre' || role === 'adm_dorata') && (
-                            <NavItem href="/admin/usuarios" label="Usuários" icon={Users} />
+                            <NavItem collapsed={isCollapsed} href="/admin/usuarios" label="Usuários" icon={Users} />
                         )}
 
                         {['adm_mestre', 'adm_dorata', 'suporte_tecnico', 'suporte_limitado'].includes(role) && (
-                            <NavItem href="/admin/whatsapp" label="WhatsApp" icon={MessageCircle} />
+                            <NavItem collapsed={isCollapsed} href="/admin/whatsapp" label="WhatsApp" icon={MessageCircle} />
                         )}
                     </div>
                 </div>
@@ -224,64 +248,75 @@ export function Sidebar({ className }: SidebarProps) {
 
                 {!worksOnlyScope && ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
-                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
-                            Rental
-                        </h2>
+                        {!isCollapsed && (
+                            <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                                Rental
+                            </h2>
+                        )}
                         <div className="space-y-1">
-                            <NavItem href="/admin/crm/rental" label="CRM Rental" icon={KanbanSquare} />
-                            <NavItem href="/admin/energia" label="Energia" icon={Zap} />
-                            <NavItem href="/admin/energia/usinas" label="Usinas" icon={Building2} />
-                            <NavItem href="/admin/energia/ucs" label="UCs" icon={FileText} />
-                            <NavItem href="/admin/energia/alocacoes" label="Alocações" icon={CheckSquare} />
-                            <NavItem href="/admin/energia/faturas" label="Faturas" icon={Wallet} />
-                            <NavItem href="/admin/energia/producao" label="Produção" icon={PieChart} />
+                            <NavItem collapsed={isCollapsed} href="/admin/crm/rental" label="CRM Rental" icon={KanbanSquare} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia" label="Energia" icon={Zap} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia/usinas" label="Usinas" icon={Building2} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia/ucs" label="UCs" icon={FileText} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia/alocacoes" label="Alocações" icon={CheckSquare} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia/faturas" label="Faturas" icon={Wallet} />
+                            <NavItem collapsed={isCollapsed} href="/admin/energia/producao" label="Produção" icon={PieChart} />
                         </div>
                     </div>
                 )}
 
                 {!worksOnlyScope && ['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
-                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
-                            Dorata Solar
-                        </h2>
+                        {!isCollapsed && (
+                            <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                                Dorata Solar
+                            </h2>
+                        )}
                         <div className="space-y-1">
                             {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                <NavItem href="/admin/crm" label="CRM" icon={KanbanSquare} exactMatch />
+                                <NavItem collapsed={isCollapsed} href="/admin/crm" label="CRM" icon={KanbanSquare} exactMatch />
                             )}
 
                             {['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                <NavItem href="/admin/contatos" label="Contatos" icon={Users} />
+                                <NavItem collapsed={isCollapsed} href="/admin/contatos" label="Contatos" icon={Users} />
                             )}
 
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <>
-                                    <NavItem href="/admin/estoque" label="Estoque" icon={Building2} />
-                                    <NavItem href="/admin/importacao" label="Importação" icon={FileText} />
+                                    <NavItem collapsed={isCollapsed} href="/admin/estoque" label="Estoque" icon={Building2} />
+                                    <NavItem collapsed={isCollapsed} href="/admin/importacao" label="Importação" icon={FileText} />
                                 </>
                             )}
 
-                            <NavItem href="/admin/orcamentos" label="Orçamentos" icon={Calculator} />
+                            <NavItem collapsed={isCollapsed} href="/admin/orcamentos" label="Orçamentos" icon={Calculator} />
 
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
-                                <NavItem href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />
+                                <NavItem collapsed={isCollapsed} href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />
                             )}
                         </div>
                     </div>
                 )}
 
                 <div className="px-3 py-2">
-                    <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
-                        Conta
-                    </h2>
+                    {!isCollapsed && (
+                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                            Conta
+                        </h2>
+                    )}
                     <div className="space-y-1">
-                        <NavItem href="/perfil" label="Meu Perfil" icon={Settings} />
+                        <NavItem collapsed={isCollapsed} href="/perfil" label="Meu Perfil" icon={Settings} />
                         <button
                             onClick={handleSignOut}
                             disabled={isSigningOut}
-                            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            title="Sair"
+                            aria-label="Sair"
+                            className={cn(
+                                "flex w-full items-center rounded-md text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors",
+                                isCollapsed ? "h-10 justify-center px-0 py-0" : "gap-3 px-3 py-2"
+                            )}
                         >
                             <LogOut className="h-4 w-4" />
-                            <span>{isSigningOut ? "Saindo..." : "Sair"}</span>
+                            {!isCollapsed && <span>{isSigningOut ? "Saindo..." : "Sair"}</span>}
                         </button>
                     </div>
                 </div>
