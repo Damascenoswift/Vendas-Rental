@@ -7,6 +7,7 @@ import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import {
     createWorkCommentNotifications,
+    createWorkImageAddedNotifications,
     createWorkProcessStatusChangedNotifications,
 } from "@/services/notification-service"
 import { createTask, type TaskStatus } from "@/services/task-service"
@@ -3076,6 +3077,18 @@ export async function addWorkImage(input: {
 
     if (error || !data) {
         return { error: error?.message ?? "Falha ao registrar imagem." }
+    }
+
+    try {
+        await createWorkImageAddedNotifications({
+            workId: input.workId,
+            imageId: (data as { id: string }).id,
+            actorUserId: user.id,
+            imageType: input.imageType,
+            caption: input.caption?.trim() || null,
+        })
+    } catch (notificationError) {
+        console.error("Erro ao criar notificação de foto da obra:", notificationError)
     }
 
     revalidatePath("/admin/obras")

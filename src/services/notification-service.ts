@@ -262,6 +262,8 @@ const DEFAULT_TASK_SECTORS = [
     "outro",
 ]
 
+const WORK_NOTIFICATION_DEPARTMENTS = ["obras", "energia"] as const
+
 function normalizeSector(value?: string | null) {
     const normalized = (value ?? "").trim().toLowerCase()
     return normalized || null
@@ -2369,6 +2371,21 @@ async function resolveWorkLinkedTaskParticipants(params: {
     return participants
 }
 
+async function getWorkNotificationSectorMembers(
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+) {
+    const groups = await Promise.all(
+        WORK_NOTIFICATION_DEPARTMENTS.map((department) => getActiveUsersByDepartment(supabaseAdmin, department))
+    )
+
+    const uniqueMembers = new Map<string, NotificationRecipientUser>()
+    groups.flat().forEach((member) => {
+        uniqueMembers.set(member.id, member)
+    })
+
+    return Array.from(uniqueMembers.values())
+}
+
 export async function createWorkCommentNotifications(params: {
     workId: string
     commentId: string
@@ -2402,7 +2419,7 @@ export async function createWorkCommentNotifications(params: {
             .select("id, name, email")
             .eq("id", params.actorUserId)
             .maybeSingle(),
-        getActiveUsersByDepartment(supabaseAdmin, "obras"),
+        getWorkNotificationSectorMembers(supabaseAdmin),
     ])
 
     if (workResult.error || !workResult.data) {
@@ -2447,6 +2464,7 @@ export async function createWorkCommentNotifications(params: {
         recipients.push({
             userId: member.id,
             responsibilityKind: "SECTOR_MEMBER",
+            isMandatory: true,
         })
     })
 
@@ -2516,7 +2534,7 @@ export async function createWorkProcessStatusChangedNotifications(params: {
             .select("id, name, email")
             .eq("id", params.actorUserId)
             .maybeSingle(),
-        getActiveUsersByDepartment(supabaseAdmin, "obras"),
+        getWorkNotificationSectorMembers(supabaseAdmin),
     ])
 
     if (workResult.error || !workResult.data) {
@@ -2549,6 +2567,7 @@ export async function createWorkProcessStatusChangedNotifications(params: {
         recipients.push({
             userId: member.id,
             responsibilityKind: "SECTOR_MEMBER",
+            isMandatory: true,
         })
     })
 
@@ -2611,7 +2630,7 @@ export async function createWorkReleasedForStartNotifications(params: {
             .select("id, name, email")
             .eq("id", params.actorUserId)
             .maybeSingle(),
-        getActiveUsersByDepartment(supabaseAdmin, "obras"),
+        getWorkNotificationSectorMembers(supabaseAdmin),
     ])
 
     if (workResult.error || !workResult.data) {
@@ -2628,6 +2647,7 @@ export async function createWorkReleasedForStartNotifications(params: {
         recipients.push({
             userId: member.id,
             responsibilityKind: "SECTOR_MEMBER",
+            isMandatory: true,
         })
     })
 
@@ -2657,6 +2677,126 @@ export async function createWorkReleasedForStartNotifications(params: {
         },
         recipients,
         dedupeKey: `WORK_RELEASED_FOR_START:${params.workId}:${params.dedupeToken?.trim() || new Date().toISOString()}`,
+        targetPath: `/admin/obras?openWork=${params.workId}`,
+    })
+}
+
+export async function createWorkImageAddedNotifications(params: {
+    workId: string
+    imageId: string
+    actorUserId: string
+    imageType?: string | null
+    caption?: string | null
+}) {
+    if (!params.workId || !params.imageId || !params.actorUserId) return
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error("Error creating service client for work image notifications:", error)
+        return
+    }
+
+    const [workResult, linkedTaskResult, actorResult, sectorMembers] = await Promise.all([
+        supabaseAdmin
+            .from("obra_cards" as any)
+            .select("id, title, created_by")
+            .eq("id", params.workId)
+            .maybeSingle(),
+        supabaseAdmin
+            .from("obra_process_items" as any)
+            .select("linked_task_id")
+            .eq("obra_id", params.workId)
+            .not("linked_task_id", "is", null),
+        supabaseAdmin
+            .from("users")
+            .select("id, name, email")
+            .eq("id", params.actorUserId)
+            .maybeSingle(),
+        getWorkNotificationSectorMembers(supabaseAdmin),
+    ])
+
+    if (workResult.error || !workResult.data) {
+        console.error("Error loading work for work image notifications:", workResult.error)
+        return
+    }
+
+    if (linkedTaskResult.error) {
+        console.error("Error loading linked tasks for work image notifications:", linkedTaskResult.error)
+    }
+
+    if (actorResult.error) {
+        console.error("Error loading actor for work image notifications:", actorResult.error)
+    }
+
+    const linkedTaskIds = Array.from(
+        new Set(
+            ((linkedTaskResult.data ?? []) as Array<{ linked_task_id: string | null }>)
+                .map((row) => row.linked_task_id)
+                .filter((value): value is string => Boolean(value))
+        )
+    )
+
+    const linkedTaskParticipants = await resolveWorkLinkedTaskParticipants({
+        supabaseAdmin,
+        taskIds: linkedTaskIds,
+    })
+
+    const recipients: NotificationDispatchRecipient[] = []
+
+    const creatorId = (workResult.data as { created_by?: string | null }).created_by ?? null
+    if (creatorId) {
+        recipients.push({
+            userId: creatorId,
+            responsibilityKind: "CREATOR",
+        })
+    }
+
+    recipients.push(...linkedTaskParticipants)
+
+    sectorMembers.forEach((member) => {
+        recipients.push({
+            userId: member.id,
+            responsibilityKind: "SECTOR_MEMBER",
+            isMandatory: true,
+        })
+    })
+
+    const actor = actorResult.data as { name?: string | null; email?: string | null } | null
+    const actorDisplay = actor?.name?.trim() || actor?.email || "Alguém"
+    const workTitle = ((workResult.data as { title?: string | null }).title ?? "Obra sem título").trim() || "Obra sem título"
+    const captionPreview = sanitizePreview(params.caption ?? "")
+    const imageTypeLabelMap: Record<string, string> = {
+        CAPA: "Capa",
+        PERFIL: "Perfil",
+        ANTES: "Antes",
+        DEPOIS: "Depois",
+    }
+    const normalizedImageType = (params.imageType ?? "").trim().toUpperCase()
+    const imageTypeLabel = imageTypeLabelMap[normalizedImageType] ?? "Foto"
+
+    await dispatchNotificationEvent({
+        domain: "OBRA",
+        eventKey: "WORK_COMMENT_CREATED",
+        sector: "obras",
+        actorUserId: params.actorUserId,
+        entityType: "OBRA",
+        entityId: params.workId,
+        title: `${actorDisplay} anexou uma foto em uma obra`,
+        message: captionPreview
+            ? `Obra: ${workTitle} • Tipo: ${imageTypeLabel} • Legenda: ${captionPreview}`
+            : `Obra: ${workTitle} • Tipo: ${imageTypeLabel}`,
+        metadata: {
+            work_id: params.workId,
+            work_title: workTitle,
+            image_id: params.imageId,
+            image_type: normalizedImageType || null,
+            caption: params.caption ?? null,
+            target_path: `/admin/obras?openWork=${params.workId}`,
+        },
+        recipients,
+        dedupeKey: `WORK_IMAGE_ADDED:${params.imageId}`,
         targetPath: `/admin/obras?openWork=${params.workId}`,
     })
 }
