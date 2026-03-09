@@ -38,10 +38,10 @@ export default async function AdminLayout({
     }
 
     return (
-        <div className="flex min-h-screen">
+        <div className="flex h-screen w-full overflow-hidden">
             <NotificationSoundListener />
             <Sidebar /> {/* Add Sidebar here */}
-            <div className="flex flex-1 flex-col">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                 <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b bg-background px-6 shadow-sm">
                     <div className="flex flex-1 items-center justify-between">
                         <div className="flex items-center gap-2 font-semibold">
@@ -78,7 +78,7 @@ export default async function AdminLayout({
                         </div>
                     </div>
                 </header>
-                <main className="flex-1 bg-slate-50/50 p-6">
+                <main className="flex-1 min-h-0 overflow-y-auto bg-slate-50/50 p-6">
                     {children}
                 </main>
             </div>

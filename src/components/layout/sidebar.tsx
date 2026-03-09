@@ -121,7 +121,7 @@ export function Sidebar({ className }: SidebarProps) {
     return (
         <div
             className={cn(
-                "pb-12 min-h-screen border-r bg-sidebar hidden lg:block transition-all duration-200",
+                "h-screen shrink-0 overflow-x-hidden overflow-y-auto border-r bg-sidebar pb-12 hidden lg:block transition-all duration-200",
                 isCollapsed ? "w-20" : "w-64",
                 className
             )}
