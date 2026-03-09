@@ -17,6 +17,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
+import { DeleteProposalButton } from "@/components/admin/proposals/delete-proposal-button"
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -77,10 +78,13 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
         "funcionario_n1",
         "funcionario_n2",
     ]
+    const deleteAllowedRoles = [...allowedRoles, "suporte"]
 
     if (!role || !allowedRoles.includes(role)) {
         redirect("/dashboard")
     }
+
+    const canDeleteProposals = deleteAllowedRoles.includes(role)
 
     // Use service client here to avoid RLS false-negatives for internal operational roles.
     const supabaseAdmin = createSupabaseServiceClient()
@@ -248,6 +252,9 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                             <Link href={`/admin/orcamentos/novo?duplicar=${proposal.id}`}>
                                                 <Button size="sm" variant="ghost">Duplicar</Button>
                                             </Link>
+                                            {canDeleteProposals ? (
+                                                <DeleteProposalButton proposalId={proposal.id} clientName={proposal.cliente?.nome ?? null} />
+                                            ) : null}
                                         </div>
                                     </TableCell>
                                 </TableRow>

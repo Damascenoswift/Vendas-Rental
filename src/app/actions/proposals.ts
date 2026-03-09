@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
+import { revalidatePath } from "next/cache"
 
 const proposalViewRoles = [
   "adm_mestre",
@@ -15,6 +16,42 @@ const proposalViewRoles = [
   "funcionario_n1",
   "funcionario_n2",
 ]
+
+const proposalDeleteRoles = [...proposalViewRoles]
+
+function isMissingSchemaError(error: { message?: string | null; details?: string | null; code?: string | null }) {
+  const raw = `${error.code ?? ""} ${error.message ?? ""} ${error.details ?? ""}`.toLowerCase()
+  return (
+    error.code === "42P01" ||
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    raw.includes("does not exist") ||
+    raw.includes("could not find the") ||
+    raw.includes("schema cache")
+  )
+}
+
+function mapDeleteProposalError(error: { message?: string | null; details?: string | null; code?: string | null }) {
+  const raw = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase()
+
+  if (raw.includes("indicacoes_contract_proposal_id_fkey")) {
+    return "Não foi possível excluir: o orçamento está marcado como contrato em uma indicação."
+  }
+  if (raw.includes("tasks_proposal_id_fkey")) {
+    return "Não foi possível excluir: existem tarefas vinculadas ao orçamento."
+  }
+  if (raw.includes("obra_cards_primary_proposal_id_fkey") || raw.includes("obra_card_proposals_proposal_id_fkey")) {
+    return "Não foi possível excluir: o orçamento está vinculado a uma obra."
+  }
+  if (raw.includes("proposal_items_proposal_id_fkey")) {
+    return "Não foi possível excluir: existem itens vinculados ao orçamento."
+  }
+  if (error.code === "23503") {
+    return "Não foi possível excluir: existem registros vinculados a este orçamento."
+  }
+
+  return "Erro ao excluir orçamento."
+}
 
 export async function getProposalsForIndication(indicacaoId: string) {
   const supabase = await createClient()
@@ -155,4 +192,132 @@ export async function getProposalsForIndication(indicacaoId: string) {
     data: data ?? [],
     selectedProposalId: (indicacao as any)?.contract_proposal_id ?? null,
   }
+}
+
+export async function deleteProposal(proposalId: string) {
+  const normalizedProposalId = proposalId.trim()
+  if (!normalizedProposalId) {
+    return { error: "Orçamento inválido." }
+  }
+
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { error: "Não autorizado" }
+  }
+
+  const profile = await getProfile(supabase, user.id)
+  const role = profile?.role
+  if (!role || !proposalDeleteRoles.includes(role)) {
+    return { error: "Sem permissão para excluir orçamentos." }
+  }
+
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  const { data: proposal, error: proposalError } = await supabaseAdmin
+    .from("proposals")
+    .select("id, client_id")
+    .eq("id", normalizedProposalId)
+    .maybeSingle()
+
+  if (proposalError) {
+    return { error: proposalError.message }
+  }
+
+  if (!proposal) {
+    return { error: "Orçamento não encontrado." }
+  }
+
+  if (role === "supervisor") {
+    const visibleUserIds = await getSupervisorVisibleUserIds(user.id)
+    const clientId = proposal.client_id
+
+    if (!clientId || !visibleUserIds.length) {
+      return { error: "Orçamento fora do escopo permitido." }
+    }
+
+    const { data: scopedIndication, error: scopedIndicationError } = await supabaseAdmin
+      .from("indicacoes")
+      .select("id")
+      .eq("id", clientId)
+      .in("user_id", visibleUserIds)
+      .maybeSingle()
+
+    if (scopedIndicationError) {
+      return { error: scopedIndicationError.message }
+    }
+    if (!scopedIndication) {
+      return { error: "Orçamento fora do escopo permitido." }
+    }
+  }
+
+  const { error: clearContractProposalError } = await supabaseAdmin
+    .from("indicacoes")
+    .update({ contract_proposal_id: null })
+    .eq("contract_proposal_id", normalizedProposalId)
+
+  if (clearContractProposalError && !isMissingSchemaError(clearContractProposalError)) {
+    console.error("Erro ao limpar contract_proposal_id antes de excluir orçamento:", clearContractProposalError)
+    return { error: "Não foi possível limpar vínculo de contrato do orçamento." }
+  }
+
+  const { error: clearTaskProposalError } = await supabaseAdmin
+    .from("tasks")
+    .update({ proposal_id: null })
+    .eq("proposal_id", normalizedProposalId)
+
+  if (clearTaskProposalError && !isMissingSchemaError(clearTaskProposalError)) {
+    console.error("Erro ao limpar tasks.proposal_id antes de excluir orçamento:", clearTaskProposalError)
+    return { error: "Não foi possível limpar tarefas vinculadas ao orçamento." }
+  }
+
+  const { error: clearWorkPrimaryProposalError } = await supabaseAdmin
+    .from("obra_cards" as any)
+    .update({ primary_proposal_id: null })
+    .eq("primary_proposal_id", normalizedProposalId)
+
+  if (clearWorkPrimaryProposalError && !isMissingSchemaError(clearWorkPrimaryProposalError)) {
+    console.error("Erro ao limpar obra_cards.primary_proposal_id antes de excluir orçamento:", clearWorkPrimaryProposalError)
+    return { error: "Não foi possível limpar vínculo do orçamento com obras." }
+  }
+
+  const { error: clearWorkProposalLinksError } = await supabaseAdmin
+    .from("obra_card_proposals" as any)
+    .delete()
+    .eq("proposal_id", normalizedProposalId)
+
+  if (clearWorkProposalLinksError && !isMissingSchemaError(clearWorkProposalLinksError)) {
+    console.error("Erro ao limpar obra_card_proposals antes de excluir orçamento:", clearWorkProposalLinksError)
+    return { error: "Não foi possível limpar vínculos de obra do orçamento." }
+  }
+
+  const { error: clearProposalItemsError } = await supabaseAdmin
+    .from("proposal_items")
+    .delete()
+    .eq("proposal_id", normalizedProposalId)
+
+  if (clearProposalItemsError && !isMissingSchemaError(clearProposalItemsError)) {
+    console.error("Erro ao limpar itens do orçamento antes de excluir:", clearProposalItemsError)
+    return { error: "Não foi possível limpar itens do orçamento." }
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("proposals")
+    .delete()
+    .eq("id", normalizedProposalId)
+
+  if (deleteError) {
+    return { error: mapDeleteProposalError(deleteError) }
+  }
+
+  revalidatePath("/admin/orcamentos")
+  revalidatePath("/admin/obras")
+  revalidatePath("/admin/crm")
+  revalidatePath("/admin/indicacoes")
+  revalidatePath("/admin/financeiro")
+
+  return { success: true }
 }
