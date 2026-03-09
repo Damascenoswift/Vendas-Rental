@@ -572,9 +572,154 @@ function normalizeProductRelation(raw: unknown) {
 
 type WorkCalculationStringInverter = {
     product_id: string
+    quantity: number
     power_kw: number | null
     power_source: "product" | "manual" | null
     purchase_required: boolean
+}
+
+type WorkCalculationDimensioningInput = {
+    inverter_type: "STRING" | "MICRO" | "AMPLIACAO" | null
+    qtd_modulos: number | null
+    potencia_modulo_w: number | null
+    qtd_inversor_string: number | null
+    qtd_inversor_micro: number | null
+}
+
+function normalizeCalculationInverterType(value: unknown): WorkCalculationDimensioningInput["inverter_type"] {
+    if (typeof value !== "string") return null
+    const normalized = value.trim().toUpperCase()
+    if (normalized === "STRING") return "STRING"
+    if (normalized === "MICRO") return "MICRO"
+    if (normalized === "AMPLIACAO") return "AMPLIACAO"
+    return null
+}
+
+function getCalculationInputDimensioning(calculation: Record<string, unknown> | null): WorkCalculationDimensioningInput {
+    const empty: WorkCalculationDimensioningInput = {
+        inverter_type: null,
+        qtd_modulos: null,
+        potencia_modulo_w: null,
+        qtd_inversor_string: null,
+        qtd_inversor_micro: null,
+    }
+    if (!calculation || typeof calculation !== "object") return empty
+
+    const input = calculation.input
+    if (!input || typeof input !== "object") return empty
+
+    const dimensioning = (input as Record<string, unknown>).dimensioning
+    if (!dimensioning || typeof dimensioning !== "object") return empty
+
+    const asDimensioning = dimensioning as Record<string, unknown>
+    const qtdModulosRaw = Number(asDimensioning.qtd_modulos)
+    const potenciaModuloRaw = Number(asDimensioning.potencia_modulo_w)
+    const qtdStringRaw = Number(asDimensioning.qtd_inversor_string)
+    const qtdMicroRaw = Number(asDimensioning.qtd_inversor_micro)
+
+    return {
+        inverter_type: normalizeCalculationInverterType(asDimensioning.tipo_inversor),
+        qtd_modulos: Number.isFinite(qtdModulosRaw) && qtdModulosRaw > 0 ? qtdModulosRaw : null,
+        potencia_modulo_w: Number.isFinite(potenciaModuloRaw) && potenciaModuloRaw > 0 ? potenciaModuloRaw : null,
+        qtd_inversor_string: Number.isFinite(qtdStringRaw) && qtdStringRaw > 0 ? qtdStringRaw : null,
+        qtd_inversor_micro: Number.isFinite(qtdMicroRaw) && qtdMicroRaw > 0 ? qtdMicroRaw : null,
+    }
+}
+
+function getTechnicalPowerFromDimensioningInput(input: WorkCalculationDimensioningInput) {
+    if (!input.qtd_modulos || !input.potencia_modulo_w) return null
+    const computed = (input.qtd_modulos * input.potencia_modulo_w) / 1000
+    return Number.isFinite(computed) && computed > 0 ? computed : null
+}
+
+function normalizeInverterKind(value: string | null) {
+    if (!value) return null
+    const normalized = value.trim().toUpperCase()
+    if (normalized.includes("MICRO")) return "MICRO"
+    if (normalized.includes("STRING")) return "STRING"
+    return null
+}
+
+function pickBestModuleCandidate(params: {
+    candidates: WorkProposalEquipmentModule[]
+    dimensioningInput: WorkCalculationDimensioningInput
+}) {
+    const { candidates, dimensioningInput } = params
+    if (candidates.length === 0) return null
+
+    const targetQty = dimensioningInput.qtd_modulos
+    const targetPower = dimensioningInput.potencia_modulo_w
+
+    if (!targetQty && !targetPower) {
+        return candidates.reduce((best, current) => current.quantity > best.quantity ? current : best, candidates[0])
+    }
+
+    return candidates
+        .slice()
+        .sort((a, b) => {
+            const qtyDiffA = targetQty ? Math.abs(a.quantity - targetQty) : 0
+            const qtyDiffB = targetQty ? Math.abs(b.quantity - targetQty) : 0
+            if (qtyDiffA !== qtyDiffB) return qtyDiffA - qtyDiffB
+
+            const powerDiffA = targetPower && typeof a.power === "number" ? Math.abs(a.power - targetPower) : 0
+            const powerDiffB = targetPower && typeof b.power === "number" ? Math.abs(b.power - targetPower) : 0
+            if (powerDiffA !== powerDiffB) return powerDiffA - powerDiffB
+
+            return b.quantity - a.quantity
+        })[0]
+}
+
+function selectTechnicalInverters(params: {
+    candidates: WorkProposalEquipmentInverter[]
+    calculationStringInverters: WorkCalculationStringInverter[]
+    dimensioningInput: WorkCalculationDimensioningInput
+}) {
+    const { candidates, calculationStringInverters, dimensioningInput } = params
+    if (candidates.length === 0) return [] as WorkProposalEquipmentInverter[]
+
+    if (dimensioningInput.inverter_type === "AMPLIACAO") {
+        return [] as WorkProposalEquipmentInverter[]
+    }
+
+    if (calculationStringInverters.length > 0) {
+        const expectedByProductId = new Map<string, number>()
+        for (const row of calculationStringInverters) {
+            const expectedQuantity = Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : 0
+            if (expectedQuantity <= 0) continue
+            expectedByProductId.set(row.product_id, (expectedByProductId.get(row.product_id) ?? 0) + expectedQuantity)
+        }
+
+        const filtered: WorkProposalEquipmentInverter[] = []
+        for (const candidate of candidates) {
+            const remaining = expectedByProductId.get(candidate.product_id) ?? 0
+            if (remaining <= 0) continue
+
+            const selectedQuantity = Math.min(candidate.quantity, remaining)
+            if (selectedQuantity <= 0) continue
+
+            filtered.push({
+                ...candidate,
+                quantity: selectedQuantity,
+            })
+            expectedByProductId.set(candidate.product_id, remaining - selectedQuantity)
+        }
+
+        if (filtered.length > 0) {
+            return filtered
+        }
+    }
+
+    if (dimensioningInput.inverter_type === "MICRO") {
+        const microOnly = candidates.filter((candidate) => normalizeInverterKind(candidate.inverter_type) === "MICRO")
+        if (microOnly.length > 0) return microOnly
+    }
+
+    if (dimensioningInput.inverter_type === "STRING") {
+        const nonMicro = candidates.filter((candidate) => normalizeInverterKind(candidate.inverter_type) !== "MICRO")
+        if (nonMicro.length > 0) return nonMicro
+    }
+
+    return candidates
 }
 
 function getCalculationStringInverters(calculation: Record<string, unknown> | null): WorkCalculationStringInverter[] {
@@ -592,6 +737,8 @@ function getCalculationStringInverters(calculation: Record<string, unknown> | nu
             const row = item as Record<string, unknown>
             const productId = typeof row.product_id === "string" ? row.product_id : null
             if (!productId) return null
+            const quantityRaw = Number(row.quantity)
+            const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1
             const powerKwRaw = Number(row.power_kw)
             const powerKw = Number.isFinite(powerKwRaw) && powerKwRaw > 0 ? powerKwRaw : null
             const powerSource = row.power_source === "product" || row.power_source === "manual"
@@ -600,6 +747,7 @@ function getCalculationStringInverters(calculation: Record<string, unknown> | nu
             const purchaseRequired = row.purchase_required === true || powerSource === "manual"
             return {
                 product_id: productId,
+                quantity,
                 power_kw: powerKw,
                 power_source: powerSource,
                 purchase_required: purchaseRequired,
@@ -633,6 +781,7 @@ async function getProposalEquipmentSummary(params: {
         return empty
     }
 
+    const calculationInputDimensioning = getCalculationInputDimensioning(params.calculation ?? null)
     const calculationStringInverters = getCalculationStringInverters(params.calculation ?? null)
     const calculationStringInvertersByProduct = new Map<string, WorkCalculationStringInverter[]>()
     for (const row of calculationStringInverters) {
@@ -641,8 +790,8 @@ async function getProposalEquipmentSummary(params: {
         calculationStringInvertersByProduct.set(row.product_id, existing)
     }
 
-    let bestModule: WorkProposalEquipmentModule | null = null
-    const inverters: WorkProposalEquipmentInverter[] = []
+    const moduleCandidates: WorkProposalEquipmentModule[] = []
+    const inverterCandidates: WorkProposalEquipmentInverter[] = []
 
     for (const row of (data ?? []) as Array<Record<string, unknown>>) {
         const product = normalizeProductRelation(row.product)
@@ -656,18 +805,14 @@ async function getProposalEquipmentSummary(params: {
         const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 0
 
         if (productType === "module") {
-            const candidate: WorkProposalEquipmentModule = {
+            moduleCandidates.push({
                 product_id: productId,
                 name: typeof product.name === "string" ? product.name : null,
                 model: typeof product.model === "string" ? product.model : null,
                 manufacturer: typeof product.manufacturer === "string" ? product.manufacturer : null,
                 power: typeof product.power === "number" ? product.power : null,
                 quantity,
-            }
-
-            if (!bestModule || candidate.quantity > bestModule.quantity) {
-                bestModule = candidate
-            }
+            })
             continue
         }
 
@@ -680,7 +825,7 @@ async function getProposalEquipmentSummary(params: {
             const powerKw = calculatedRow?.power_kw ?? fallbackPowerKw
             const purchaseRequired = calculatedRow?.purchase_required === true || powerSource === "manual"
 
-            inverters.push({
+            inverterCandidates.push({
                 product_id: productId,
                 name: typeof product.name === "string" ? product.name : null,
                 model: typeof product.model === "string" ? product.model : null,
@@ -694,6 +839,16 @@ async function getProposalEquipmentSummary(params: {
             })
         }
     }
+
+    const bestModule = pickBestModuleCandidate({
+        candidates: moduleCandidates,
+        dimensioningInput: calculationInputDimensioning,
+    })
+    const inverters = selectTechnicalInverters({
+        candidates: inverterCandidates,
+        calculationStringInverters,
+        dimensioningInput: calculationInputDimensioning,
+    })
 
     return {
         module: bestModule,
@@ -725,6 +880,18 @@ function buildTechnicalSnapshotFromProposal(input: {
     } | null
 }) {
     const calculation = (input.proposal.calculation ?? null) as Record<string, any> | null
+    const calculationInputDimensioning = getCalculationInputDimensioning(input.proposal.calculation ?? null)
+    const technicalPowerKwp = getTechnicalPowerFromDimensioningInput(calculationInputDimensioning)
+    const rawOutputDimensioning = calculation?.output?.dimensioning
+    const outputDimensioning =
+        rawOutputDimensioning && typeof rawOutputDimensioning === "object" && !Array.isArray(rawOutputDimensioning)
+            ? {
+                ...(rawOutputDimensioning as Record<string, unknown>),
+                ...(technicalPowerKwp !== null ? { kWp: technicalPowerKwp } : {}),
+            }
+            : technicalPowerKwp !== null
+                ? { kWp: technicalPowerKwp }
+                : rawOutputDimensioning ?? null
     const hasEquipment =
         Boolean(input.equipment?.module) ||
         Boolean(input.equipment?.inverters?.length)
@@ -745,8 +912,8 @@ function buildTechnicalSnapshotFromProposal(input: {
             nome: input.indicacao?.nome ?? null,
         },
         dimensioning: {
-            total_power: input.proposal.total_power,
-            output_dimensioning: calculation?.output?.dimensioning ?? null,
+            total_power: technicalPowerKwp ?? input.proposal.total_power,
+            output_dimensioning: outputDimensioning,
             inverter: calculation?.output?.dimensioning?.inversor ?? null,
             input_dimensioning: calculation?.input?.dimensioning ?? null,
             structure_quantities: {

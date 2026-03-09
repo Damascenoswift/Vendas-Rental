@@ -171,25 +171,63 @@ function getSnapshotNumber(snapshot: unknown, path: string) {
     return Number.isFinite(parsed) ? parsed : null
 }
 
-function formatInverterModels(snapshot: unknown) {
-    const raw = getSnapshotValue(snapshot, "equipment.inverters")
-    if (!Array.isArray(raw) || raw.length === 0) return "-"
+function normalizeSnapshotInverterType(value: unknown) {
+    if (typeof value !== "string") return null
+    const normalized = value.trim().toUpperCase()
+    if (normalized === "STRING") return "STRING"
+    if (normalized === "MICRO") return "MICRO"
+    if (normalized === "AMPLIACAO") return "AMPLIACAO"
+    return null
+}
 
-    const labels = raw
+function normalizeSnapshotInverterKind(value: string | null) {
+    if (!value) return null
+    const normalized = value.trim().toUpperCase()
+    if (normalized.includes("MICRO")) return "MICRO"
+    if (normalized.includes("STRING")) return "STRING"
+    return null
+}
+
+function getSnapshotTechnicalPowerKwp(snapshot: unknown) {
+    const qtdModulos = getSnapshotNumber(snapshot, "dimensioning.input_dimensioning.qtd_modulos")
+    const potenciaModuloW = getSnapshotNumber(snapshot, "dimensioning.input_dimensioning.potencia_modulo_w")
+    if (!qtdModulos || !potenciaModuloW) return null
+    const computed = (qtdModulos * potenciaModuloW) / 1000
+    return Number.isFinite(computed) && computed > 0 ? computed : null
+}
+
+function getSnapshotStringInvertersByProduct(snapshot: unknown) {
+    const raw = getSnapshotValue(snapshot, "dimensioning.input_dimensioning.string_inverters")
+    const byProductId = new Map<string, number>()
+    if (!Array.isArray(raw)) return byProductId
+
+    for (const entry of raw) {
+        if (!entry || typeof entry !== "object") continue
+        const row = entry as Record<string, unknown>
+        const productId = typeof row.product_id === "string" ? row.product_id.trim() : ""
+        if (!productId) continue
+        const quantityRaw = Number(row.quantity)
+        const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1
+        byProductId.set(productId, (byProductId.get(productId) ?? 0) + quantity)
+    }
+
+    return byProductId
+}
+
+function formatInverterModels(snapshot: unknown) {
+    const labels = getSnapshotInverters(snapshot)
         .map((item) => {
-            if (!item || typeof item !== "object") return null
-            const row = item as Record<string, unknown>
-            const modelOrName = typeof row.model === "string" && row.model.trim()
-                ? row.model.trim()
-                : typeof row.name === "string" && row.name.trim()
-                    ? row.name.trim()
+            const modelOrName = typeof item.model === "string" && item.model.trim()
+                ? item.model.trim()
+                : typeof item.name === "string" && item.name.trim()
+                    ? item.name.trim()
                     : null
             if (!modelOrName) return null
 
-            const kind = typeof row.inverter_type === "string" && row.inverter_type.trim()
-                ? ` (${row.inverter_type.trim().toUpperCase()})`
+            const kind = typeof item.inverter_type === "string" && item.inverter_type.trim()
+                ? ` (${item.inverter_type.trim().toUpperCase()})`
                 : ""
-            const quantity = Number(row.quantity)
+            const quantity = Number(item.quantity)
             const quantityLabel = Number.isFinite(quantity) && quantity > 0 ? ` x${quantity}` : ""
 
             return `${modelOrName}${kind}${quantityLabel}`
@@ -201,14 +239,10 @@ function formatInverterModels(snapshot: unknown) {
 }
 
 function formatTotalInverterQuantity(snapshot: unknown) {
-    const raw = getSnapshotValue(snapshot, "equipment.inverters")
-    if (!Array.isArray(raw) || raw.length === 0) return "-"
-
-    const total = raw.reduce((acc, item) => {
-        if (!item || typeof item !== "object") return acc
-        const quantity = Number((item as Record<string, unknown>).quantity)
-        return Number.isFinite(quantity) ? acc + quantity : acc
-    }, 0)
+    const total = getSnapshotInverters(snapshot)
+        .reduce((acc, item) => (
+            item.quantity && Number.isFinite(item.quantity) ? acc + item.quantity : acc
+        ), 0)
 
     return total > 0 ? total.toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : "-"
 }
@@ -258,7 +292,7 @@ function getSnapshotInverters(snapshot: unknown): SnapshotInverter[] {
     const raw = getSnapshotValue(snapshot, "equipment.inverters")
     if (!Array.isArray(raw)) return []
 
-    return raw
+    const parsed = raw
         .map((item) => {
             if (!item || typeof item !== "object") return null
             const row = item as Record<string, unknown>
@@ -278,6 +312,55 @@ function getSnapshotInverters(snapshot: unknown): SnapshotInverter[] {
             } satisfies SnapshotInverter
         })
         .filter((item): item is SnapshotInverter => Boolean(item))
+
+    if (parsed.length === 0) return []
+
+    const inputInverterType = normalizeSnapshotInverterType(
+        getSnapshotValue(snapshot, "dimensioning.input_dimensioning.tipo_inversor")
+    )
+
+    if (inputInverterType === "AMPLIACAO") {
+        return []
+    }
+
+    const expectedByProductId = getSnapshotStringInvertersByProduct(snapshot)
+    if (expectedByProductId.size > 0) {
+        const filtered: SnapshotInverter[] = []
+
+        for (const item of parsed) {
+            const productId = item.product_id
+            if (!productId) continue
+
+            const remaining = expectedByProductId.get(productId) ?? 0
+            if (remaining <= 0) continue
+
+            const sourceQuantity = item.quantity && item.quantity > 0 ? item.quantity : 0
+            const selectedQuantity = sourceQuantity > 0 ? Math.min(sourceQuantity, remaining) : remaining
+            if (selectedQuantity <= 0) continue
+
+            filtered.push({
+                ...item,
+                quantity: selectedQuantity,
+            })
+            expectedByProductId.set(productId, remaining - selectedQuantity)
+        }
+
+        if (filtered.length > 0) {
+            return filtered
+        }
+    }
+
+    if (inputInverterType === "MICRO") {
+        const microOnly = parsed.filter((item) => normalizeSnapshotInverterKind(item.inverter_type) === "MICRO")
+        if (microOnly.length > 0) return microOnly
+    }
+
+    if (inputInverterType === "STRING") {
+        const nonMicro = parsed.filter((item) => normalizeSnapshotInverterKind(item.inverter_type) !== "MICRO")
+        if (nonMicro.length > 0) return nonMicro
+    }
+
+    return parsed
 }
 
 function formatInverterManufacturers(snapshot: unknown) {
@@ -330,6 +413,7 @@ function formatInverterSelectionLabel(item: SnapshotInverter) {
 
 function buildTechnicalSnapshotRows(snapshot: unknown) {
     const moduleFromSnapshot = getSnapshotModule(snapshot)
+    const technicalPowerKwp = getSnapshotTechnicalPowerKwp(snapshot)
     const inputInverterType = getSnapshotValue(snapshot, "dimensioning.input_dimensioning.tipo_inversor")
     const outputInverterType = getSnapshotValue(snapshot, "dimensioning.inverter.tipo")
     const inputQtdString = getSnapshotNumber(snapshot, "dimensioning.input_dimensioning.qtd_inversor_string")
@@ -406,7 +490,8 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
         {
             label: "Potência total",
             value: formatSnapshotValue(
-                getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWp") ??
+                technicalPowerKwp ??
+                    getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWp") ??
                     getSnapshotValue(snapshot, "dimensioning.total_power"),
                 "number",
                 "kWp"
