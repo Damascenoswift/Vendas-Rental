@@ -792,7 +792,6 @@ export function IndicationDetailsDialog({
                     `Card criado/atualizado no módulo de Obras. Prazo definido: ${executionBusinessDays} dia(s) úteis.`,
                 variant: "success",
             })
-            setContractProposalId(proposalId)
             router.refresh()
         } finally {
             setActivatingProposalId(null)

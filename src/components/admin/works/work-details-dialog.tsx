@@ -19,6 +19,7 @@ import {
     getWorkProcessItems,
     getWorkProposalLinks,
     getWorkResponsibleUsers,
+    reprocessWorkTechnicalSnapshot,
     releaseProjectForExecution,
     setWorkCardStatus,
     setWorkProcessItemStatus,
@@ -472,6 +473,62 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
     return rows.filter((row) => row.value !== "-")
 }
 
+type TechnicalSnapshotSection = {
+    key: string
+    proposalId: string | null
+    isPrimary: boolean
+    module: SnapshotModule | null
+    inverters: SnapshotInverter[]
+    rows: Array<{ label: string; value: string }>
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return value as Record<string, unknown>
+}
+
+function buildTechnicalSnapshotSections(snapshot: unknown): TechnicalSnapshotSection[] {
+    const rootSnapshot = asRecord(snapshot)
+    if (!rootSnapshot) return []
+
+    const rootPrimaryProposalId = getSnapshotValue(snapshot, "meta.primary_proposal_id")
+    const primaryProposalId =
+        typeof rootPrimaryProposalId === "string" && rootPrimaryProposalId.trim().length > 0
+            ? rootPrimaryProposalId.trim()
+            : null
+
+    const proposalSnapshots = Array.isArray(rootSnapshot.proposals) && rootSnapshot.proposals.length > 0
+        ? rootSnapshot.proposals
+        : [snapshot]
+
+    return proposalSnapshots
+        .map((entry, index) => {
+            const entryRecord = asRecord(entry)
+            if (!entryRecord) return null
+
+            const proposalIdFromMeta = getSnapshotValue(entry, "meta.proposal_id")
+            const proposalId =
+                typeof proposalIdFromMeta === "string" && proposalIdFromMeta.trim().length > 0
+                    ? proposalIdFromMeta.trim()
+                    : null
+
+            const isPrimaryByEntry = entryRecord.is_primary === true
+            const isPrimary = primaryProposalId
+                ? proposalId === primaryProposalId
+                : isPrimaryByEntry || index === 0
+
+            return {
+                key: proposalId ?? `snapshot-${index}`,
+                proposalId,
+                isPrimary,
+                module: getSnapshotModule(entry),
+                inverters: getSnapshotInverters(entry),
+                rows: buildTechnicalSnapshotRows(entry),
+            } satisfies TechnicalSnapshotSection
+        })
+        .filter((entry): entry is TechnicalSnapshotSection => Boolean(entry))
+}
+
 function ImageGallery({
     label,
     items,
@@ -705,6 +762,29 @@ export function WorkDetailsDialog({
             }
 
             showToast({ title: "Endereço salvo", variant: "success" })
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    async function handleReprocessTechnicalSnapshot() {
+        if (!workId) return
+
+        setIsSaving(true)
+        try {
+            const result = await reprocessWorkTechnicalSnapshot(workId)
+            if (result.error) {
+                showToast({ title: "Erro", description: result.error, variant: "error" })
+                return
+            }
+
+            showToast({
+                title: "Dados técnicos reprocessados",
+                description: result.warning ?? "Snapshot técnico da obra atualizado com os orçamentos vinculados.",
+                variant: "success",
+            })
             await loadData()
             onChanged?.()
         } finally {
@@ -1180,10 +1260,10 @@ export function WorkDetailsDialog({
     const beforeImages = images.filter((item) => item.image_type === "ANTES")
     const afterImages = images.filter((item) => item.image_type === "DEPOIS")
 
-    const technicalSnapshot = work?.technical_snapshot ?? {}
-    const technicalRows = buildTechnicalSnapshotRows(technicalSnapshot)
-    const technicalModule = getSnapshotModule(technicalSnapshot)
-    const technicalInverters = getSnapshotInverters(technicalSnapshot)
+    const technicalSections = useMemo(
+        () => buildTechnicalSnapshotSections(work?.technical_snapshot ?? {}),
+        [work?.technical_snapshot],
+    )
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1305,66 +1385,92 @@ export function WorkDetailsDialog({
 
                         <div className="grid gap-4 lg:grid-cols-2">
                             <div className="space-y-3 rounded-md border p-4">
-                                <p className="text-sm font-semibold">Dados técnicos (sem valores)</p>
-                                {technicalRows.length === 0 ? (
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold">Dados técnicos por orçamento (sem valores)</p>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={handleReprocessTechnicalSnapshot}
+                                        disabled={isSaving}
+                                    >
+                                        Reprocessar dados técnicos
+                                    </Button>
+                                </div>
+                                {technicalSections.length === 0 ? (
                                     <p className="text-xs text-muted-foreground">Sem dados técnicos registrados.</p>
                                 ) : (
                                     <div className="max-h-72 overflow-auto rounded-md border bg-slate-50 p-3">
-                                        <div className="grid gap-2 sm:grid-cols-2">
-                                            <div className="rounded-md border bg-white p-2 text-xs">
-                                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Placa selecionada</p>
-                                                {technicalModule?.product_id ? (
-                                                    <button
-                                                        type="button"
-                                                        className="mt-1 w-full rounded-md border border-dashed px-2 py-1 text-left text-sm font-medium text-foreground hover:bg-slate-50"
-                                                        onClick={() =>
-                                                            handleOpenTechnicalProduct({
-                                                                product_id: technicalModule.product_id!,
-                                                                title: technicalModule.model || technicalModule.name || "Placa",
-                                                                subtitle: formatModuleSelectionLabel(technicalModule),
-                                                            })
-                                                        }
-                                                    >
-                                                        {formatModuleSelectionLabel(technicalModule)}
-                                                    </button>
-                                                ) : (
-                                                    <p className="mt-1 text-sm font-medium text-foreground">-</p>
-                                                )}
-                                            </div>
-                                            <div className="rounded-md border bg-white p-2 text-xs">
-                                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Inversores selecionados</p>
-                                                {technicalInverters.filter((item) => item.product_id).length > 0 ? (
-                                                    <div className="mt-1 flex flex-wrap gap-1">
-                                                        {technicalInverters
-                                                            .filter((item): item is SnapshotInverter & { product_id: string } => Boolean(item.product_id))
-                                                            .map((item, index) => (
+                                        <div className="space-y-3">
+                                            {technicalSections.map((section, sectionIndex) => (
+                                                <div key={section.key} className="rounded-md border bg-white p-3">
+                                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                                        <p className="text-xs font-semibold">
+                                                            {section.proposalId
+                                                                ? `Orçamento #${section.proposalId.slice(0, 8)}`
+                                                                : `Orçamento ${sectionIndex + 1}`}
+                                                        </p>
+                                                        <Badge variant={section.isPrimary ? "default" : "outline"}>
+                                                            {section.isPrimary ? "Principal" : "Vinculado"}
+                                                        </Badge>
+                                                    </div>
+                                                    <div className="grid gap-2 sm:grid-cols-2">
+                                                        <div className="rounded-md border bg-white p-2 text-xs">
+                                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Placa selecionada</p>
+                                                            {section.module?.product_id ? (
                                                                 <button
-                                                                    key={`${item.product_id}-${index}`}
                                                                     type="button"
-                                                                    className="rounded-md border border-dashed px-2 py-1 text-left text-xs font-medium hover:bg-slate-50"
+                                                                    className="mt-1 w-full rounded-md border border-dashed px-2 py-1 text-left text-sm font-medium text-foreground hover:bg-slate-50"
                                                                     onClick={() =>
                                                                         handleOpenTechnicalProduct({
-                                                                            product_id: item.product_id,
-                                                                            title: item.model || item.name || "Inversor",
-                                                                            subtitle: formatInverterSelectionLabel(item),
-                                                                            purchase_required: item.purchase_required,
+                                                                            product_id: section.module.product_id!,
+                                                                            title: section.module.model || section.module.name || "Placa",
+                                                                            subtitle: formatModuleSelectionLabel(section.module),
                                                                         })
                                                                     }
                                                                 >
-                                                                    {formatInverterSelectionLabel(item)}
+                                                                    {formatModuleSelectionLabel(section.module)}
                                                                 </button>
-                                                            ))}
+                                                            ) : (
+                                                                <p className="mt-1 text-sm font-medium text-foreground">-</p>
+                                                            )}
+                                                        </div>
+                                                        <div className="rounded-md border bg-white p-2 text-xs">
+                                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Inversores selecionados</p>
+                                                            {section.inverters.filter((item) => item.product_id).length > 0 ? (
+                                                                <div className="mt-1 flex flex-wrap gap-1">
+                                                                    {section.inverters
+                                                                        .filter((item): item is SnapshotInverter & { product_id: string } => Boolean(item.product_id))
+                                                                        .map((item, index) => (
+                                                                            <button
+                                                                                key={`${item.product_id}-${index}`}
+                                                                                type="button"
+                                                                                className="rounded-md border border-dashed px-2 py-1 text-left text-xs font-medium hover:bg-slate-50"
+                                                                                onClick={() =>
+                                                                                    handleOpenTechnicalProduct({
+                                                                                        product_id: item.product_id,
+                                                                                        title: item.model || item.name || "Inversor",
+                                                                                        subtitle: formatInverterSelectionLabel(item),
+                                                                                        purchase_required: item.purchase_required,
+                                                                                    })
+                                                                                }
+                                                                            >
+                                                                                {formatInverterSelectionLabel(item)}
+                                                                            </button>
+                                                                        ))}
+                                                                </div>
+                                                            ) : (
+                                                                <p className="mt-1 text-sm font-medium text-foreground">-</p>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                ) : (
-                                                    <p className="mt-1 text-sm font-medium text-foreground">-</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                            {technicalRows.map((entry) => (
-                                                <div key={`${entry.label}-${entry.value}`} className="rounded-md border bg-white p-2 text-xs">
-                                                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{entry.label}</p>
-                                                    <p className="mt-1 text-sm font-medium text-foreground">{entry.value}</p>
+                                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                                        {section.rows.map((entry) => (
+                                                            <div key={`${section.key}-${entry.label}-${entry.value}`} className="rounded-md border bg-white p-2 text-xs">
+                                                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{entry.label}</p>
+                                                                <p className="mt-1 text-sm font-medium text-foreground">{entry.value}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>

@@ -765,6 +765,108 @@ function buildTechnicalSnapshotFromProposal(input: {
     return stripFinancialData(rawSnapshot) as WorkTechnicalSnapshot
 }
 
+type WorkCardSnapshotProposalContext = {
+    proposal: ProposalForWorkCard
+    equipment: WorkProposalEquipmentSummary
+    isPrimary: boolean
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return value as Record<string, unknown>
+}
+
+function extractSecondaryProposalIdsFromBundle(calculation: Record<string, unknown> | null) {
+    if (!calculation || typeof calculation !== "object") return [] as string[]
+
+    const bundle = asRecord(calculation.bundle)
+    if (!bundle) return [] as string[]
+
+    const rawIds = bundle.secondary_proposal_ids
+    if (!Array.isArray(rawIds)) return [] as string[]
+
+    const deduped = new Set<string>()
+    for (const rawId of rawIds) {
+        if (typeof rawId !== "string") continue
+        const normalized = rawId.trim()
+        if (!normalized) continue
+        deduped.add(normalized)
+    }
+
+    return Array.from(deduped)
+}
+
+function buildTechnicalSnapshotFromProposalContexts(input: {
+    primaryProposalId: string
+    contexts: WorkCardSnapshotProposalContext[]
+    indicacao: {
+        id: string | null
+        nome: string | null
+        codigo_instalacao: string | null
+        codigo_cliente: string | null
+        unidade_consumidora: string | null
+    } | null
+}) {
+    const primaryContext =
+        input.contexts.find((context) => context.proposal.id === input.primaryProposalId)
+        ?? input.contexts[0]
+    if (!primaryContext) {
+        return {} as WorkTechnicalSnapshot
+    }
+
+    const primarySnapshot = buildTechnicalSnapshotFromProposal({
+        proposal: {
+            id: primaryContext.proposal.id,
+            source_mode: primaryContext.proposal.source_mode ?? "legacy",
+            created_at: primaryContext.proposal.created_at,
+            updated_at: primaryContext.proposal.updated_at,
+            total_power: primaryContext.proposal.total_power,
+            calculation: primaryContext.proposal.calculation,
+        },
+        indicacao: input.indicacao,
+        equipment: {
+            module: primaryContext.equipment.module,
+            inverters: primaryContext.equipment.inverters,
+        },
+    })
+
+    const perProposalSnapshots = input.contexts.map((context) => {
+        const snapshot = buildTechnicalSnapshotFromProposal({
+            proposal: {
+                id: context.proposal.id,
+                source_mode: context.proposal.source_mode ?? "legacy",
+                created_at: context.proposal.created_at,
+                updated_at: context.proposal.updated_at,
+                total_power: context.proposal.total_power,
+                calculation: context.proposal.calculation,
+            },
+            indicacao: null,
+            equipment: {
+                module: context.equipment.module,
+                inverters: context.equipment.inverters,
+            },
+        })
+
+        return {
+            ...snapshot,
+            is_primary: context.isPrimary,
+        }
+    })
+
+    const rootSnapshot = asRecord(primarySnapshot) ?? {}
+    const rootMeta = asRecord(rootSnapshot.meta) ?? {}
+
+    return {
+        ...rootSnapshot,
+        meta: {
+            ...rootMeta,
+            primary_proposal_id: primaryContext.proposal.id,
+            proposal_ids: input.contexts.map((context) => context.proposal.id),
+        },
+        proposals: perProposalSnapshots,
+    } satisfies WorkTechnicalSnapshot
+}
+
 async function getScopedIndicacaoIdsForRole(params: {
     supabaseAdmin: any
     role: string
@@ -1141,29 +1243,84 @@ export async function upsertWorkCardFromProposal(params: {
         proposalId: proposal.id,
     })
 
-    const equipmentSummary = await getProposalEquipmentSummary({
-        supabaseAdmin,
-        proposalId: proposal.id,
-        calculation: proposal.calculation,
-    })
+    const secondaryProposalIds = extractSecondaryProposalIdsFromBundle(proposal.calculation)
+        .filter((secondaryId) => secondaryId !== proposal.id)
 
-    const shouldWarnMissingTechnicalEquipment =
-        proposal.source_mode === "complete" &&
-        (!equipmentSummary.hasModule || !equipmentSummary.hasInverter)
+    const proposalsForSync: ProposalForWorkCard[] = [proposal]
 
-    const warningMessage = shouldWarnMissingTechnicalEquipment
-        ? "Obra enviada, mas faltam modelo de módulo/inversor no orçamento completo."
-        : null
+    if (secondaryProposalIds.length > 0) {
+        if (!proposal.client_id) {
+            console.warn(
+                "Orçamento principal sem client_id; ignorando secundários do bundle ao sincronizar obra.",
+                { proposalId: proposal.id, secondaryProposalIds },
+            )
+        } else {
+            for (const secondaryProposalId of secondaryProposalIds) {
+                const secondaryProposalResult = await getProposalForWorkCard({
+                    supabaseAdmin,
+                    proposalId: secondaryProposalId,
+                })
 
-    const technicalSnapshot = buildTechnicalSnapshotFromProposal({
-        proposal: {
-            id: proposal.id,
-            source_mode: proposal.source_mode ?? "legacy",
-            created_at: proposal.created_at,
-            updated_at: proposal.updated_at,
-            total_power: proposal.total_power,
-            calculation: proposal.calculation,
-        },
+                if ("error" in secondaryProposalResult) {
+                    console.warn("Proposta secundária ignorada ao sincronizar obra:", {
+                        proposalId: proposal.id,
+                        secondaryProposalId,
+                        reason: secondaryProposalResult.error,
+                    })
+                    continue
+                }
+
+                const secondaryProposal = secondaryProposalResult.proposal
+                if (secondaryProposal.client_id !== proposal.client_id) {
+                    console.warn("Proposta secundária ignorada por cliente divergente ao sincronizar obra:", {
+                        proposalId: proposal.id,
+                        secondaryProposalId,
+                        primaryClientId: proposal.client_id,
+                        secondaryClientId: secondaryProposal.client_id,
+                    })
+                    continue
+                }
+
+                proposalsForSync.push(secondaryProposal)
+            }
+        }
+    }
+
+    const uniqueProposalIds = new Set<string>()
+    const proposalContexts: WorkCardSnapshotProposalContext[] = []
+
+    for (const proposalForSync of proposalsForSync) {
+        if (uniqueProposalIds.has(proposalForSync.id)) continue
+        uniqueProposalIds.add(proposalForSync.id)
+
+        const equipmentSummary = await getProposalEquipmentSummary({
+            supabaseAdmin,
+            proposalId: proposalForSync.id,
+            calculation: proposalForSync.calculation,
+        })
+
+        proposalContexts.push({
+            proposal: proposalForSync,
+            equipment: equipmentSummary,
+            isPrimary: proposalForSync.id === proposal.id,
+        })
+    }
+
+    const incompleteCompleteProposals = proposalContexts.filter((context) => (
+        context.proposal.source_mode === "complete" &&
+        (!context.equipment.hasModule || !context.equipment.hasInverter)
+    ))
+
+    let warningMessage: string | null = null
+    if (incompleteCompleteProposals.length === 1) {
+        warningMessage = `Obra enviada, mas faltam modelo de módulo/inversor no orçamento #${incompleteCompleteProposals[0].proposal.id.slice(0, 8)}.`
+    } else if (incompleteCompleteProposals.length > 1) {
+        warningMessage = `Obra enviada, mas faltam modelo de módulo/inversor em ${incompleteCompleteProposals.length} orçamento(s) completo(s).`
+    }
+
+    const technicalSnapshot = buildTechnicalSnapshotFromProposalContexts({
+        primaryProposalId: proposal.id,
+        contexts: proposalContexts,
         indicacao: indicacao
             ? {
                 id: indicacao.id,
@@ -1173,10 +1330,6 @@ export async function upsertWorkCardFromProposal(params: {
                 unidade_consumidora: indicacao.unidade_consumidora,
             }
             : null,
-        equipment: {
-            module: equipmentSummary.module,
-            inverters: equipmentSummary.inverters,
-        },
     })
 
     const { data: existingCardRaw, error: existingCardError } = await supabaseAdmin
@@ -1262,6 +1415,8 @@ export async function upsertWorkCardFromProposal(params: {
     await ensureProjectTemplate(workId)
     await ensureExecutionTemplate(workId)
 
+    const targetProposalIds = proposalContexts.map((context) => context.proposal.id)
+
     const { error: demoteError } = await supabaseAdmin
         .from("obra_card_proposals" as any)
         .update({ is_primary: false })
@@ -1274,12 +1429,12 @@ export async function upsertWorkCardFromProposal(params: {
     const { error: linkError } = await supabaseAdmin
         .from("obra_card_proposals" as any)
         .upsert(
-            {
+            targetProposalIds.map((targetProposalId) => ({
                 obra_id: workId,
-                proposal_id: proposal.id,
-                is_primary: true,
+                proposal_id: targetProposalId,
+                is_primary: targetProposalId === proposal.id,
                 linked_at: new Date().toISOString(),
-            },
+            })),
             { onConflict: "obra_id,proposal_id" }
         )
 
@@ -1287,10 +1442,78 @@ export async function upsertWorkCardFromProposal(params: {
         return { error: normalizeWorkCardsError(linkError.message) }
     }
 
+    const { data: existingLinks, error: existingLinksError } = await supabaseAdmin
+        .from("obra_card_proposals" as any)
+        .select("proposal_id")
+        .eq("obra_id", workId)
+
+    if (existingLinksError) {
+        return { error: normalizeWorkCardsError(existingLinksError.message) }
+    }
+
+    const staleProposalIds = ((existingLinks ?? []) as Array<{ proposal_id: string }>)
+        .map((row) => row.proposal_id)
+        .filter((proposalIdFromLink) => !targetProposalIds.includes(proposalIdFromLink))
+
+    if (staleProposalIds.length > 0) {
+        const { error: staleDeleteError } = await supabaseAdmin
+            .from("obra_card_proposals" as any)
+            .delete()
+            .eq("obra_id", workId)
+            .in("proposal_id", staleProposalIds)
+
+        if (staleDeleteError) {
+            return { error: normalizeWorkCardsError(staleDeleteError.message) }
+        }
+    }
+
     revalidatePath("/admin/obras")
     revalidatePath("/admin/orcamentos")
 
     return { success: true, workId, warning: warningMessage ?? undefined }
+}
+
+export async function reprocessWorkTechnicalSnapshot(workId: string) {
+    const { user, role } = await ensureUserCanAccessWorkModule()
+    if (!user || !role) return { error: "Sem permissão." }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const { data: card, error: cardError } = await supabaseAdmin
+        .from("obra_cards" as any)
+        .select("id, primary_proposal_id")
+        .eq("id", workId)
+        .maybeSingle()
+
+    if (cardError || !card) {
+        return { error: cardError?.message ?? "Obra não encontrada." }
+    }
+
+    const primaryProposalId = (card as { primary_proposal_id?: string | null }).primary_proposal_id ?? null
+    if (!primaryProposalId) {
+        return { error: "Obra sem orçamento principal para reprocessar." }
+    }
+
+    const result = await upsertWorkCardFromProposal({
+        proposalId: primaryProposalId,
+        actorId: user.id,
+        allowNonAccepted: true,
+    })
+
+    if (result?.error) {
+        return { error: result.error }
+    }
+
+    if (result?.skipped) {
+        return { error: "Orçamento principal da obra não elegível para sincronização." }
+    }
+
+    revalidatePath("/admin/obras")
+
+    return {
+        success: true,
+        workId: result?.workId ?? workId,
+        warning: result?.warning,
+    }
 }
 
 export async function backfillWorkCardsFromAcceptedProposals() {

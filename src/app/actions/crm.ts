@@ -40,8 +40,6 @@ export async function activateWorkCardFromProposal(
         return { error: "Informe o prazo de execução em dias úteis (inteiro maior que zero)." }
     }
 
-    const supabaseAdmin = createSupabaseServiceClient()
-
     const result = await upsertWorkCardFromProposal({
         proposalId,
         actorId: user.id,
@@ -57,32 +55,8 @@ export async function activateWorkCardFromProposal(
         return { error: "Orçamento não elegível para Obras (fora da marca Dorata)." }
     }
 
-    let activationWarning: string | null =
+    const activationWarning: string | null =
         "warning" in result && typeof result.warning === "string" ? result.warning : null
-    const appendActivationWarning = (message: string) => {
-        activationWarning = activationWarning ? `${activationWarning} ${message}` : message
-    }
-
-    const { data: proposalContext, error: proposalContextError } = await supabaseAdmin
-        .from("proposals")
-        .select("id, client_id")
-        .eq("id", proposalId)
-        .maybeSingle()
-
-    if (proposalContextError) {
-        console.error("Erro ao buscar proposta para marcar fonte de contrato:", proposalContextError)
-        appendActivationWarning("Obra criada, mas falhou ao marcar este orçamento para contrato.")
-    } else if (proposalContext?.client_id) {
-        const { error: contractSourceError } = await supabaseAdmin
-            .from("indicacoes")
-            .update({ contract_proposal_id: proposalId })
-            .eq("id", proposalContext.client_id)
-
-        if (contractSourceError) {
-            console.error("Erro ao salvar orçamento do contrato ao enviar para Obras:", contractSourceError)
-            appendActivationWarning("Obra criada, mas falhou ao marcar este orçamento para contrato.")
-        }
-    }
 
     revalidatePath("/admin/crm")
     revalidatePath("/admin/indicacoes")

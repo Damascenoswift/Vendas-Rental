@@ -132,6 +132,16 @@ export type ProposalCalculation = {
     params: ProposalCalcParams
     input: ProposalCalcInput
     output: ProposalCalcOutput
+    bundle?: {
+        enabled: boolean
+        secondary_proposal_ids: string[]
+        consolidated?: {
+            total_value: number
+            total_power: number
+            module_count: number
+            material_total: number
+        }
+    }
     commission?: {
         percent: number
         value: number
