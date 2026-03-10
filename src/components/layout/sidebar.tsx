@@ -238,7 +238,7 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem collapsed={isCollapsed} href="/admin/energia" label="Energia" icon={Zap} />
                         )}
 
-                        {(['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) || department === 'financeiro') && (
+                        {((role === 'adm_mestre') || department === 'financeiro') && (
                             <NavItem collapsed={isCollapsed} href="/admin/financeiro" label="Financeiro" icon={Wallet} />
                         )}
 

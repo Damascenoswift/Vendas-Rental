@@ -59,6 +59,18 @@ export function hasFullAccess(role?: UserRole | null, department?: UserProfile['
   return effectiveRole === 'adm_mestre' || effectiveRole === 'adm_dorata'
 }
 
+export function hasRestrictedFinancialAccess(params: {
+  role?: UserRole | null
+  department?: UserProfile['department'] | null
+  email?: string | null
+}) {
+  const normalizedEmail = (params.email ?? "").trim().toLowerCase()
+  const isOwnerByRole = params.role === "adm_mestre"
+  const isOwnerByEmail = normalizedEmail === "suporte@dorataenergia.com"
+  const isFinanceDepartment = params.department === "financeiro"
+  return isOwnerByRole || isOwnerByEmail || isFinanceDepartment
+}
+
 // @deprecated Use getProfile instead
 export function buildUserProfile(user: User | null): UserProfile | null {
   if (!user) return null

@@ -9,7 +9,7 @@ import { NewTransactionDialog } from "@/components/financial/new-transaction-dia
 import { RentalCommissionSettings } from "@/components/financial/rental-commission-settings"
 import { getPricingRules } from "@/services/proposal-service"
 import { Wallet } from "lucide-react"
-import { getProfile, hasFullAccess } from "@/lib/auth"
+import { getProfile, hasRestrictedFinancialAccess } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { hasSalesAccess } from "@/lib/sales-access"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -40,6 +40,7 @@ type CloseableFinancialItem = {
 
 type FinancialSearchParams = {
     seller?: string | string[]
+    brand?: string | string[]
     tab?: string | string[]
     status?: string | string[]
     error?: string | string[]
@@ -134,6 +135,25 @@ function formatDate(value: string | null | undefined) {
     return new Date(value).toLocaleDateString("pt-BR")
 }
 
+function buildFinancialPageHref(params: {
+    seller?: string
+    tab?: string
+    brand?: "all" | "rental" | "dorata"
+}) {
+    const search = new URLSearchParams()
+    if (params.seller && params.seller !== "all") {
+        search.set("seller", params.seller)
+    }
+    if (params.tab && params.tab !== "previsoes") {
+        search.set("tab", params.tab)
+    }
+    if (params.brand && params.brand !== "all") {
+        search.set("brand", params.brand)
+    }
+    const query = search.toString()
+    return query ? `/admin/financeiro?${query}` : "/admin/financeiro"
+}
+
 function extractRentalBase(metadata: any) {
     const consumoMedioPf = toNumber(metadata?.consumoMedioPF ?? metadata?.consumo_medio_pf ?? 0)
     const precoKwh = toNumber(metadata?.precoKwh ?? metadata?.preco_kwh ?? 0)
@@ -172,14 +192,12 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
     const department = profile?.department ?? null
-    if (
-        !profile ||
-        (
-            !hasFullAccess(role, department) &&
-            !['funcionario_n1', 'funcionario_n2'].includes(role ?? '') &&
-            department !== 'financeiro'
-        )
-    ) {
+    const canAccessFinancial = hasRestrictedFinancialAccess({
+        role,
+        department,
+        email: profile?.email ?? user.email ?? null,
+    })
+    if (!profile || !canAccessFinancial) {
         redirect("/dashboard")
     }
 
@@ -187,6 +205,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const sellerParam = Array.isArray(resolvedSearchParams?.seller)
         ? resolvedSearchParams?.seller[0]
         : resolvedSearchParams?.seller
+    const brandParam = Array.isArray(resolvedSearchParams?.brand)
+        ? resolvedSearchParams?.brand[0]
+        : resolvedSearchParams?.brand
     const tabParam = Array.isArray(resolvedSearchParams?.tab)
         ? resolvedSearchParams?.tab[0]
         : resolvedSearchParams?.tab
@@ -203,10 +224,15 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const selectedSellerId = typeof sellerParam === "string" && sellerParam.length > 0
         ? sellerParam
         : "all"
+    const selectedBrand = brandParam === "rental" || brandParam === "dorata"
+        ? brandParam
+        : "all"
     const selectedTab = tabParam === "liberado" || tabParam === "historico"
         ? tabParam
         : "previsoes"
     const sellerFilterId = selectedSellerId === "all" ? null : selectedSellerId
+    const isRentalBrandView = selectedBrand === "rental"
+    const isDorataBrandView = selectedBrand === "dorata"
 
     const [transactions, users, pricingRules] = await Promise.all([
         getFinancialSummary(),
@@ -752,6 +778,10 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         ? managerOverrideRows
         : managerOverrideRows.filter((row) => row.sellerId === sellerFilterId || row.beneficiaryUserId === sellerFilterId)
 
+    const visibleDorataForecasts = isRentalBrandView ? [] : filteredDorataForecasts
+    const visibleRentalForecastRows = isDorataBrandView ? [] : filteredRentalForecastRows
+    const visibleManagerOverrideRows = isDorataBrandView ? [] : filteredManagerOverrideRows
+
     const sellerRowsMap = new Map<string, SellerRow>()
     for (const row of rentalForecastRows) {
         sellerRowsMap.set(row.sellerId, {
@@ -821,8 +851,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         percent: sellerPercentDisplayByUserId.get(seller.id) ?? rentalDefaultPercentDisplay,
         isCustom: sellerPercentDisplayByUserId.has(seller.id),
     }))
-    const dorataSettingsBySaleId = new Map<string, (typeof filteredDorataForecasts)[number]>()
-    for (const row of filteredDorataForecasts) {
+    const dorataSettingsBySaleId = new Map<string, (typeof visibleDorataForecasts)[number]>()
+    for (const row of visibleDorataForecasts) {
         const current = dorataSettingsBySaleId.get(row.saleId)
         if (!current || (current.isSplitRecipient && !row.isSplitRecipient)) {
             dorataSettingsBySaleId.set(row.saleId, row)
@@ -841,19 +871,19 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     })
 
     const dorataContractByLead = new Map<string, number>()
-    for (const item of filteredDorataForecasts) {
+    for (const item of visibleDorataForecasts) {
         const key = item.leadId || item.saleId
         if (!key || dorataContractByLead.has(key)) continue
         dorataContractByLead.set(key, item.contractValue)
     }
     const totalDorataContract = Array.from(dorataContractByLead.values()).reduce((sum, value) => sum + value, 0)
-    const totalDorataCommission = filteredDorataForecasts.reduce((sum, item) => sum + item.commissionValue, 0)
+    const totalDorataCommission = visibleDorataForecasts.reduce((sum, item) => sum + item.commissionValue, 0)
 
-    const totalRentalBase = filteredRentalForecastRows.reduce((sum, item) => sum + item.baseValue, 0)
-    const totalRentalCommission = filteredRentalForecastRows.reduce((sum, item) => sum + item.commissionTotal, 0)
-    const totalRentalThirty = filteredRentalForecastRows.reduce((sum, item) => sum + item.thirtyPercentValue, 0)
-    const totalRentalSeventyAdjusted = filteredRentalForecastRows.reduce((sum, item) => sum + item.seventyAdjusted, 0)
-    const totalManagerOverride = filteredManagerOverrideRows.reduce((sum, item) => sum + item.commissionTotal, 0)
+    const totalRentalBase = visibleRentalForecastRows.reduce((sum, item) => sum + item.baseValue, 0)
+    const totalRentalCommission = visibleRentalForecastRows.reduce((sum, item) => sum + item.commissionTotal, 0)
+    const totalRentalThirty = visibleRentalForecastRows.reduce((sum, item) => sum + item.thirtyPercentValue, 0)
+    const totalRentalSeventyAdjusted = visibleRentalForecastRows.reduce((sum, item) => sum + item.seventyAdjusted, 0)
+    const totalManagerOverride = visibleManagerOverrideRows.reduce((sum, item) => sum + item.commissionTotal, 0)
 
     const salesTransactions = (transactions as any[])
         .filter((tx) => {
@@ -905,11 +935,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const dorataPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_dorata')
     const rentalPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_venda')
     const overridePayments = filteredTransactions.filter((tx: any) => tx.type === 'override_gestao')
+    const visiblePaymentRows = isDorataBrandView
+        ? dorataPayments
+        : isRentalBrandView
+            ? [...rentalPayments, ...overridePayments]
+            : filteredTransactions
 
     const dorataPaymentsTotal = dorataPayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
     const rentalPaymentsTotal = rentalPayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
     const overridePaymentsTotal = overridePayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
-    const totalBalance = filteredTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0)
+    const totalBalance = visiblePaymentRows.reduce((acc, curr) => acc + (curr.amount || 0), 0)
 
     const manualItemsRows = (manualItems as any[]).map((item) => {
         const report = Array.isArray(item.report) ? item.report[0] : item.report
@@ -937,6 +972,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const filteredManualItemsRows = sellerFilterId
         ? manualItemsRows.filter((item) => item.beneficiaryUserId === sellerFilterId)
         : manualItemsRows
+    const visibleManualItemsRows = selectedBrand === "all"
+        ? filteredManualItemsRows
+        : filteredManualItemsRows.filter((item) => item.brand === selectedBrand)
 
     const closingItemsRows = (closingItems as any[]).map((item) => {
         const beneficiary = usersById.get(item.beneficiary_user_id)
@@ -1081,11 +1119,15 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
     closeableItems.sort((a, b) => b.amount - a.amount)
 
-    const closeableTotal = closeableItems.reduce((sum, item) => sum + item.amount, 0)
-    const closeableRentalTotal = closeableItems
+    const visibleCloseableItems = selectedBrand === "all"
+        ? closeableItems
+        : closeableItems.filter((item) => item.brand === selectedBrand)
+
+    const closeableTotal = visibleCloseableItems.reduce((sum, item) => sum + item.amount, 0)
+    const closeableRentalTotal = visibleCloseableItems
         .filter((item) => item.brand === "rental")
         .reduce((sum, item) => sum + item.amount, 0)
-    const closeableDorataTotal = closeableItems
+    const closeableDorataTotal = visibleCloseableItems
         .filter((item) => item.brand === "dorata")
         .reduce((sum, item) => sum + item.amount, 0)
 
@@ -1114,17 +1156,41 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         }
     })
 
+    const visibleClosingDossiers = selectedBrand === "all"
+        ? closingDossiers
+        : closingDossiers
+            .map((closing) => {
+                const brandItems = closing.items.filter((item) => item.brand === selectedBrand)
+                if (brandItems.length === 0) return null
+                return {
+                    ...closing,
+                    items: brandItems,
+                    itemCount: brandItems.length,
+                    totalValue: brandItems.reduce((sum, item) => sum + item.valuePaid, 0),
+                }
+            })
+            .filter((closing): closing is FinancialClosingDossier => Boolean(closing))
+
     return (
         <div className="max-w-7xl mx-auto py-8 px-4 space-y-8">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-gray-900">Gestão de Comissões</h1>
+                    <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+                        Gestão de Comissões
+                        {isDorataBrandView ? " Dorata" : isRentalBrandView ? " Rental" : ""}
+                    </h1>
                     <p className="text-muted-foreground">
-                        Rental com gatilho 30/70, cálculo por vendedor e override do gestor.
+                        {isDorataBrandView
+                            ? "Visão focada na operação Dorata: previsões, pagamentos e histórico da marca."
+                            : isRentalBrandView
+                                ? "Visão focada na operação Rental: gatilho 30/70, vendedor e override de gestão."
+                                : "Painel consolidado com dados de Rental e Dorata."}
                     </p>
                 </div>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <form method="get" className="flex items-center gap-2">
+                        <input type="hidden" name="brand" value={selectedBrand} />
+                        <input type="hidden" name="tab" value={selectedTab} />
                         <label htmlFor="seller" className="text-sm text-muted-foreground">Vendedor</label>
                         <select
                             id="seller"
@@ -1147,6 +1213,40 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                         </button>
                     </form>
                     <NewTransactionDialog users={sellerOptions as any[]} />
+                </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Visualização</span>
+                <a
+                    href={buildFinancialPageHref({ seller: selectedSellerId, tab: selectedTab, brand: "all" })}
+                    className={selectedBrand === "all"
+                        ? "h-8 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground"
+                        : "h-8 rounded-full border border-input bg-background px-4 text-sm font-medium hover:bg-muted"}
+                >
+                    Tudo
+                </a>
+                <a
+                    href={buildFinancialPageHref({ seller: selectedSellerId, tab: selectedTab, brand: "dorata" })}
+                    className={isDorataBrandView
+                        ? "h-8 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground"
+                        : "h-8 rounded-full border border-input bg-background px-4 text-sm font-medium hover:bg-muted"}
+                >
+                    Dorata
+                </a>
+                <a
+                    href={buildFinancialPageHref({ seller: selectedSellerId, tab: selectedTab, brand: "rental" })}
+                    className={isRentalBrandView
+                        ? "h-8 rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground"
+                        : "h-8 rounded-full border border-input bg-background px-4 text-sm font-medium hover:bg-muted"}
+                >
+                    Rental
+                </a>
+                <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Páginas diretas:</span>
+                    <a href="/admin/financeiro/dorata" className="underline-offset-2 hover:underline">/dorata</a>
+                    <span>•</span>
+                    <a href="/admin/financeiro/rental" className="underline-offset-2 hover:underline">/rental</a>
                 </div>
             </div>
 
@@ -1173,7 +1273,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 </TabsList>
 
                 <TabsContent value="previsoes" className="space-y-8 mt-0">
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                    <div className={`grid gap-4 md:grid-cols-2 ${isDorataBrandView ? "xl:grid-cols-4" : "xl:grid-cols-6"}`}>
                         <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
                             <div className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <h3 className="tracking-tight text-sm font-medium">Caixa / Líquido</h3>
@@ -1185,275 +1285,314 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                             <p className="text-xs text-muted-foreground">Saldo acumulado dos lançamentos filtrados</p>
                         </div>
 
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <h3 className="tracking-tight text-sm font-medium">Base Rental</h3>
-                                <Wallet className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                            <div className="text-2xl font-bold">{formatCurrency(totalRentalBase)}</div>
-                            <p className="text-xs text-muted-foreground">Σ (kWh x preço) por indicação</p>
-                        </div>
+                        {isDorataBrandView ? (
+                            <>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Contrato Dorata</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalDorataContract)}</div>
+                                    <p className="text-xs text-muted-foreground">Total de contratos Dorata no filtro</p>
+                                </div>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Comissão Dorata</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalDorataCommission)}</div>
+                                    <p className="text-xs text-muted-foreground">Comissão total prevista Dorata</p>
+                                </div>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Pago Dorata</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(dorataPaymentsTotal)}</div>
+                                    <p className="text-xs text-muted-foreground">Lançamentos comissao_dorata</p>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Base Rental</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalRentalBase)}</div>
+                                    <p className="text-xs text-muted-foreground">Σ (kWh x preço) por indicação</p>
+                                </div>
 
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <h3 className="tracking-tight text-sm font-medium">Comissão Rental</h3>
-                                <Wallet className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                            <div className="text-2xl font-bold">{formatCurrency(totalRentalCommission)}</div>
-                            <p className="text-xs text-muted-foreground">Total projetado de comissão do vendedor</p>
-                        </div>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Comissão Rental</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalRentalCommission)}</div>
+                                    <p className="text-xs text-muted-foreground">Total projetado de comissão do vendedor</p>
+                                </div>
 
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <h3 className="tracking-tight text-sm font-medium">Entrada 30%</h3>
-                                <Wallet className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                            <div className="text-2xl font-bold">{formatCurrency(totalRentalThirty)}</div>
-                            <p className="text-xs text-muted-foreground">Somente gestor no contrato assinado</p>
-                        </div>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Entrada 30%</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalRentalThirty)}</div>
+                                    <p className="text-xs text-muted-foreground">Somente gestor no contrato assinado</p>
+                                </div>
 
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <h3 className="tracking-tight text-sm font-medium">Saldo no Pagamento</h3>
-                                <Wallet className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                            <div className="text-2xl font-bold">{formatCurrency(totalRentalSeventyAdjusted)}</div>
-                            <p className="text-xs text-muted-foreground">Para gestor: 70%; demais: total na fatura paga</p>
-                        </div>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Saldo no Pagamento</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalRentalSeventyAdjusted)}</div>
+                                    <p className="text-xs text-muted-foreground">Para gestor: 70%; demais: total na fatura paga</p>
+                                </div>
 
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
-                            <div className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <h3 className="tracking-tight text-sm font-medium">Override {managerName}</h3>
-                                <Wallet className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                            <div className="text-2xl font-bold">{formatCurrency(totalManagerOverride)}</div>
-                            <p className="text-xs text-muted-foreground">{formatPercent(managerOverridePercentDisplay)} sobre vendas de terceiros</p>
-                        </div>
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6">
+                                    <div className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                        <h3 className="tracking-tight text-sm font-medium">Override {managerName}</h3>
+                                        <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div className="text-2xl font-bold">{formatCurrency(totalManagerOverride)}</div>
+                                    <p className="text-xs text-muted-foreground">{formatPercent(managerOverridePercentDisplay)} sobre vendas de terceiros</p>
+                                </div>
+                            </>
+                        )}
                     </div>
 
-                    <RentalCommissionSettings
-                        managerName={managerName}
-                        defaultPercent={rentalDefaultPercentDisplay}
-                        managerOverridePercent={managerOverridePercentDisplay}
-                        sellerRates={commissionSettingsRows}
-                        clientRates={clientCommissionSettingsRows}
-                    />
+                    {!isDorataBrandView ? (
+                        <>
+                            <RentalCommissionSettings
+                                managerName={managerName}
+                                defaultPercent={rentalDefaultPercentDisplay}
+                                managerOverridePercent={managerOverridePercentDisplay}
+                                sellerRates={commissionSettingsRows}
+                                clientRates={clientCommissionSettingsRows}
+                            />
 
-                    <div className="grid gap-6 xl:grid-cols-2">
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
-                            <div>
-                                <h2 className="text-lg font-semibold">Previsões Rental (30/70)</h2>
-                                <p className="text-sm text-muted-foreground">
-                                    Base = Consumo Médio PF x Preço kWh x (1 - desconto%). 30% apenas para {managerName}.
-                                </p>
+                            <div className="grid gap-6 xl:grid-cols-2">
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
+                                    <div>
+                                        <h2 className="text-lg font-semibold">Previsões Rental (30/70)</h2>
+                                        <p className="text-sm text-muted-foreground">
+                                            Base = Consumo Médio PF x Preço kWh x (1 - desconto%). 30% apenas para {managerName}.
+                                        </p>
+                                    </div>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Data</TableHead>
+                                                <TableHead>Vendedor</TableHead>
+                                                <TableHead>Cliente</TableHead>
+                                                <TableHead className="text-right">Base</TableHead>
+                                                <TableHead className="text-right">% Com.</TableHead>
+                                                <TableHead className="text-right">Comissão</TableHead>
+                                                <TableHead>30%</TableHead>
+                                                <TableHead>70%</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {visibleRentalForecastRows.length === 0 ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
+                                                        Nenhuma previsão Rental registrada.
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                visibleRentalForecastRows.map((item) => (
+                                                    <TableRow key={item.id}>
+                                                        <TableCell>{formatDate(item.createdAt)}</TableCell>
+                                                        <TableCell>{item.sellerName}</TableCell>
+                                                        <TableCell>{item.nome}</TableCell>
+                                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.baseValue) : "—"}</TableCell>
+                                                        <TableCell className="text-right">{formatPercent(item.commissionPercentDisplay)}</TableCell>
+                                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
+                                                        <TableCell>
+                                                            <div className="text-xs">
+                                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
+                                                                <div className="text-muted-foreground">{item.thirtyStatus}</div>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="text-xs">
+                                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
+                                                                <div className="text-muted-foreground">{item.seventyStatus}</div>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
+                                    <div>
+                                        <h2 className="text-lg font-semibold">Override Gestor ({managerName})</h2>
+                                        <p className="text-sm text-muted-foreground">
+                                            Override de {formatPercent(managerOverridePercentDisplay)} aplicado nas vendas Rental de outros vendedores.
+                                        </p>
+                                    </div>
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Data</TableHead>
+                                                <TableHead>Origem</TableHead>
+                                                <TableHead>Cliente</TableHead>
+                                                <TableHead className="text-right">Comissão</TableHead>
+                                                <TableHead>30%</TableHead>
+                                                <TableHead>70%</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {visibleManagerOverrideRows.length === 0 ? (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                                                        Nenhum override do gestor para o filtro atual.
+                                                    </TableCell>
+                                                </TableRow>
+                                            ) : (
+                                                visibleManagerOverrideRows.map((item) => (
+                                                    <TableRow key={`override-${item.id}`}>
+                                                        <TableCell>{formatDate(item.createdAt)}</TableCell>
+                                                        <TableCell>{item.sellerName}</TableCell>
+                                                        <TableCell>{item.nome}</TableCell>
+                                                        <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
+                                                        <TableCell>
+                                                            <div className="text-xs">
+                                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
+                                                                <div className="text-muted-foreground">{item.thirtyStatus}</div>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="text-xs">
+                                                                <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
+                                                                <div className="text-muted-foreground">{item.seventyStatus}</div>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             </div>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Data</TableHead>
-                                        <TableHead>Vendedor</TableHead>
-                                        <TableHead>Cliente</TableHead>
-                                        <TableHead className="text-right">Base</TableHead>
-                                        <TableHead className="text-right">% Com.</TableHead>
-                                        <TableHead className="text-right">Comissão</TableHead>
-                                        <TableHead>30%</TableHead>
-                                        <TableHead>70%</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredRentalForecastRows.length === 0 ? (
+                        </>
+                    ) : null}
+
+                    {!isRentalBrandView ? (
+                        <div className="grid gap-6">
+                            <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                                <div>
+                                    <h2 className="text-lg font-semibold">Previsões Dorata</h2>
+                                    <p className="text-sm text-muted-foreground">Orçamentos enviados e indicações Dorata com valor informado.</p>
+                                </div>
+                                <Table>
+                                    <TableHeader>
                                         <TableRow>
-                                            <TableCell colSpan={8} className="h-20 text-center text-muted-foreground">
-                                                Nenhuma previsão Rental registrada.
-                                            </TableCell>
+                                            <TableHead>Data</TableHead>
+                                            <TableHead>Vendedor</TableHead>
+                                            <TableHead>Cliente</TableHead>
+                                            <TableHead className="text-right">Contrato</TableHead>
+                                            <TableHead className="text-right">% Com.</TableHead>
+                                            <TableHead className="text-right">Comissão</TableHead>
+                                            <TableHead>Status comissão</TableHead>
                                         </TableRow>
-                                    ) : (
-                                        filteredRentalForecastRows.map((item) => (
-                                            <TableRow key={item.id}>
-                                                <TableCell>{formatDate(item.createdAt)}</TableCell>
-                                                <TableCell>{item.sellerName}</TableCell>
-                                                <TableCell>{item.nome}</TableCell>
-                                                <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.baseValue) : "—"}</TableCell>
-                                                <TableCell className="text-right">{formatPercent(item.commissionPercentDisplay)}</TableCell>
-                                                <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
-                                                <TableCell>
-                                                    <div className="text-xs">
-                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
-                                                        <div className="text-muted-foreground">{item.thirtyStatus}</div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="text-xs">
-                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
-                                                        <div className="text-muted-foreground">{item.seventyStatus}</div>
-                                                    </div>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {visibleDorataForecasts.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
+                                                    Nenhuma previsão Dorata registrada.
                                                 </TableCell>
                                             </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </div>
-
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4 overflow-x-auto">
-                            <div>
-                                <h2 className="text-lg font-semibold">Override Gestor ({managerName})</h2>
-                                <p className="text-sm text-muted-foreground">
-                                    Override de {formatPercent(managerOverridePercentDisplay)} aplicado nas vendas Rental de outros vendedores.
-                                </p>
-                            </div>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Data</TableHead>
-                                        <TableHead>Origem</TableHead>
-                                        <TableHead>Cliente</TableHead>
-                                        <TableHead className="text-right">Comissão</TableHead>
-                                        <TableHead>30%</TableHead>
-                                        <TableHead>70%</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredManagerOverrideRows.length === 0 ? (
-                                        <TableRow>
-                                            <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                                                Nenhum override do gestor para o filtro atual.
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : (
-                                        filteredManagerOverrideRows.map((item) => (
-                                            <TableRow key={`override-${item.id}`}>
-                                                <TableCell>{formatDate(item.createdAt)}</TableCell>
-                                                <TableCell>{item.sellerName}</TableCell>
-                                                <TableCell>{item.nome}</TableCell>
-                                                <TableCell className="text-right">{item.hasCommissionBase ? formatCurrency(item.commissionTotal) : "—"}</TableCell>
-                                                <TableCell>
-                                                    <div className="text-xs">
-                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.thirtyPercentValue) : "—"}</div>
-                                                        <div className="text-muted-foreground">{item.thirtyStatus}</div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="text-xs">
-                                                        <div className="font-medium">{item.hasCommissionBase ? formatCurrency(item.seventyAdjusted) : "—"}</div>
-                                                        <div className="text-muted-foreground">{item.seventyStatus}</div>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </div>
-
-                    <div className="grid gap-6">
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                            <div>
-                                <h2 className="text-lg font-semibold">Previsões Dorata</h2>
-                                <p className="text-sm text-muted-foreground">Orçamentos enviados e indicações Dorata com valor informado.</p>
-                            </div>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Data</TableHead>
-                                        <TableHead>Vendedor</TableHead>
-                                        <TableHead>Cliente</TableHead>
-                                        <TableHead className="text-right">Contrato</TableHead>
-                                        <TableHead className="text-right">% Com.</TableHead>
-                                        <TableHead className="text-right">Comissão</TableHead>
-                                        <TableHead>Status comissão</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredDorataForecasts.length === 0 ? (
-                                        <TableRow>
-                                            <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
-                                                Nenhuma previsão Dorata registrada.
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : (
-                                        filteredDorataForecasts.map((item) => (
-                                            <TableRow key={item.id}>
-                                                <TableCell>{formatDate(item.created_at)}</TableCell>
-                                                <TableCell>
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>{item.seller?.name || item.seller?.email || 'Sistema'}</span>
-                                                        {item.isSplitRecipient ? (
-                                                            <span className="text-xs text-muted-foreground">Comissão dividida</span>
-                                                        ) : null}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="flex flex-col gap-1">
-                                                        <span>{item.nome || "—"}</span>
-                                                        {item.splitLabel ? (
-                                                            <span className="text-xs text-muted-foreground">{item.splitLabel}</span>
-                                                        ) : null}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <div className="flex flex-col items-end">
-                                                        <span>{formatPercent(item.commissionPercentDisplay)}</span>
-                                                        <span className="text-xs text-muted-foreground">{item.commissionPercentSource}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">{formatCurrency(item.commissionValue)}</TableCell>
-                                                <TableCell>
-                                                    <div className="flex flex-col gap-1">
-                                                        <Badge variant={item.signed ? "success" : "secondary"}>{item.commissionStatus}</Badge>
-                                                        <span className="text-xs text-muted-foreground">
-                                                            {item.signedAt ? `Assinado em ${formatDate(item.signedAt)}` : "Aguardando contrato assinado"}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))
-                                    )}
-                                </TableBody>
-                            </Table>
-                            <div className="rounded-md bg-muted/50 p-3 text-sm">
-                                <span className="font-medium">Totais Dorata:</span>{" "}
-                                Contrato {formatCurrency(totalDorataContract)} | Comissão {formatCurrency(totalDorataCommission)}
-                            </div>
-                        </div>
-
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-lg font-semibold">Pagamentos Dorata</h2>
-                                    <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_dorata.</p>
+                                        ) : (
+                                            visibleDorataForecasts.map((item) => (
+                                                <TableRow key={item.id}>
+                                                    <TableCell>{formatDate(item.created_at)}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span>{item.seller?.name || item.seller?.email || 'Sistema'}</span>
+                                                            {item.isSplitRecipient ? (
+                                                                <span className="text-xs text-muted-foreground">Comissão dividida</span>
+                                                            ) : null}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span>{item.nome || "—"}</span>
+                                                            {item.splitLabel ? (
+                                                                <span className="text-xs text-muted-foreground">{item.splitLabel}</span>
+                                                            ) : null}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(item.contractValue)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex flex-col items-end">
+                                                            <span>{formatPercent(item.commissionPercentDisplay)}</span>
+                                                            <span className="text-xs text-muted-foreground">{item.commissionPercentSource}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(item.commissionValue)}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            <Badge variant={item.signed ? "success" : "secondary"}>{item.commissionStatus}</Badge>
+                                                            <span className="text-xs text-muted-foreground">
+                                                                {item.signedAt ? `Assinado em ${formatDate(item.signedAt)}` : "Aguardando contrato assinado"}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                                <div className="rounded-md bg-muted/50 p-3 text-sm">
+                                    <span className="font-medium">Totais Dorata:</span>{" "}
+                                    Contrato {formatCurrency(totalDorataContract)} | Comissão {formatCurrency(totalDorataCommission)}
                                 </div>
-                                <span className="text-sm font-semibold">{formatCurrency(dorataPaymentsTotal)}</span>
                             </div>
-                            <FinancialList transactions={dorataPayments as any[]} />
-                        </div>
-                    </div>
 
-                    <div className="grid gap-6">
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-lg font-semibold">Pagamentos Rental</h2>
-                                    <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_venda.</p>
+                            <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h2 className="text-lg font-semibold">Pagamentos Dorata</h2>
+                                        <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_dorata.</p>
+                                    </div>
+                                    <span className="text-sm font-semibold">{formatCurrency(dorataPaymentsTotal)}</span>
                                 </div>
-                                <span className="text-sm font-semibold">{formatCurrency(rentalPaymentsTotal)}</span>
+                                <FinancialList transactions={dorataPayments as any[]} />
                             </div>
-                            <FinancialList transactions={rentalPayments as any[]} />
                         </div>
+                    ) : null}
 
-                        <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-lg font-semibold">Pagamentos Override</h2>
-                                    <p className="text-sm text-muted-foreground">Lançamentos do tipo override_gestao.</p>
+                    {!isDorataBrandView ? (
+                        <div className="grid gap-6">
+                            <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h2 className="text-lg font-semibold">Pagamentos Rental</h2>
+                                        <p className="text-sm text-muted-foreground">Lançamentos do tipo comissao_venda.</p>
+                                    </div>
+                                    <span className="text-sm font-semibold">{formatCurrency(rentalPaymentsTotal)}</span>
                                 </div>
-                                <span className="text-sm font-semibold">{formatCurrency(overridePaymentsTotal)}</span>
+                                <FinancialList transactions={rentalPayments as any[]} />
                             </div>
-                            <FinancialList transactions={overridePayments as any[]} />
+
+                            <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h2 className="text-lg font-semibold">Pagamentos Override</h2>
+                                        <p className="text-sm text-muted-foreground">Lançamentos do tipo override_gestao.</p>
+                                    </div>
+                                    <span className="text-sm font-semibold">{formatCurrency(overridePaymentsTotal)}</span>
+                                </div>
+                                <FinancialList transactions={overridePayments as any[]} />
+                            </div>
                         </div>
-                    </div>
+                    ) : null}
                 </TabsContent>
 
                 <TabsContent value="liberado" className="space-y-6 mt-0">
@@ -1474,6 +1613,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
                     <form action={closeCommissionBatchFromForm} className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
                         <input type="hidden" name="return_seller" value={selectedSellerId} />
+                        <input type="hidden" name="return_brand" value={selectedBrand} />
                         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
                             <div className="flex flex-col gap-1">
                                 <label htmlFor="competencia" className="text-sm font-medium">Competência</label>
@@ -1607,14 +1747,14 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {closeableItems.length === 0 ? (
+                                    {visibleCloseableItems.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                                                 Nenhum item liberado para fechar no momento.
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        closeableItems.map((item) => (
+                                        visibleCloseableItems.map((item) => (
                                             <TableRow key={`${item.source_kind}:${item.source_ref_id}:${item.transaction_type}:${item.beneficiary_user_id}`}>
                                                 <TableCell>
                                                     <input
@@ -1669,6 +1809,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
                         <form action={createManualElyakimItemFromForm} className="grid gap-4 md:grid-cols-2">
                             <input type="hidden" name="return_seller" value={selectedSellerId} />
+                            <input type="hidden" name="return_brand" value={selectedBrand} />
                             <div className="flex flex-col gap-1">
                                 <label htmlFor="manual_competencia" className="text-sm font-medium">Competência</label>
                                 <input
@@ -1701,7 +1842,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 <select
                                     id="manual_brand"
                                     name="brand"
-                                    defaultValue="rental"
+                                    defaultValue={selectedBrand === "all" ? "rental" : selectedBrand}
                                     className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                                 >
                                     <option value="rental">Rental</option>
@@ -1807,14 +1948,14 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {closingDossiers.length === 0 ? (
+                                {visibleClosingDossiers.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                                             Nenhum fechamento registrado ainda.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    closingDossiers.map((closing) => {
+                                    visibleClosingDossiers.map((closing) => {
                                         return (
                                             <TableRow key={closing.id}>
                                                 <TableCell>
@@ -1865,14 +2006,14 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filteredManualItemsRows.length === 0 ? (
+                                {visibleManualItemsRows.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                                             Nenhum item manual registrado.
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredManualItemsRows.map((item) => (
+                                    visibleManualItemsRows.map((item) => (
                                         <TableRow key={`manual-${item.id}`}>
                                             <TableCell>{formatDate(item.createdAt)}</TableCell>
                                             <TableCell>{formatDate(item.competencia)}</TableCell>
