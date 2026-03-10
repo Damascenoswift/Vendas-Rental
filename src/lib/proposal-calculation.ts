@@ -62,6 +62,9 @@ export type ProposalCalcInput = {
         num_parcelas: number
         baloes: { balao_valor: number; balao_mes: number }[]
     }
+    commercial?: {
+        tarifa_kwh: number
+    }
     trade?: {
         enabled: boolean
         mode: ProposalTradeMode
@@ -118,6 +121,11 @@ export type ProposalCalcOutput = {
         total_pago: number
         total_pago_liquido: number
         juros_pagos: number
+    }
+    commercial: {
+        tarifa_kwh: number
+        economia_mensal_estimada: number
+        economia_anual_estimada: number
     }
     trade: {
         enabled: boolean
@@ -436,6 +444,9 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
         ? entradaValor + (parcelaMensal * numParcelas) + totalBaloes
         : totalAVista
     const jurosPagos = Math.max(totalPagoBruto - totalAVista, 0)
+    const tarifaKwh = Math.max(Number(input.commercial?.tarifa_kwh || 0), 0)
+    const economiaMensalEstimada = kWhEstimado * tarifaKwh
+    const economiaAnualEstimada = economiaMensalEstimada * 12
 
     const output: ProposalCalcOutput = {
         dimensioning: {
@@ -485,6 +496,11 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
             total_pago: totalPago,
             total_pago_liquido: totalPagoLiquido,
             juros_pagos: jurosPagos
+        },
+        commercial: {
+            tarifa_kwh: tarifaKwh,
+            economia_mensal_estimada: economiaMensalEstimada,
+            economia_anual_estimada: economiaAnualEstimada,
         },
         trade: {
             enabled: tradeEnabled,

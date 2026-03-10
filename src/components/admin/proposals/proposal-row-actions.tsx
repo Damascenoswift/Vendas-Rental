@@ -73,13 +73,23 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
   const output = asRecord(calculation?.output)
   const totals = asRecord(output?.totals)
   const dimensioning = asRecord(output?.dimensioning)
+  const commercialInput = asRecord(input?.commercial)
+  const commercialOutput = asRecord(output?.commercial)
   const financeInput = asRecord(input?.finance)
   const financeOutput = asRecord(output?.finance)
 
   const monthlyProduction = asNumber(dimensioning?.kWh_estimado) || asNumber(data.estimatedKwh)
   const annualProduction = monthlyProduction > 0 ? monthlyProduction * 12 : 0
-  const averageTariff = 0.95
-  const annualSavingsEstimate = annualProduction > 0 ? annualProduction * averageTariff : 0
+  const tariffKwh =
+    asNumber(commercialOutput?.tarifa_kwh) ||
+    asNumber(commercialInput?.tarifa_kwh) ||
+    0.95
+  const monthlySavingsEstimate =
+    asNumber(commercialOutput?.economia_mensal_estimada) ||
+    (monthlyProduction > 0 && tariffKwh > 0 ? monthlyProduction * tariffKwh : 0)
+  const annualSavingsEstimate =
+    asNumber(commercialOutput?.economia_anual_estimada) ||
+    (monthlySavingsEstimate > 0 ? monthlySavingsEstimate * 12 : 0)
 
   const totalValue = asNumber(totals?.total_a_vista) || asNumber(data.totalValue)
   const entryValue = asNumber(financeInput?.entrada_valor)
@@ -135,7 +145,9 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
             <p className="mt-1 text-2xl font-semibold text-primary">
               {annualSavingsEstimate > 0 ? formatCurrency(annualSavingsEstimate) : "—"}
             </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">Tarifa referência: R$ 0,95/kWh.</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Tarifa aplicada: {tariffKwh > 0 ? formatCurrency(tariffKwh) : "—"} por kWh.
+            </p>
           </div>
         </div>
 

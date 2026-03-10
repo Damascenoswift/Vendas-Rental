@@ -242,6 +242,7 @@ export function ProposalCalculatorComplete({
         [rules]
     )
     const defaultMonthlyInterestRate = normalizePercent(rules.juros_mensal ?? 0.019, 0.019)
+    const defaultTariffKwh = Number(rules.valor_kwh ?? rules.preco_kwh ?? 0.95)
 
     const isEditMode = intent === "edit" && Boolean(initialProposal?.id)
     const initialCalculationInput =
@@ -448,6 +449,9 @@ export function ProposalCalculatorComplete({
                 num_parcelas: 0,
                 baloes: [],
             },
+            commercial: {
+                tarifa_kwh: defaultTariffKwh,
+            },
             trade: {
                 enabled: false,
                 mode: "TOTAL_VALUE",
@@ -502,6 +506,13 @@ export function ProposalCalculatorComplete({
                         balao_valor: Number(balao?.balao_valor || 0),
                     }))
                     : [],
+            },
+            commercial: {
+                ...baseInput.commercial,
+                ...(initialCalculationInput.commercial ?? {}),
+                tarifa_kwh: Number(
+                    initialCalculationInput.commercial?.tarifa_kwh ?? baseInput.commercial?.tarifa_kwh ?? defaultTariffKwh
+                ),
             },
             trade: {
                 ...baseInput.trade,
@@ -771,6 +782,16 @@ export function ProposalCalculatorComplete({
 
     const updateFinance = (patch: Partial<ProposalCalcInput["finance"]>) => {
         setInput((prev) => ({ ...prev, finance: { ...prev.finance, ...patch } }))
+    }
+
+    const updateCommercial = (patch: Partial<NonNullable<ProposalCalcInput["commercial"]>>) => {
+        setInput((prev) => ({
+            ...prev,
+            commercial: {
+                tarifa_kwh: prev.commercial?.tarifa_kwh ?? defaultTariffKwh,
+                ...patch,
+            },
+        }))
     }
 
     const updateTrade = (patch: Partial<NonNullable<ProposalCalcInput["trade"]>>) => {
@@ -1475,6 +1496,19 @@ export function ProposalCalculatorComplete({
                                 value={input.dimensioning.indice_producao}
                                 onChange={(e) => updateDimensioning({ indice_producao: toNumber(e.target.value) })}
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Tarifa kWh (R$)</Label>
+                            <Input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                value={input.commercial?.tarifa_kwh ?? defaultTariffKwh}
+                                onChange={(e) => updateCommercial({ tarifa_kwh: toNumber(e.target.value) })}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Valor por kWh utilizado para economia mensal/anual desta proposta.
+                            </p>
                         </div>
                         <div className="space-y-2">
                             <Label>Fator de oversizing</Label>
@@ -2247,6 +2281,16 @@ export function ProposalCalculatorComplete({
                         <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Potência Total</span>
                             <span className="font-medium">{calculated.output.dimensioning.kWp.toFixed(2)} kWp</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Tarifa kWh</span>
+                            <span className="font-medium">{formatCurrency(calculated.output.commercial.tarifa_kwh)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Economia anual estimada</span>
+                            <span className="font-medium text-primary">
+                                {formatCurrency(calculated.output.commercial.economia_anual_estimada)}
+                            </span>
                         </div>
                         <Separator />
                         <div className="space-y-2 text-sm">

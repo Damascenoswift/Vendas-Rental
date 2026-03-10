@@ -174,6 +174,7 @@ export function ProposalCalculatorSimple({
     const defaultInterest = normalizePercent(rules.juros_mensal ?? 0.019, 0.019)
     const defaultProductionIndex = rules.indice_producao ?? 112
     const defaultMargin = normalizePercent(rules.margem_percentual ?? rules.default_margin ?? 0.1, 0.1)
+    const defaultTariffKwh = Number(rules.valor_kwh ?? rules.preco_kwh ?? 0.95)
 
     const params: ProposalCalcParams = useMemo(
         () => ({
@@ -314,6 +315,9 @@ export function ProposalCalculatorSimple({
     const [numParcelas, setNumParcelas] = useState(
         initialInput?.finance?.num_parcelas ?? 0
     )
+    const [tarifaKwh, setTarifaKwh] = useState(
+        Number(initialInput?.commercial?.tarifa_kwh ?? initialOutput?.commercial?.tarifa_kwh ?? defaultTariffKwh)
+    )
     const [tradeEnabled, setTradeEnabled] = useState(
         initialInput?.trade?.enabled ?? false
     )
@@ -376,6 +380,9 @@ export function ProposalCalculatorSimple({
                 num_parcelas: numParcelas,
                 baloes: [],
             },
+            commercial: {
+                tarifa_kwh: tarifaKwh,
+            },
             trade: {
                 enabled: tradeEnabled,
                 mode: tradeMode,
@@ -401,6 +408,7 @@ export function ProposalCalculatorSimple({
         carenciaMeses,
         jurosMensal,
         numParcelas,
+        tarifaKwh,
         tradeEnabled,
         tradeMode,
         tradeValue,
@@ -965,6 +973,19 @@ export function ProposalCalculatorSimple({
                                 />
                             </div>
                             <div className="space-y-2">
+                                <Label>Tarifa kWh (R$)</Label>
+                                <Input
+                                    type="number"
+                                    min="0"
+                                    step="0.0001"
+                                    value={tarifaKwh}
+                                    onChange={(e) => setTarifaKwh(toNumber(e.target.value))}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Valor por kWh usado para calcular a economia desta proposta.
+                                </p>
+                            </div>
+                            <div className="space-y-2">
                                 <Label>Tipo de inversor</Label>
                                 <Select
                                     value={tipoInversor}
@@ -1412,6 +1433,16 @@ export function ProposalCalculatorSimple({
                         <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Potência total</span>
                             <span className="font-medium">{calculated.output.dimensioning.kWp.toFixed(2)} kWp</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Tarifa kWh</span>
+                            <span className="font-medium">{formatCurrency(calculated.output.commercial.tarifa_kwh)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Economia anual estimada</span>
+                            <span className="font-medium text-primary">
+                                {formatCurrency(calculated.output.commercial.economia_anual_estimada)}
+                            </span>
                         </div>
                         <Separator />
                         <div className="space-y-2 text-sm">
