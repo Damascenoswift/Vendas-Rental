@@ -3,12 +3,22 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
 import { ArrowUpRight, Copy, Eye, PenLine } from "lucide-react"
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -105,6 +115,39 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
     entryValue > 0 ||
     totalPaidWithInterest > 0 ||
     graceMonths > 0
+  const projectionMonths = 60
+  let cumulativeGross = 0
+  let cumulativeNet = -entryValue
+  const projection = Array.from({ length: projectionMonths }, (_, index) => {
+    const month = index + 1
+    const paysInstallment =
+      hasFinancing &&
+      month > graceMonths &&
+      month <= graceMonths + installments
+    const monthlyInstallment = paysInstallment ? installmentValue : 0
+    cumulativeGross += monthlySavingsEstimate
+    cumulativeNet += monthlySavingsEstimate - monthlyInstallment
+
+    return {
+      month,
+      parcelaMes: monthlyInstallment,
+      acumuladoBruto: cumulativeGross,
+      acumuladoLiquido: cumulativeNet,
+    }
+  })
+  const accumulatedGross5y = projection[projection.length - 1]?.acumuladoBruto ?? 0
+  const paidInstallments5y = projection.reduce((sum, point) => sum + point.parcelaMes, 0)
+  const accumulatedNet5y = projection[projection.length - 1]?.acumuladoLiquido ?? 0
+  const breakEvenMonth =
+    projection.find((point) => point.acumuladoLiquido >= 0)?.month ?? null
+  const planLabel = hasFinancing
+    ? `${installments}x de ${formatCurrency(installmentValue)}`
+    : "Sem parcelamento"
+  const chartLabels: Record<string, string> = {
+    parcelaMes: "Parcela mensal",
+    acumuladoBruto: "Economia acumulada",
+    acumuladoLiquido: "Saldo líquido acumulado",
+  }
 
   return (
     <Dialog>
@@ -122,9 +165,6 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
       <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Resumo Comercial da Proposta</DialogTitle>
-          <DialogDescription>
-            Visualização pronta para apresentar ao cliente, sem custos internos de kit e margem.
-          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 md:grid-cols-3">
@@ -161,9 +201,13 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Parcela mensal</dt>
-                <dd className="font-semibold text-foreground">
+                <dd className="font-semibold text-primary">
                   {hasFinancing ? formatCurrency(installmentValue) : "Sem parcelamento"}
                 </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-muted-foreground">Plano</dt>
+                <dd className="font-semibold text-primary">{planLabel}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Valor total à vista</dt>
@@ -193,7 +237,7 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Parcelas</dt>
-                <dd className="font-semibold text-foreground">{hasFinancing ? installments : 0}</dd>
+                <dd className="font-semibold text-primary">{hasFinancing ? installments : 0}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Juros totais pagos</dt>
@@ -203,6 +247,88 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
               </div>
             </dl>
           </div>
+        </div>
+
+        <div className="rounded-xl border border-border/70 bg-background/70 p-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-lg border border-border/60 bg-background/80 p-3">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Economia 5 anos</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">
+                {formatCurrency(accumulatedGross5y)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-amber-300/60 bg-amber-50/70 p-3">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-amber-700">Parcelas em 5 anos</p>
+              <p className="mt-1 text-lg font-semibold text-amber-800">
+                {formatCurrency(paidInstallments5y)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-primary/40 bg-primary/10 p-3">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-primary">Saldo líquido 5 anos</p>
+              <p className="mt-1 text-lg font-semibold text-primary">
+                {formatCurrency(accumulatedNet5y)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-border/60 bg-background/80 p-3">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Ponto de virada</p>
+              <p className="mt-1 text-lg font-semibold text-foreground">
+                {breakEvenMonth ? `Mês ${breakEvenMonth}` : "Após 60 meses"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 h-[300px] w-full rounded-lg border border-border/60 bg-background/70 p-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={projection} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(month: number) => `${month}m`}
+                />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  width={88}
+                  tickFormatter={(value: number) => `R$ ${Math.round(value).toLocaleString("pt-BR")}`}
+                />
+                <RechartsTooltip
+                  formatter={(value: number, name: string) => [
+                    formatCurrency(Number(value)),
+                    chartLabels[name] ?? name,
+                  ]}
+                  labelFormatter={(month: number) => `Mês ${month}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar
+                  dataKey="parcelaMes"
+                  name="Parcela mensal"
+                  fill="#f59e0b"
+                  radius={[4, 4, 0, 0]}
+                  barSize={10}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="acumuladoBruto"
+                  name="Economia acumulada"
+                  stroke="#0ea5e9"
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="acumuladoLiquido"
+                  name="Saldo líquido acumulado"
+                  stroke="#16a34a"
+                  strokeWidth={3}
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            Projeção de 60 meses com base na tarifa informada, entrada inicial, carência e número de parcelas.
+          </p>
         </div>
 
         <div className="rounded-xl border border-dashed border-border/70 bg-background/60 p-4 text-xs text-muted-foreground">
