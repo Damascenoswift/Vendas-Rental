@@ -71,6 +71,13 @@ function formatNumber(value: number, suffix?: string) {
   return suffix ? `${formatted} ${suffix}` : formatted
 }
 
+function formatPercent(value: number) {
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`
+}
+
 function formatDate(value: string | null) {
   if (!value) return "—"
   const date = new Date(value)
@@ -153,6 +160,10 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
   const accumulatedNet5y = projection[projection.length - 1]?.saldoLiquidoAcumulado ?? 0
   const investedValue =
     totalValue > 0 ? totalValue : Math.max(entryValue + installmentValue * installments, 0)
+  const monthlyRoiPercent =
+    investedValue > 0 && monthlySavingsEstimate > 0
+      ? (monthlySavingsEstimate / investedValue) * 100
+      : 0
 
   let rollingGross = 0
   let paybackMonth: number | null = null
@@ -284,12 +295,19 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
         </div>
 
         <div className="rounded-xl border border-border/70 bg-background/70 p-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
             <div className="rounded-lg border border-border/60 bg-background/80 p-3">
               <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Economia 5 anos</p>
               <p className="mt-1 text-lg font-semibold text-foreground">
                 {formatCurrency(accumulatedGross5y)}
               </p>
+            </div>
+            <div className="rounded-lg border border-sky-300/70 bg-sky-50/80 p-3">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-sky-700">ROI mensal</p>
+              <p className="mt-1 text-xl font-bold text-sky-800">
+                {investedValue > 0 && monthlySavingsEstimate > 0 ? formatPercent(monthlyRoiPercent) : "—"}
+              </p>
+              <p className="mt-1 text-[11px] text-sky-700/80">Retorno médio por mês sobre o investimento.</p>
             </div>
             <div className="rounded-lg border border-amber-300/60 bg-amber-50/70 p-3">
               <p className="text-[11px] uppercase tracking-[0.14em] text-amber-700">Parcelas em 5 anos</p>
