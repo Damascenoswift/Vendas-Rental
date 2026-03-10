@@ -9,6 +9,7 @@ import {
   ComposedChart,
   Legend,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -150,6 +151,18 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
   const accumulatedGross5y = projection[projection.length - 1]?.economiaAcumulada ?? 0
   const paidInstallments5y = projection[projection.length - 1]?.parcelasAcumuladas ?? 0
   const accumulatedNet5y = projection[projection.length - 1]?.saldoLiquidoAcumulado ?? 0
+  const investedValue =
+    totalValue > 0 ? totalValue : Math.max(entryValue + installmentValue * installments, 0)
+
+  let rollingGross = 0
+  let paybackMonth: number | null = null
+  for (let month = 1; month <= projectionMonths; month++) {
+    rollingGross += monthlySavingsEstimate
+    if (rollingGross >= investedValue && investedValue > 0) {
+      paybackMonth = month
+      break
+    }
+  }
 
   let rollingNet = -entryValue
   let breakEvenMonth: number | null = null
@@ -166,6 +179,7 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
     }
   }
 
+  const paybackYear = paybackMonth ? Math.ceil(paybackMonth / 12) : null
   const breakEvenYear = breakEvenMonth ? Math.ceil(breakEvenMonth / 12) : null
   const chartLabels: Record<string, string> = {
     parcelasAno: "Parcelas pagas no ano",
@@ -290,9 +304,12 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
               </p>
             </div>
             <div className="rounded-lg border border-border/60 bg-background/80 p-3">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Ponto de virada</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Payback do investimento</p>
               <p className="mt-1 text-lg font-semibold text-foreground">
-                {breakEvenMonth ? `Ano ${breakEvenYear} (mês ${breakEvenMonth})` : "Após 5 anos"}
+                {paybackMonth ? `Ano ${paybackYear} (mês ${paybackMonth})` : "Após 5 anos"}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Base: {formatCurrency(investedValue)}
               </p>
             </div>
           </div>
@@ -318,6 +335,18 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
                   labelFormatter={(label: string) => label}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
+                <ReferenceLine
+                  y={investedValue}
+                  ifOverflow="extendDomain"
+                  stroke="#334155"
+                  strokeDasharray="5 5"
+                  label={{
+                    value: "Valor investido",
+                    position: "insideTopRight",
+                    fontSize: 11,
+                    fill: "#334155",
+                  }}
+                />
                 <Bar
                   dataKey="parcelasAno"
                   name="Parcelas pagas no ano"
@@ -347,6 +376,9 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
 
           <p className="mt-2 text-xs text-muted-foreground">
             Projeção anual de 5 anos considerando tarifa, entrada, carência e quantidade de parcelas.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ponto de virada financeiro: {breakEvenMonth ? `ano ${breakEvenYear}, mês ${breakEvenMonth}` : "após 5 anos"}.
           </p>
         </div>
 
