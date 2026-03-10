@@ -115,38 +115,62 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
     entryValue > 0 ||
     totalPaidWithInterest > 0 ||
     graceMonths > 0
-  const projectionMonths = 60
+  const projectionYears = 5
+  const projectionMonths = projectionYears * 12
   let cumulativeGross = 0
   let cumulativeNet = -entryValue
-  const projection = Array.from({ length: projectionMonths }, (_, index) => {
-    const month = index + 1
+  let cumulativeInstallments = 0
+  const projection = Array.from({ length: projectionYears }, (_, yearIndex) => {
+    const year = yearIndex + 1
+    let installmentsByYear = 0
+
+    for (let monthOffset = 1; monthOffset <= 12; monthOffset++) {
+      const month = yearIndex * 12 + monthOffset
+      const paysInstallment =
+        hasFinancing &&
+        month > graceMonths &&
+        month <= graceMonths + installments
+      const monthlyInstallment = paysInstallment ? installmentValue : 0
+      installmentsByYear += monthlyInstallment
+      cumulativeInstallments += monthlyInstallment
+      cumulativeGross += monthlySavingsEstimate
+      cumulativeNet += monthlySavingsEstimate - monthlyInstallment
+    }
+
+    return {
+      year,
+      yearLabel: `Ano ${year}`,
+      parcelasAno: installmentsByYear,
+      parcelasAcumuladas: cumulativeInstallments,
+      economiaAcumulada: cumulativeGross,
+      saldoLiquidoAcumulado: cumulativeNet,
+    }
+  })
+
+  const accumulatedGross5y = projection[projection.length - 1]?.economiaAcumulada ?? 0
+  const paidInstallments5y = projection[projection.length - 1]?.parcelasAcumuladas ?? 0
+  const accumulatedNet5y = projection[projection.length - 1]?.saldoLiquidoAcumulado ?? 0
+
+  let rollingNet = -entryValue
+  let breakEvenMonth: number | null = null
+  for (let month = 1; month <= projectionMonths; month++) {
     const paysInstallment =
       hasFinancing &&
       month > graceMonths &&
       month <= graceMonths + installments
     const monthlyInstallment = paysInstallment ? installmentValue : 0
-    cumulativeGross += monthlySavingsEstimate
-    cumulativeNet += monthlySavingsEstimate - monthlyInstallment
-
-    return {
-      month,
-      parcelaMes: monthlyInstallment,
-      acumuladoBruto: cumulativeGross,
-      acumuladoLiquido: cumulativeNet,
+    rollingNet += monthlySavingsEstimate - monthlyInstallment
+    if (rollingNet >= 0) {
+      breakEvenMonth = month
+      break
     }
-  })
-  const accumulatedGross5y = projection[projection.length - 1]?.acumuladoBruto ?? 0
-  const paidInstallments5y = projection.reduce((sum, point) => sum + point.parcelaMes, 0)
-  const accumulatedNet5y = projection[projection.length - 1]?.acumuladoLiquido ?? 0
-  const breakEvenMonth =
-    projection.find((point) => point.acumuladoLiquido >= 0)?.month ?? null
-  const planLabel = hasFinancing
-    ? `${installments}x de ${formatCurrency(installmentValue)}`
-    : "Sem parcelamento"
+  }
+
+  const breakEvenYear = breakEvenMonth ? Math.ceil(breakEvenMonth / 12) : null
   const chartLabels: Record<string, string> = {
-    parcelaMes: "Parcela mensal",
-    acumuladoBruto: "Economia acumulada",
-    acumuladoLiquido: "Saldo líquido acumulado",
+    parcelasAno: "Parcelas pagas no ano",
+    economiaAcumulada: "Economia acumulada",
+    saldoLiquidoAcumulado: "Saldo líquido acumulado",
   }
 
   return (
@@ -204,10 +228,6 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
                 <dd className="font-semibold text-primary">
                   {hasFinancing ? formatCurrency(installmentValue) : "Sem parcelamento"}
                 </dd>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <dt className="text-muted-foreground">Plano</dt>
-                <dd className="font-semibold text-primary">{planLabel}</dd>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className="text-muted-foreground">Valor total à vista</dt>
@@ -272,7 +292,7 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
             <div className="rounded-lg border border-border/60 bg-background/80 p-3">
               <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Ponto de virada</p>
               <p className="mt-1 text-lg font-semibold text-foreground">
-                {breakEvenMonth ? `Mês ${breakEvenMonth}` : "Após 60 meses"}
+                {breakEvenMonth ? `Ano ${breakEvenYear} (mês ${breakEvenMonth})` : "Após 5 anos"}
               </p>
             </div>
           </div>
@@ -282,9 +302,8 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
               <ComposedChart data={projection} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
                 <XAxis
-                  dataKey="month"
+                  dataKey="yearLabel"
                   tick={{ fontSize: 11 }}
-                  tickFormatter={(month: number) => `${month}m`}
                 />
                 <YAxis
                   tick={{ fontSize: 11 }}
@@ -296,38 +315,38 @@ function ProposalPreviewDialog({ data }: { data: ProposalPreviewData }) {
                     formatCurrency(Number(value)),
                     chartLabels[name] ?? name,
                   ]}
-                  labelFormatter={(month: number) => `Mês ${month}`}
+                  labelFormatter={(label: string) => label}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar
-                  dataKey="parcelaMes"
-                  name="Parcela mensal"
+                  dataKey="parcelasAno"
+                  name="Parcelas pagas no ano"
                   fill="#f59e0b"
-                  radius={[4, 4, 0, 0]}
-                  barSize={10}
+                  radius={[6, 6, 0, 0]}
+                  barSize={24}
                 />
                 <Line
                   type="monotone"
-                  dataKey="acumuladoBruto"
+                  dataKey="economiaAcumulada"
                   name="Economia acumulada"
                   stroke="#0ea5e9"
                   strokeWidth={2}
-                  dot={false}
+                  dot={{ r: 2 }}
                 />
                 <Line
                   type="monotone"
-                  dataKey="acumuladoLiquido"
+                  dataKey="saldoLiquidoAcumulado"
                   name="Saldo líquido acumulado"
                   stroke="#16a34a"
                   strokeWidth={3}
-                  dot={false}
+                  dot={{ r: 2 }}
                 />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
 
           <p className="mt-2 text-xs text-muted-foreground">
-            Projeção de 60 meses com base na tarifa informada, entrada inicial, carência e número de parcelas.
+            Projeção anual de 5 anos considerando tarifa, entrada, carência e quantidade de parcelas.
           </p>
         </div>
 
