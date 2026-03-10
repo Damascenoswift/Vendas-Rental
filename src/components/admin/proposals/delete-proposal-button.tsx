@@ -21,9 +21,10 @@ import {
 type DeleteProposalButtonProps = {
   proposalId: string
   clientName?: string | null
+  compact?: boolean
 }
 
-export function DeleteProposalButton({ proposalId, clientName }: DeleteProposalButtonProps) {
+export function DeleteProposalButton({ proposalId, clientName, compact = false }: DeleteProposalButtonProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
@@ -64,13 +65,19 @@ export function DeleteProposalButton({ proposalId, clientName }: DeleteProposalB
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button
-          size="sm"
+          size={compact ? "icon" : "sm"}
           variant="ghost"
           className="text-red-600 hover:text-red-700 hover:bg-red-50"
           disabled={isDeleting}
+          aria-label="Excluir orçamento"
+          title="Excluir orçamento"
         >
-          {isDeleting ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1 h-4 w-4" />}
-          Excluir
+          {isDeleting ? (
+            <Loader2 className={compact ? "h-4 w-4 animate-spin" : "mr-1 h-4 w-4 animate-spin"} />
+          ) : (
+            <Trash2 className={compact ? "h-4 w-4" : "mr-1 h-4 w-4"} />
+          )}
+          {compact ? <span className="sr-only">Excluir</span> : "Excluir"}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>

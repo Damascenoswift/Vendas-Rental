@@ -17,7 +17,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { DeleteProposalButton } from "@/components/admin/proposals/delete-proposal-button"
+import { ProposalRowActions } from "@/components/admin/proposals/proposal-row-actions"
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -189,11 +189,11 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                 <Table>
                     <TableHeader>
                         <TableRow>
-                            <TableHead>Última alteração</TableHead>
+                            <TableHead className="hidden lg:table-cell">Última alteração</TableHead>
                             <TableHead>Cliente</TableHead>
-                            <TableHead>Vendedor</TableHead>
+                            <TableHead className="hidden xl:table-cell">Vendedor</TableHead>
                             <TableHead>Produção Estimada</TableHead>
-                            <TableHead>Validade</TableHead>
+                            <TableHead className="hidden 2xl:table-cell">Validade</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Modo</TableHead>
                             <TableHead className="text-right">Valor Total</TableHead>
@@ -216,11 +216,13 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                         ) : (
                             normalizedProposals.map((proposal: any) => (
                                 <TableRow key={proposal.id}>
-                                    <TableCell>
+                                    <TableCell className="hidden lg:table-cell text-muted-foreground">
                                         {format(new Date(proposal.updated_at ?? proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}
                                     </TableCell>
-                                    <TableCell>{proposal.cliente?.nome || '-'}</TableCell>
-                                    <TableCell>{proposal.seller?.name || proposal.seller?.email || 'Sistema'}</TableCell>
+                                    <TableCell className="max-w-[180px] truncate font-medium">{proposal.cliente?.nome || '-'}</TableCell>
+                                    <TableCell className="hidden xl:table-cell max-w-[160px] truncate">
+                                        {proposal.seller?.name || proposal.seller?.email || 'Sistema'}
+                                    </TableCell>
                                     <TableCell>
                                         {typeof proposal.estimated_kwh === "number"
                                             ? `${proposal.estimated_kwh.toLocaleString("pt-BR", {
@@ -229,7 +231,9 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                             })} kWh`
                                             : "-"}
                                     </TableCell>
-                                    <TableCell>{proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}</TableCell>
+                                    <TableCell className="hidden 2xl:table-cell">
+                                        {proposal.valid_until ? format(new Date(proposal.valid_until), 'dd/MM/yyyy') : '-'}
+                                    </TableCell>
                                     <TableCell className="capitalize">{proposal.status}</TableCell>
                                     <TableCell>
                                         <Badge variant={proposal.source_mode === "complete" ? "default" : "secondary"}>
@@ -240,22 +244,23 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                         {proposal.total_value?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            {proposal.source_mode === "simple" ? (
-                                                <Link href={`/admin/orcamentos/${proposal.id}/editar?upgrade=complete`}>
-                                                    <Button size="sm" variant="secondary">Evoluir para completo</Button>
-                                                </Link>
-                                            ) : null}
-                                            <Link href={`/admin/orcamentos/${proposal.id}/editar`}>
-                                                <Button size="sm" variant="outline">Editar</Button>
-                                            </Link>
-                                            <Link href={`/admin/orcamentos/novo?duplicar=${proposal.id}`}>
-                                                <Button size="sm" variant="ghost">Duplicar</Button>
-                                            </Link>
-                                            {canDeleteProposals ? (
-                                                <DeleteProposalButton proposalId={proposal.id} clientName={proposal.cliente?.nome ?? null} />
-                                            ) : null}
-                                        </div>
+                                        <ProposalRowActions
+                                            proposalId={proposal.id}
+                                            sourceMode={proposal.source_mode}
+                                            clientName={proposal.cliente?.nome ?? null}
+                                            canDelete={canDeleteProposals}
+                                            previewData={{
+                                                id: proposal.id,
+                                                clientName: proposal.cliente?.nome ?? null,
+                                                sellerName: proposal.seller?.name ?? proposal.seller?.email ?? null,
+                                                status: proposal.status ?? null,
+                                                totalValue: Number(proposal.total_value ?? 0),
+                                                estimatedKwh:
+                                                    typeof proposal.estimated_kwh === "number" ? proposal.estimated_kwh : null,
+                                                validUntil: proposal.valid_until ?? null,
+                                                calculation: proposal.calculation ?? null,
+                                            }}
+                                        />
                                     </TableCell>
                                 </TableRow>
                             ))
