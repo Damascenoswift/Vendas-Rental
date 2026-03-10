@@ -121,7 +121,7 @@ export function Sidebar({ className }: SidebarProps) {
     return (
         <div
             className={cn(
-                "relative hidden h-screen shrink-0 overflow-x-hidden overflow-y-auto border-r border-sidebar-border/70 bg-sidebar/95 pb-12 shadow-[8px_0_32px_-28px_rgba(2,6,23,0.9)] backdrop-blur-xl transition-[width] duration-300 lg:block",
+                "relative hidden h-screen shrink-0 overflow-x-hidden overflow-y-auto border-r border-sidebar-border/70 bg-sidebar/95 pb-12 shadow-[8px_0_32px_-28px_rgba(15,23,42,0.35)] backdrop-blur-xl transition-[width] duration-300 lg:block",
                 isCollapsed ? "w-20" : "w-64",
                 className
             )}
@@ -131,22 +131,22 @@ export function Sidebar({ className }: SidebarProps) {
                 <div className="px-3 py-2">
                     <div className={cn("mb-3 flex", isCollapsed ? "justify-center" : "justify-between")}>
                         {!isCollapsed && (
-                            <span className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/75">
+                            <span className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/80">
                                 Portal Rental
                             </span>
                         )}
                         <button
                             type="button"
                             onClick={() => setIsCollapsed((value) => !value)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-sidebar-foreground/80 transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/70 bg-background/70 text-sidebar-foreground/85 transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             aria-label={isCollapsed ? "Expandir menu lateral" : "Minimizar menu lateral"}
                             title={isCollapsed ? "Expandir menu lateral" : "Minimizar menu lateral"}
                         >
                             {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
                         </button>
                     </div>
-                    <div className={cn("mb-6 flex items-center gap-2", isCollapsed ? "justify-center px-0" : "rounded-2xl border border-white/10 bg-white/5 p-2.5")}>
-                        <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-primary/90 font-bold text-primary-foreground shadow-md">
+                    <div className={cn("mb-6 flex items-center gap-2", isCollapsed ? "justify-center px-0" : "rounded-2xl border border-border/70 bg-background/70 p-2.5")}>
+                        <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-primary/90 font-bold text-primary-foreground shadow-md">
                             {!logoLoadError ? (
                                 <Image
                                     src="/rental-logo.png"
@@ -322,7 +322,7 @@ export function Sidebar({ className }: SidebarProps) {
                             title="Sair"
                             aria-label="Sair"
                             className={cn(
-                                "group flex w-full items-center rounded-xl border border-transparent text-sm font-medium text-rose-300/90 transition-all hover:border-rose-400/30 hover:bg-rose-500/10 hover:text-rose-100",
+                                "group flex w-full items-center rounded-xl border border-transparent text-sm font-medium text-rose-700/90 transition-all hover:border-rose-400/45 hover:bg-rose-500/10 hover:text-rose-800",
                                 isCollapsed ? "h-10 justify-center px-0 py-0" : "gap-3 px-3 py-2"
                             )}
                         >
