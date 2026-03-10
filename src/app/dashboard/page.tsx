@@ -8,6 +8,7 @@ import {
   useState,
 } from "react"
 import Link from "next/link"
+import { BarChart3, CircleCheckBig, Hourglass, Layers, Sparkles } from "lucide-react"
 
 import {
   Card,
@@ -93,7 +94,7 @@ const getTimestampValue = (value?: string | null) => {
 
 const statusBadgeConfig: Record<string, { label: string; className: string }> = {
   EM_ANALISE: { label: "Em análise", className: "bg-amber-100/80 text-amber-700" },
-  AGUARDANDO_ASSINATURA: { label: "Aguardando assinatura", className: "bg-violet-100/80 text-violet-700" },
+  AGUARDANDO_ASSINATURA: { label: "Aguardando assinatura", className: "bg-sky-100/80 text-sky-700" },
   FALTANDO_DOCUMENTACAO: { label: "Faltando documentação", className: "bg-orange-100/80 text-orange-700" },
   ENERGISA_ANALISE: { label: "Energisa em análise", className: "bg-cyan-100/80 text-cyan-700" },
   ENERGISA_APROVADO: { label: "Energisa aprovado", className: "bg-teal-100/80 text-teal-700" },
@@ -533,6 +534,15 @@ export default function DashboardPage() {
       return "—"
     }
   }, [])
+  const todayReference = useMemo(
+    () =>
+      new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(new Date()),
+    []
+  )
 
   const brandCards = useMemo(
     () =>
@@ -551,40 +561,57 @@ export default function DashboardPage() {
         title: "Total de indicações",
         value: metrics.total,
         subtitle: "Todo o histórico registrado",
+        valueClass: "text-foreground",
+        icon: Layers,
+        toneClass: "from-slate-500/15 to-slate-500/5 text-slate-700 dark:text-slate-200",
       },
       {
         title: "Em análise",
         value: metrics.porStatus.EM_ANALISE,
         subtitle: "Aguardando avaliação",
-        accent: "text-amber-600",
+        valueClass: "text-amber-600",
+        icon: Hourglass,
+        toneClass: "from-amber-500/22 to-amber-500/5 text-amber-700 dark:text-amber-300",
       },
       {
         title: "Aprovadas",
         value: metrics.porStatus.APROVADA,
         subtitle: "Próximas etapas em andamento",
-        accent: "text-emerald-600",
+        valueClass: "text-emerald-600",
+        icon: CircleCheckBig,
+        toneClass: "from-emerald-500/22 to-emerald-500/5 text-emerald-700 dark:text-emerald-300",
       },
       {
         title: "Concluídas",
         value: metrics.porStatus.CONCLUIDA,
         subtitle: "Processos finalizados",
-        accent: "text-sky-600",
+        valueClass: "text-sky-600",
+        icon: BarChart3,
+        toneClass: "from-sky-500/22 to-sky-500/5 text-sky-700 dark:text-sky-300",
       },
     ],
     [metrics]
   )
 
   return (
-    <div className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-          Dashboard
-        </h1>
-        <p className="text-muted-foreground">
-          Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
-        </p>
-        <div className="pt-2 flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-5 sm:space-y-6">
+      <header className="glass-surface relative overflow-hidden rounded-3xl border border-border/70 p-5 sm:p-6">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_0%,rgba(45,212,191,0.15),transparent_45%),radial-gradient(circle_at_90%_20%,rgba(56,189,248,0.12),transparent_42%)]" />
+        <div className="relative space-y-3">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/70 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            Resumo diário
+          </div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            Dashboard
+          </h1>
+          <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
+            Olá, {displayName}. Aqui você acompanha a evolução das suas indicações.
+          </p>
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground/80">
+            Atualizado em {todayReference}
+          </p>
+          <div className="flex flex-wrap items-center gap-2 pt-2">
             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile?.role ?? '') && (
               <Link href="/admin/indicacoes">
                 <Button variant="outline" size="sm">
@@ -605,28 +632,33 @@ export default function DashboardPage() {
               <Button variant="secondary" size="sm">Solicitar Orçamento</Button>
             </Link>
             <QuickIndicationDialog />
+            {canAccessTutorials ? (
+              <Link href="/dashboard/tutorials" className="sm:ml-auto">
+                <Button variant="outline" size="sm">Tutoriais</Button>
+              </Link>
+            ) : null}
           </div>
-          {canAccessTutorials ? (
-            <Link href="/dashboard/tutorials" className="sm:ml-auto">
-              <Button variant="outline" size="sm">Tutoriais</Button>
-            </Link>
-          ) : null}
         </div>
       </header>
 
       {metricsError ? (
-        <p className="text-destructive text-sm">{metricsError}</p>
+        <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {metricsError}
+        </p>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
         {metricCards.map((card) => (
-          <Card key={card.title} className={isLoadingMetrics ? "animate-pulse" : ""}>
-            <CardHeader>
+          <Card key={card.title} className={isLoadingMetrics ? "animate-pulse" : "animate-rise-in"}>
+            <CardHeader className="pb-0">
+              <div className={card.toneClass + " inline-flex h-9 w-9 items-center justify-center rounded-xl border border-current/20 bg-gradient-to-br"}>
+                <card.icon className="h-4 w-4" />
+              </div>
               <CardDescription>{card.subtitle}</CardDescription>
-              <CardTitle className={card.accent}>{card.title}</CardTitle>
+              <CardTitle>{card.title}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-semibold text-foreground">
+              <p className={`text-3xl font-semibold ${card.valueClass}`}>
                 {formatNumber(card.value)}
               </p>
             </CardContent>
@@ -634,9 +666,9 @@ export default function DashboardPage() {
         ))}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-3 sm:gap-4 md:grid-cols-2">
         {brandCards.map((card) => (
-          <Card key={card.brand} className={isLoadingMetrics ? "animate-pulse" : ""}>
+          <Card key={card.brand} className={isLoadingMetrics ? "animate-pulse" : "animate-rise-in"}>
             <CardHeader>
               <CardDescription>{card.subtitle}</CardDescription>
               <CardTitle>{card.title}</CardTitle>
@@ -650,7 +682,7 @@ export default function DashboardPage() {
         ))}
       </section>
 
-      <section className="grid gap-4">
+      <section className="grid gap-3 sm:gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div>
@@ -682,7 +714,7 @@ export default function DashboardPage() {
                   </div>
 
                   {metrics.pendentesAssinatura.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4">
+                    <div className="rounded-xl border border-dashed border-border/70 bg-background/50 p-4">
                       <p className="text-sm text-muted-foreground">
                         Nenhum contrato pendente de assinatura no momento.
                       </p>
@@ -696,7 +728,7 @@ export default function DashboardPage() {
                       return (
                         <div
                           key={indicacao.id}
-                          className="rounded-lg border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                          className="rounded-xl border border-border/70 bg-background/65 p-3 shadow-sm transition-all hover:border-primary/25 hover:shadow-md md:flex md:flex-row md:items-center md:justify-between"
                         >
                           <div className="space-y-1">
                             <p className="font-medium text-foreground">{indicacao.nome}</p>
@@ -712,7 +744,7 @@ export default function DashboardPage() {
                             <div className="pt-1">
                               <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
                                 <div
-                                  className={`h-full rounded-full ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
+                                  className={`h-full rounded-full transition-all ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
                                   style={{ width: `${progress.percent}%` }}
                                 />
                               </div>
@@ -740,7 +772,7 @@ export default function DashboardPage() {
                   </div>
 
                   {metrics.assinadasRecentes.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4">
+                    <div className="rounded-xl border border-dashed border-border/70 bg-background/50 p-4">
                       <p className="text-sm text-muted-foreground">
                         Ainda não há contratos assinados recentes.
                       </p>
@@ -754,7 +786,7 @@ export default function DashboardPage() {
                       return (
                         <div
                           key={indicacao.id}
-                          className="rounded-lg border p-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                          className="rounded-xl border border-border/70 bg-background/65 p-3 shadow-sm transition-all hover:border-primary/25 hover:shadow-md md:flex md:flex-row md:items-center md:justify-between"
                         >
                           <div className="space-y-1">
                             <p className="font-medium text-foreground">{indicacao.nome}</p>
@@ -770,7 +802,7 @@ export default function DashboardPage() {
                             <div className="pt-1">
                               <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
                                 <div
-                                  className={`h-full rounded-full ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
+                                  className={`h-full rounded-full transition-all ${indicacao.status === "REJEITADA" ? "bg-rose-500" : "bg-emerald-500"}`}
                                   style={{ width: `${progress.percent}%` }}
                                 />
                               </div>
@@ -807,7 +839,7 @@ export default function DashboardPage() {
             ) : (
               <div className="space-y-2">
                 {metrics.activity.slice(0, 10).map((event) => (
-                  <div key={event.id} className="rounded-lg border p-3">
+                  <div key={event.id} className="rounded-xl border border-border/70 bg-background/60 p-3 shadow-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium">{event.title}</p>
                       <Badge variant="outline" className="text-[11px]">
@@ -855,7 +887,7 @@ export default function DashboardPage() {
               Estágio atual das integrações e melhorias planejadas.
             </CardDescription>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-2">
+          <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>- Implementação do wizard PF/PJ com upload de documentos.</p>
             <p>- Alertas por email quando uma indicação mudar de status.</p>
             <p>- Painel com metas de conversão e funil de vendas.</p>

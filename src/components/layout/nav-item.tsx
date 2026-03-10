@@ -37,33 +37,38 @@ export function NavItem({
             title={label}
             aria-label={label}
             className={cn(
-                "relative flex items-center rounded-md text-sm font-medium transition-all duration-200 group",
-                collapsed ? "mx-auto h-10 w-10 justify-center px-0 py-0" : "gap-3 px-3 py-2",
+                "group relative flex items-center overflow-hidden rounded-xl text-sm font-medium transition-all duration-200",
+                collapsed ? "mx-auto h-10 w-10 justify-center px-0 py-0" : "h-10 gap-3 px-3 py-2",
                 isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    ? "bg-gradient-to-r from-sidebar-primary/95 via-sidebar-primary to-sidebar-primary/85 text-sidebar-primary-foreground shadow-[0_10px_24px_-18px_rgba(0,0,0,0.8)]"
+                    : "text-sidebar-foreground/76 hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground"
             )}
         >
-            <Icon className={cn("h-4 w-4 shrink-0", isActive ? "text-current" : "text-muted-foreground group-hover:text-current")} />
+            <Icon
+                className={cn(
+                    "h-4 w-4 shrink-0 transition-transform duration-200",
+                    isActive ? "text-current" : "text-sidebar-foreground/70 group-hover:text-current group-hover:-translate-y-0.5"
+                )}
+            />
             {!collapsed && <span>{label}</span>}
             {typeof badgeCount === "number" && badgeCount > 0 && (
                 <span
                     className={cn(
-                        "rounded-full text-[10px] font-semibold leading-none",
+                        "rounded-full text-[10px] font-semibold leading-none shadow-sm",
                         collapsed
                             ? isActive
-                                ? "absolute right-0 top-0 min-w-4 px-1 py-0.5 bg-sidebar-primary-foreground text-sidebar-primary"
-                                : "absolute right-0 top-0 min-w-4 px-1 py-0.5 bg-primary text-primary-foreground"
+                                ? "absolute right-0.5 top-0.5 min-w-4 px-1 py-0.5 bg-sidebar-primary-foreground text-sidebar-primary"
+                                : "absolute right-0.5 top-0.5 min-w-4 px-1 py-0.5 bg-primary text-primary-foreground"
                             : isActive
-                              ? "ml-auto px-1.5 py-0.5 bg-sidebar-primary-foreground/20 text-sidebar-primary-foreground"
-                              : "ml-auto px-1.5 py-0.5 bg-primary/10 text-primary"
+                              ? "ml-auto border border-sidebar-primary-foreground/25 bg-sidebar-primary-foreground/20 px-1.5 py-0.5 text-sidebar-primary-foreground"
+                              : "ml-auto border border-sidebar-primary/35 bg-primary/20 px-1.5 py-0.5 text-primary"
                     )}
                 >
                     {badgeCount > 99 ? "99+" : badgeCount}
                 </span>
             )}
             {isActive && (
-                <div className="absolute left-0 h-8 w-1 rounded-r-full bg-primary lg:hidden" />
+                <div className="absolute left-0 top-1/2 hidden h-7 w-1 -translate-y-1/2 rounded-r-full bg-sidebar-primary-foreground/80 lg:block" />
             )}
         </Link>
     )

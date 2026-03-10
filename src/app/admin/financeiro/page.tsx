@@ -347,7 +347,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             const closingRecord = Array.isArray(item.fechamento) ? item.fechamento[0] : item.fechamento
             if (closingRecord?.status === 'cancelado') continue
             if (!item.origin_lead_id || !item.beneficiary_user_id) continue
-            if (!salesEligibleUserIds.has(item.beneficiary_user_id)) continue
+            const isSalesEligibleBeneficiary = salesEligibleUserIds.has(item.beneficiary_user_id)
+            if (!isSalesEligibleBeneficiary && item.transaction_type !== 'comissao_dorata') continue
             const amount = toNumber(item.valor_pago)
             if (amount <= 0) continue
             const key = `${item.origin_lead_id}:${item.beneficiary_user_id}`
@@ -366,7 +367,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         for (const tx of transactions as any[]) {
             if (tx.status !== 'pago') continue
             if (!tx.origin_lead_id || !tx.beneficiary_user_id) continue
-            if (!salesEligibleUserIds.has(tx.beneficiary_user_id)) continue
+            const isSalesEligibleBeneficiary = salesEligibleUserIds.has(tx.beneficiary_user_id)
+            if (!isSalesEligibleBeneficiary && tx.type !== 'comissao_dorata') continue
             const amount = toNumber(tx.amount)
             if (amount <= 0) continue
             const key = `${tx.origin_lead_id}:${tx.beneficiary_user_id}`
@@ -632,7 +634,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         })
 
     const dorataForecasts = [...dorataForecastsFromProposals, ...dorataForecastsFromIndicacoes]
-        .filter((item) => item.sellerId && salesEligibleUserIds.has(item.sellerId))
+        .filter((item) => item.sellerId && (salesEligibleUserIds.has(item.sellerId) || item.isSplitRecipient))
     const filteredDorataForecasts = sellerFilterId
         ? dorataForecasts.filter((item) => item.sellerId === sellerFilterId)
         : dorataForecasts
@@ -854,7 +856,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const totalManagerOverride = filteredManagerOverrideRows.reduce((sum, item) => sum + item.commissionTotal, 0)
 
     const salesTransactions = (transactions as any[])
-        .filter((tx) => tx.beneficiary_user_id && salesEligibleUserIds.has(tx.beneficiary_user_id))
+        .filter((tx) => {
+            if (!tx.beneficiary_user_id) return false
+            if (salesEligibleUserIds.has(tx.beneficiary_user_id)) return true
+            return tx.type === "comissao_dorata"
+        })
 
     const fallbackSalesTransactions = useClosureItemsAsPaidSource
         ? (closingItems as any[])
@@ -862,7 +868,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 const closingRecord = Array.isArray(item.fechamento) ? item.fechamento[0] : item.fechamento
                 return closingRecord?.status !== 'cancelado'
             })
-            .filter((item) => item.beneficiary_user_id && salesEligibleUserIds.has(item.beneficiary_user_id))
+            .filter((item) => {
+                if (!item.beneficiary_user_id) return false
+                if (salesEligibleUserIds.has(item.beneficiary_user_id)) return true
+                return item.transaction_type === "comissao_dorata"
+            })
             .map((item) => {
                 const beneficiary = usersById.get(item.beneficiary_user_id)
                 return {
@@ -1337,7 +1347,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                         </div>
                     </div>
 
-                    <div className="grid gap-6 xl:grid-cols-2">
+                    <div className="grid gap-6">
                         <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
                             <div>
                                 <h2 className="text-lg font-semibold">Previsões Dorata</h2>
@@ -1421,7 +1431,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                         </div>
                     </div>
 
-                    <div className="grid gap-6 xl:grid-cols-2">
+                    <div className="grid gap-6">
                         <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>

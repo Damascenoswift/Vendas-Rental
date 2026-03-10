@@ -40,7 +40,7 @@ export function Sidebar({ className }: SidebarProps) {
     const [isSigningOut, setIsSigningOut] = useState(false)
     const [logoLoadError, setLogoLoadError] = useState(false)
     const [unreadChatCount, setUnreadChatCount] = useState(0)
-    const [isCollapsed, setIsCollapsed] = useState(true)
+    const [isCollapsed, setIsCollapsed] = useState(false)
 
     const handleSignOut = async () => {
         setIsSigningOut(true)
@@ -121,26 +121,32 @@ export function Sidebar({ className }: SidebarProps) {
     return (
         <div
             className={cn(
-                "h-screen shrink-0 overflow-x-hidden overflow-y-auto border-r bg-sidebar pb-12 hidden lg:block transition-all duration-200",
+                "relative hidden h-screen shrink-0 overflow-x-hidden overflow-y-auto border-r border-sidebar-border/70 bg-sidebar/95 pb-12 shadow-[8px_0_32px_-28px_rgba(2,6,23,0.9)] backdrop-blur-xl transition-[width] duration-300 lg:block",
                 isCollapsed ? "w-20" : "w-64",
                 className
             )}
         >
-            <div className="space-y-4 py-4">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,197,94,0.14),transparent_44%),radial-gradient(circle_at_100%_14%,rgba(14,165,233,0.1),transparent_40%)]" />
+            <div className="relative space-y-4 py-4">
                 <div className="px-3 py-2">
-                    <div className={cn("mb-3 flex", isCollapsed ? "justify-center" : "justify-end")}>
+                    <div className={cn("mb-3 flex", isCollapsed ? "justify-center" : "justify-between")}>
+                        {!isCollapsed && (
+                            <span className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-sidebar-foreground/75">
+                                Portal Rental
+                            </span>
+                        )}
                         <button
                             type="button"
                             onClick={() => setIsCollapsed((value) => !value)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-sidebar-foreground/80 transition-all hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                             aria-label={isCollapsed ? "Expandir menu lateral" : "Minimizar menu lateral"}
                             title={isCollapsed ? "Expandir menu lateral" : "Minimizar menu lateral"}
                         >
                             {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
                         </button>
                     </div>
-                    <div className={cn("flex items-center gap-2 mb-6", isCollapsed ? "justify-center px-0" : "px-2")}>
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold overflow-hidden">
+                    <div className={cn("mb-6 flex items-center gap-2", isCollapsed ? "justify-center px-0" : "rounded-2xl border border-white/10 bg-white/5 p-2.5")}>
+                        <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-primary/90 font-bold text-primary-foreground shadow-md">
                             {!logoLoadError ? (
                                 <Image
                                     src="/rental-logo.png"
@@ -155,11 +161,16 @@ export function Sidebar({ className }: SidebarProps) {
                                 "R"
                             )}
                         </div>
-                        {!isCollapsed && (
-                            <h2 className="text-lg font-bold tracking-tight text-sidebar-foreground">
-                                Rental Energia
-                            </h2>
-                        )}
+                        {!isCollapsed ? (
+                            <div className="space-y-0.5">
+                                <h2 className="text-sm font-semibold leading-none tracking-wide text-sidebar-foreground">
+                                    Rental Energia
+                                </h2>
+                                <p className="text-[11px] text-sidebar-foreground/70">
+                                    Gestão operacional
+                                </p>
+                            </div>
+                        ) : null}
                     </div>
 
                     <div className="space-y-1">
@@ -214,7 +225,7 @@ export function Sidebar({ className }: SidebarProps) {
                 {!worksOnlyScope && (
                     <div className="px-3 py-2">
                     {!isCollapsed && (
-                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                        <h2 className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/55">
                             Gestão
                         </h2>
                     )}
@@ -249,7 +260,7 @@ export function Sidebar({ className }: SidebarProps) {
                 {!worksOnlyScope && ['adm_mestre', 'adm_dorata', 'supervisor', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         {!isCollapsed && (
-                            <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                            <h2 className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/55">
                                 Rental
                             </h2>
                         )}
@@ -268,7 +279,7 @@ export function Sidebar({ className }: SidebarProps) {
                 {!worksOnlyScope && ['adm_mestre', 'adm_dorata', 'vendedor_externo', 'vendedor_interno', 'supervisor', 'suporte', 'suporte_tecnico', 'suporte_limitado', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                     <div className="px-3 py-2">
                         {!isCollapsed && (
-                            <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                            <h2 className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/55">
                                 Dorata Solar
                             </h2>
                         )}
@@ -299,7 +310,7 @@ export function Sidebar({ className }: SidebarProps) {
 
                 <div className="px-3 py-2">
                     {!isCollapsed && (
-                        <h2 className="mb-2 px-4 text-xs font-semibold tracking-tight text-muted-foreground uppercase">
+                        <h2 className="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/55">
                             Conta
                         </h2>
                     )}
@@ -311,11 +322,11 @@ export function Sidebar({ className }: SidebarProps) {
                             title="Sair"
                             aria-label="Sair"
                             className={cn(
-                                "flex w-full items-center rounded-md text-sm font-medium text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors",
+                                "group flex w-full items-center rounded-xl border border-transparent text-sm font-medium text-rose-300/90 transition-all hover:border-rose-400/30 hover:bg-rose-500/10 hover:text-rose-100",
                                 isCollapsed ? "h-10 justify-center px-0 py-0" : "gap-3 px-3 py-2"
                             )}
                         >
-                            <LogOut className="h-4 w-4" />
+                            <LogOut className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
                             {!isCollapsed && <span>{isSigningOut ? "Saindo..." : "Sair"}</span>}
                         </button>
                     </div>

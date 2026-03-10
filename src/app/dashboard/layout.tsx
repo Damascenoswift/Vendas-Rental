@@ -28,20 +28,24 @@ export default function DashboardLayout({
 
   if (status === "loading" || status === "unauthenticated") {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <span className="text-sm text-muted-foreground">Verificando acesso…</span>
+      <div className="app-shell-gradient flex min-h-screen items-center justify-center">
+        <span className="glass-surface rounded-full border px-4 py-2 text-sm text-muted-foreground">
+          Verificando acesso…
+        </span>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-muted/40">
+    <div className="app-shell-gradient relative flex h-screen w-full overflow-hidden">
       <NotificationSoundListener />
-      <Sidebar className="hidden lg:block border-r bg-background" />
+      <Sidebar className="hidden lg:block border-r-0 bg-transparent" />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
-          {children}
+        <main className="flex-1 min-h-0 overflow-y-auto px-3 pb-5 pt-3 sm:px-6 sm:pb-6 sm:pt-4 lg:px-8 lg:pb-8">
+          <div className="mx-auto w-full max-w-[1600px] animate-rise-in">
+            {children}
+          </div>
         </main>
       </div>
       <ToastContainer />

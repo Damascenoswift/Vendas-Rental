@@ -1,17 +1,21 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Sora, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AiChatProvider } from "@/contexts/ai-chat-context";
 import { AiChatWidget } from "@/components/ai/ai-chat-widget";
 
-const geistSans = Geist({
+const soraSans = Sora({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
+const jetBrainsMono = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -44,7 +48,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${soraSans.variable} ${jetBrainsMono.variable} antialiased`}
       >
         <AiChatProvider>
           {children}
