@@ -12,6 +12,7 @@ import { Wallet } from "lucide-react"
 import { getProfile, hasRestrictedFinancialAccess } from "@/lib/auth"
 import { Badge } from "@/components/ui/badge"
 import { hasSalesAccess } from "@/lib/sales-access"
+import { buildDorataCloseableDescription, formatCommissionPercentDisplay } from "@/app/admin/financeiro/closeable-item-utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
     Table,
@@ -32,6 +33,7 @@ type CloseableFinancialItem = {
     beneficiary_name: string
     transaction_type: "comissao_venda" | "comissao_dorata" | "override_gestao"
     amount: number
+    commission_percent_display: number | null
     description: string
     origin_lead_id: string | null
     client_name: string | null
@@ -1043,6 +1045,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             beneficiary_name: row.sellerName,
             transaction_type: "comissao_venda",
             amount: availableAmount,
+            commission_percent_display: row.commissionPercentDisplay,
             description: `Fechamento Rental - ${row.nome}`,
             origin_lead_id: row.id,
             client_name: row.nome,
@@ -1069,6 +1072,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             beneficiary_name: row.beneficiaryName,
             transaction_type: "override_gestao",
             amount: availableAmount,
+            commission_percent_display: row.commissionPercentDisplay,
             description: `Override Rental - ${row.nome} (${row.sellerName})`,
             origin_lead_id: row.id,
             client_name: row.nome,
@@ -1091,7 +1095,13 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             beneficiary_name: beneficiary?.name || beneficiary?.email || row.seller?.name || row.seller?.email || "Sem usuário",
             transaction_type: "comissao_dorata",
             amount: availableAmount,
-            description: `Fechamento Dorata${row.isSplitRecipient ? " (divisão)" : ""} - ${row.nome ?? row.saleId.slice(0, 8)}`,
+            commission_percent_display: row.commissionPercentDisplay,
+            description: buildDorataCloseableDescription({
+                clientName: row.nome ?? null,
+                saleId: row.saleId,
+                isSplitRecipient: row.isSplitRecipient,
+                commissionPercentDisplay: row.commissionPercentDisplay,
+            }),
             origin_lead_id: row.leadId,
             client_name: row.nome ?? `Orçamento ${row.saleId.slice(0, 8)}`,
             source_competencia: null,
@@ -1110,6 +1120,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             beneficiary_name: manualItem.beneficiaryName,
             transaction_type: manualItem.transactionType,
             amount: manualItem.value,
+            commission_percent_display: null,
             description: manualItem.observacao || `Manual Elyakim - ${manualItem.clientName ?? manualItem.id.slice(0, 8)}`,
             origin_lead_id: manualItem.originLeadId,
             client_name: manualItem.clientName,
@@ -1743,13 +1754,14 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         <TableHead>Competência origem</TableHead>
                                         <TableHead>Origem</TableHead>
                                         <TableHead>Tipo</TableHead>
+                                        <TableHead className="text-right">% Comissão</TableHead>
                                         <TableHead className="text-right">Valor disponível</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {visibleCloseableItems.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                                            <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                                                 Nenhum item liberado para fechar no momento.
                                             </TableCell>
                                         </TableRow>
@@ -1790,6 +1802,9 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                                     {item.source_kind === "manual_elyakim" ? "Manual Elyakim" : "Sistema"}
                                                 </TableCell>
                                                 <TableCell>{item.transaction_type}</TableCell>
+                                                <TableCell className="text-right">
+                                                    {formatCommissionPercentDisplay(item.commission_percent_display)}
+                                                </TableCell>
                                                 <TableCell className="text-right font-medium">{formatCurrency(item.amount)}</TableCell>
                                             </TableRow>
                                         ))

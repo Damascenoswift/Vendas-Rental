@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { getProfile } from '@/lib/auth'
+import { fetchAdminQuickLeads, type QuickLeadsClient } from '@/services/quick-leads-service'
 import { redirect } from 'next/navigation'
 import {
     Table,
@@ -39,13 +40,10 @@ export default async function AdminLeadsPage() {
     }
 
     // Use Service Client to bypass RLS for fetching all leads
-    const supabaseAdmin = createSupabaseServiceClient()
+    const supabaseAdmin = createSupabaseServiceClient() as unknown as QuickLeadsClient
 
-    // Fetch leads with user info
-    const { data: leads, error } = await supabaseAdmin
-        .from('quick_leads' as any)
-        .select('*, users(email, name)')
-        .order('created_at', { ascending: false }) as any
+    // Fetch leads with resilient fallback when relationship is missing in schema cache.
+    const { leads, error } = await fetchAdminQuickLeads(supabaseAdmin)
 
     if (error) {
         console.error('Erro ao buscar leads:', error)
@@ -53,7 +51,7 @@ export default async function AdminLeadsPage() {
             <div className="container mx-auto py-10">
                 <div className="rounded-md bg-destructive/10 p-4 text-destructive">
                     <h3 className="font-bold">Erro ao carregar leads</h3>
-                    <p className="text-sm">{error.message}</p>
+                    <p className="text-sm">{error}</p>
                     <p className="text-xs mt-2 text-muted-foreground">Verifique se a variável SUPABASE_SERVICE_ROLE_KEY está configurada na Vercel.</p>
                 </div>
             </div>
@@ -82,9 +80,9 @@ export default async function AdminLeadsPage() {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {leads?.map((lead: any) => {
+                        {leads?.map((lead) => {
                             // Extract vendedor name safely
-                            const vendedorNome = (lead.users as any)?.name || (lead.users as any)?.email || 'Desconhecido'
+                            const vendedorNome = lead.users?.name || lead.users?.email || 'Desconhecido'
 
                             return (
                                 <TableRow key={lead.id}>
@@ -105,7 +103,7 @@ export default async function AdminLeadsPage() {
                                     <TableCell className="font-medium">{lead.nome}</TableCell>
                                     <TableCell>{lead.whatsapp}</TableCell>
                                     <TableCell>{vendedorNome}</TableCell>
-                                    <TableCell className="max-w-xs truncate" title={lead.observacao}>
+                                    <TableCell className="max-w-xs truncate" title={lead.observacao ?? undefined}>
                                         {lead.observacao || '-'}
                                     </TableCell>
                                 </TableRow>
