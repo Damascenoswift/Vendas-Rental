@@ -140,6 +140,9 @@ export type ProposalCalculation = {
     params: ProposalCalcParams
     input: ProposalCalcInput
     output: ProposalCalcOutput
+    contract?: {
+        manual_production_estimate?: string | null
+    }
     bundle?: {
         enabled: boolean
         secondary_proposal_ids: string[]

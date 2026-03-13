@@ -502,6 +502,10 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
             value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWh_estimado"), "number", "kWh"),
         },
         {
+            label: "Estimativa para contrato",
+            value: formatSnapshotValue(getSnapshotValue(snapshot, "contract.manual_production_estimate")),
+        },
+        {
             label: "Tipo de inversor",
             value: formatSnapshotValue(inverterType),
         },

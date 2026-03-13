@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { loadTemplateDocx } from "@/lib/template-loader"
 import { numberToWordsPtBr } from "@/lib/number-to-words-ptbr"
+import { getManualContractProductionEstimate } from "@/lib/proposal-contract-estimate"
 
 import PizZip from "pizzip"
 import Docxtemplater from "docxtemplater"
@@ -200,6 +201,7 @@ export async function generateContractFromIndication(indicacaoId: string) {
     const proposalNotes = selectedProposal?.notes ?? ""
     const proposalCalculation = (selectedProposal?.calculation ?? null) as Record<string, any> | null
     const proposalEstimatedKwh = Number(proposalCalculation?.output?.dimensioning?.kWh_estimado ?? 0)
+    const proposalManualContractEstimate = getManualContractProductionEstimate(proposalCalculation)
     const proposalKwpOutput = Number(proposalCalculation?.output?.dimensioning?.kWp ?? 0)
     const proposalTotalAvista = Number(proposalCalculation?.output?.totals?.total_a_vista ?? 0)
     const proposalCommissionValue = Number(proposalCalculation?.commission?.value ?? 0)
@@ -298,6 +300,8 @@ export async function generateContractFromIndication(indicacaoId: string) {
         ORCAMENTO_POTENCIA_TOTAL: proposalTotalPowerFormatted,
         ORCAMENTO_OBSERVACOES: proposalNotes,
         ORCAMENTO_KWH_ESTIMADO: proposalEstimatedKwh > 0 ? proposalEstimatedKwh.toFixed(2) : "",
+        ORCAMENTO_KWH_CONTRATO: proposalManualContractEstimate ?? "",
+        ORCAMENTO_ESTIMATIVA_CONTRATO: proposalManualContractEstimate ?? "",
         ORCAMENTO_KWP_ESTIMADO: proposalKwpOutput > 0 ? proposalKwpOutput.toFixed(2) : "",
         ORCAMENTO_TOTAL_A_VISTA: proposalTotalAvista > 0
             ? proposalTotalAvista.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
@@ -314,6 +318,8 @@ export async function generateContractFromIndication(indicacaoId: string) {
         PROPOSTA_STATUS: proposalStatus,
         PROPOSTA_VALOR_TOTAL: proposalTotalValueFormatted,
         PROPOSTA_POTENCIA_TOTAL: proposalTotalPowerFormatted,
+        PROPOSTA_KWH_CONTRATO: proposalManualContractEstimate ?? "",
+        PROPOSTA_ESTIMATIVA_CONTRATO: proposalManualContractEstimate ?? "",
     }
 
     // G. Generate DOCX
