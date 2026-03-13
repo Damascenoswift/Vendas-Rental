@@ -282,6 +282,8 @@ export interface Database {
           percentual_alocavel: number
           prazo_expiracao_credito_meses: number
           investidor_user_id: string | null
+          cogni_company_id: string | null
+          cogni_company_name: string | null
           modelo_negocio: string | null
           status: 'ATIVA' | 'MANUTENCAO' | 'INATIVA'
         }
@@ -295,6 +297,8 @@ export interface Database {
           percentual_alocavel?: number
           prazo_expiracao_credito_meses?: number
           investidor_user_id?: string | null
+          cogni_company_id?: string | null
+          cogni_company_name?: string | null
           modelo_negocio?: string | null
           status?: 'ATIVA' | 'MANUTENCAO' | 'INATIVA'
         }
@@ -308,6 +312,8 @@ export interface Database {
           percentual_alocavel?: number
           prazo_expiracao_credito_meses?: number
           investidor_user_id?: string | null
+          cogni_company_id?: string | null
+          cogni_company_name?: string | null
           modelo_negocio?: string | null
           status?: 'ATIVA' | 'MANUTENCAO' | 'INATIVA'
         }
@@ -585,34 +591,55 @@ export interface Database {
         Row: {
           id: string
           created_at: string
+          updated_at: string
           usina_id: string
           cliente_id: string
           mes_ano: string
           valor_fatura: number | null
           kwh_compensado: number | null
           status_pagamento: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO'
+          origem_integracao: 'MANUAL' | 'COGNI'
+          cogni_invoice_id: string | null
+          boleto_url: string | null
+          boleto_linha_digitavel: string | null
+          boleto_vencimento: string | null
+          cogni_updated_at: string | null
           observacoes: string | null
         }
         Insert: {
           id?: string
           created_at?: string
+          updated_at?: string
           usina_id: string
           cliente_id: string
           mes_ano: string
           valor_fatura?: number | null
           kwh_compensado?: number | null
           status_pagamento?: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO'
+          origem_integracao?: 'MANUAL' | 'COGNI'
+          cogni_invoice_id?: string | null
+          boleto_url?: string | null
+          boleto_linha_digitavel?: string | null
+          boleto_vencimento?: string | null
+          cogni_updated_at?: string | null
           observacoes?: string | null
         }
         Update: {
           id?: string
           created_at?: string
+          updated_at?: string
           usina_id?: string
           cliente_id?: string
           mes_ano?: string
           valor_fatura?: number | null
           kwh_compensado?: number | null
           status_pagamento?: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO'
+          origem_integracao?: 'MANUAL' | 'COGNI'
+          cogni_invoice_id?: string | null
+          boleto_url?: string | null
+          boleto_linha_digitavel?: string | null
+          boleto_vencimento?: string | null
+          cogni_updated_at?: string | null
           observacoes?: string | null
         }
         Relationships: [
@@ -629,6 +656,228 @@ export interface Database {
             referencedColumns: ["id"]
           }
         ]
+      }
+      cogni_sync_runs: {
+        Row: {
+          id: string
+          trigger: 'manual' | 'scheduled'
+          status: 'running' | 'success' | 'partial' | 'failed' | 'skipped'
+          months_back: number
+          dry_run: boolean
+          requested_by: string | null
+          fetched_count: number
+          mapped_count: number
+          upserted_count: number
+          unresolved_count: number
+          message: string | null
+          error_details: Json | null
+          created_at: string
+          finished_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          trigger: 'manual' | 'scheduled'
+          status: 'running' | 'success' | 'partial' | 'failed' | 'skipped'
+          months_back?: number
+          dry_run?: boolean
+          requested_by?: string | null
+          fetched_count?: number
+          mapped_count?: number
+          upserted_count?: number
+          unresolved_count?: number
+          message?: string | null
+          error_details?: Json | null
+          created_at?: string
+          finished_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          trigger?: 'manual' | 'scheduled'
+          status?: 'running' | 'success' | 'partial' | 'failed' | 'skipped'
+          months_back?: number
+          dry_run?: boolean
+          requested_by?: string | null
+          fetched_count?: number
+          mapped_count?: number
+          upserted_count?: number
+          unresolved_count?: number
+          message?: string | null
+          error_details?: Json | null
+          created_at?: string
+          finished_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cogni_sync_runs_requested_by_fkey"
+            columns: ["requested_by"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      cogni_invoice_payloads: {
+        Row: {
+          id: string
+          run_id: string | null
+          endpoint: string
+          cogni_company_id: string | null
+          cogni_invoice_id: string | null
+          payload: Json
+          received_at: string
+          expires_at: string
+        }
+        Insert: {
+          id?: string
+          run_id?: string | null
+          endpoint: string
+          cogni_company_id?: string | null
+          cogni_invoice_id?: string | null
+          payload: Json
+          received_at?: string
+          expires_at?: string
+        }
+        Update: {
+          id?: string
+          run_id?: string | null
+          endpoint?: string
+          cogni_company_id?: string | null
+          cogni_invoice_id?: string | null
+          payload?: Json
+          received_at?: string
+          expires_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cogni_invoice_payloads_run_id_fkey"
+            columns: ["run_id"]
+            referencedRelation: "cogni_sync_runs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      cogni_invoice_cache: {
+        Row: {
+          id: string
+          run_id: string | null
+          cogni_company_id: string
+          cogni_invoice_id: string
+          mes_ano: string
+          codigo_instalacao: string | null
+          codigo_cliente: string | null
+          cliente_nome: string | null
+          usina_id: string | null
+          cliente_id: string | null
+          valor_fatura: number | null
+          kwh_compensado: number | null
+          status_pagamento: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO'
+          boleto_url: string | null
+          boleto_linha_digitavel: string | null
+          boleto_vencimento: string | null
+          mapping_status: 'MAPPED' | 'UNMAPPED'
+          cogni_updated_at: string | null
+          raw_data: Json
+          created_at: string
+          updated_at: string
+          last_synced_at: string
+        }
+        Insert: {
+          id?: string
+          run_id?: string | null
+          cogni_company_id: string
+          cogni_invoice_id: string
+          mes_ano: string
+          codigo_instalacao?: string | null
+          codigo_cliente?: string | null
+          cliente_nome?: string | null
+          usina_id?: string | null
+          cliente_id?: string | null
+          valor_fatura?: number | null
+          kwh_compensado?: number | null
+          status_pagamento?: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO'
+          boleto_url?: string | null
+          boleto_linha_digitavel?: string | null
+          boleto_vencimento?: string | null
+          mapping_status?: 'MAPPED' | 'UNMAPPED'
+          cogni_updated_at?: string | null
+          raw_data?: Json
+          created_at?: string
+          updated_at?: string
+          last_synced_at?: string
+        }
+        Update: {
+          id?: string
+          run_id?: string | null
+          cogni_company_id?: string
+          cogni_invoice_id?: string
+          mes_ano?: string
+          codigo_instalacao?: string | null
+          codigo_cliente?: string | null
+          cliente_nome?: string | null
+          usina_id?: string | null
+          cliente_id?: string | null
+          valor_fatura?: number | null
+          kwh_compensado?: number | null
+          status_pagamento?: 'ABERTO' | 'PAGO' | 'ATRASADO' | 'CANCELADO'
+          boleto_url?: string | null
+          boleto_linha_digitavel?: string | null
+          boleto_vencimento?: string | null
+          mapping_status?: 'MAPPED' | 'UNMAPPED'
+          cogni_updated_at?: string | null
+          raw_data?: Json
+          created_at?: string
+          updated_at?: string
+          last_synced_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cogni_invoice_cache_run_id_fkey"
+            columns: ["run_id"]
+            referencedRelation: "cogni_sync_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cogni_invoice_cache_usina_id_fkey"
+            columns: ["usina_id"]
+            referencedRelation: "usinas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cogni_invoice_cache_cliente_id_fkey"
+            columns: ["cliente_id"]
+            referencedRelation: "indicacoes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      cogni_scheduler_config: {
+        Row: {
+          id: number
+          enabled: boolean
+          target_url: string | null
+          cron_token: string | null
+          timeout_ms: number
+          updated_at: string
+        }
+        Insert: {
+          id: number
+          enabled?: boolean
+          target_url?: string | null
+          cron_token?: string | null
+          timeout_ms?: number
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          enabled?: boolean
+          target_url?: string | null
+          cron_token?: string | null
+          timeout_ms?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
       products: {
         Row: {
