@@ -21,6 +21,7 @@ import {
     type ProposalStringInverterInput,
 } from "@/lib/proposal-calculation"
 import {
+    formatManualContractProductionEstimateInput,
     getManualContractProductionEstimate,
     withManualContractProductionEstimate,
 } from "@/lib/proposal-contract-estimate"
@@ -253,7 +254,9 @@ export function ProposalCalculatorComplete({
         initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
             ? (initialProposal.calculation.input as Partial<ProposalCalcInput>)
             : null
-    const initialManualContractEstimate = getManualContractProductionEstimate(initialProposal?.calculation ?? null) ?? ""
+    const initialManualContractEstimate = formatManualContractProductionEstimateInput(
+        getManualContractProductionEstimate(initialProposal?.calculation ?? null) ?? ""
+    )
 
     const productById = useMemo(() => {
         const map = new Map<string, Product>()
@@ -1667,6 +1670,19 @@ export function ProposalCalculatorComplete({
                                 ) : null}
                             </div>
                         ) : null}
+                        <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50/70 p-3 md:col-span-2">
+                            <Label className="font-bold text-emerald-900">kWh para contrato</Label>
+                            <Input
+                                placeholder="Ex: 13.500 KWH"
+                                value={manualContractEstimate}
+                                className="border-emerald-300 bg-white font-bold text-emerald-900"
+                                onChange={(event) =>
+                                    setManualContractEstimate(
+                                        formatManualContractProductionEstimateInput(event.target.value)
+                                    )
+                                }
+                            />
+                        </div>
                         <div className="space-y-2">
                             <Label>kWp calculado</Label>
                             <Input value={calculated.output.dimensioning.kWp.toFixed(2)} disabled />
@@ -1674,14 +1690,6 @@ export function ProposalCalculatorComplete({
                         <div className="space-y-2">
                             <Label>kWh estimado</Label>
                             <Input value={calculated.output.dimensioning.kWh_estimado.toFixed(2)} disabled />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>kWh para contrato (manual)</Label>
-                            <Input
-                                placeholder="Ex: 14.500 kWh"
-                                value={manualContractEstimate}
-                                onChange={(event) => setManualContractEstimate(event.target.value)}
-                            />
                         </div>
                         <div className="space-y-2">
                             <Label>Potência inversor calculada (kW)</Label>

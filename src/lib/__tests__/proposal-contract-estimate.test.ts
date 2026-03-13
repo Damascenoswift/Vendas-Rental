@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  formatManualContractProductionEstimateInput,
   getManualContractProductionEstimate,
   withManualContractProductionEstimate,
 } from "../proposal-contract-estimate"
@@ -41,5 +42,11 @@ describe("proposal-contract-estimate helpers", () => {
         output: { dimensioning: { kWh_estimado: 800 } },
       }),
     ).toBeNull()
+  })
+
+  it("formats manual input as pt-BR number with KWH suffix", () => {
+    expect(formatManualContractProductionEstimateInput("13500")).toBe("13.500 KWH")
+    expect(formatManualContractProductionEstimateInput("13.500 kwh")).toBe("13.500 KWH")
+    expect(formatManualContractProductionEstimateInput("abc")).toBe("")
   })
 })
