@@ -68,6 +68,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { getProductRealtimeInfo, type ProductRealtimeInfo } from "@/services/product-service"
+import { formatManualContractProductionEstimateInput } from "@/lib/proposal-contract-estimate"
 
 function statusLabel(status: WorkCard["status"]) {
     if (status === "FECHADA") return "Obra Fechada"
@@ -162,6 +163,12 @@ function formatSnapshotValue(value: unknown, format?: "number" | "integer" | "da
     }
 
     return String(value)
+}
+
+function formatManualContractEstimateDisplay(snapshot: unknown) {
+    const rawEstimate = getSnapshotValue(snapshot, "contract.manual_production_estimate")
+    const formatted = formatManualContractProductionEstimateInput(rawEstimate)
+    return formatted || "-"
 }
 
 function getSnapshotNumber(snapshot: unknown, path: string) {
@@ -502,10 +509,6 @@ function buildTechnicalSnapshotRows(snapshot: unknown) {
             value: formatSnapshotValue(getSnapshotValue(snapshot, "dimensioning.output_dimensioning.kWh_estimado"), "number", "kWh"),
         },
         {
-            label: "Estimativa para contrato",
-            value: formatSnapshotValue(getSnapshotValue(snapshot, "contract.manual_production_estimate")),
-        },
-        {
             label: "Tipo de inversor",
             value: formatSnapshotValue(inverterType),
         },
@@ -568,6 +571,7 @@ type TechnicalSnapshotSection = {
     isPrimary: boolean
     module: SnapshotModule | null
     inverters: SnapshotInverter[]
+    manualContractEstimate: string
     rows: Array<{ label: string; value: string }>
 }
 
@@ -612,6 +616,7 @@ function buildTechnicalSnapshotSections(snapshot: unknown): TechnicalSnapshotSec
                 isPrimary,
                 module: getSnapshotModule(entry),
                 inverters: getSnapshotInverters(entry),
+                manualContractEstimate: formatManualContractEstimateDisplay(entry),
                 rows: buildTechnicalSnapshotRows(entry),
             } satisfies TechnicalSnapshotSection
         })
@@ -1501,6 +1506,14 @@ export function WorkDetailsDialog({
                                                         <Badge variant={section.isPrimary ? "default" : "outline"}>
                                                             {section.isPrimary ? "Principal" : "Vinculado"}
                                                         </Badge>
+                                                    </div>
+                                                    <div className="mb-2 space-y-2 rounded-md border border-emerald-200 bg-emerald-50/70 p-2">
+                                                        <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">
+                                                            kWh para contrato
+                                                        </p>
+                                                        <div className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-sm font-bold text-emerald-900">
+                                                            {section.manualContractEstimate}
+                                                        </div>
                                                     </div>
                                                     <div className="grid gap-2 sm:grid-cols-2">
                                                         <div className="rounded-md border bg-white p-2 text-xs">
