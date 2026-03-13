@@ -16,8 +16,20 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { UserBadge } from "@/components/ui/user-badge"
+import { CogniSyncButton } from "@/components/energy/cogni-sync-button"
 
 export const dynamic = "force-dynamic"
+
+type FaturaListRow = {
+    id: string
+    mes_ano: string
+    valor_fatura: number | null
+    kwh_compensado: number | null
+    status_pagamento: "ABERTO" | "PAGO" | "ATRASADO" | "CANCELADO"
+    usina: { nome: string } | null
+    cliente: { nome: string } | null
+    creator?: { name: string | null; email: string | null } | null
+}
 
 export default async function FaturasPage() {
     const supabase = await createClient()
@@ -42,7 +54,7 @@ export default async function FaturasPage() {
         return <div className="p-8">Erro ao carregar: {error.message}</div>
     }
 
-    const list = (faturas as any[]) || []
+    const list = (faturas ?? []) as FaturaListRow[]
 
     return (
         <div className="max-w-5xl mx-auto py-6 space-y-6">
@@ -51,12 +63,15 @@ export default async function FaturasPage() {
                     <FileText className="h-5 w-5" />
                     Faturas e Conciliação
                 </h2>
-                <Link href="/admin/energia/faturas/novo">
-                    <Button size="sm">
-                        <Plus className="mr-2 h-4 w-4" />
-                        Nova Fatura
-                    </Button>
-                </Link>
+                <div className="flex items-center gap-2">
+                    <CogniSyncButton />
+                    <Link href="/admin/energia/faturas/novo">
+                        <Button size="sm">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Nova Fatura
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
             <div className="rounded-md border bg-background">

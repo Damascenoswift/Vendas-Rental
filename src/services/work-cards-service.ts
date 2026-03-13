@@ -13,6 +13,7 @@ import {
 import { createTask, type TaskStatus } from "@/services/task-service"
 import { addBusinessDays } from "@/lib/business-days"
 import { hasWorksOnlyScope } from "@/lib/department-access"
+import { getManualContractProductionEstimate } from "@/lib/proposal-contract-estimate"
 
 export type WorkCardStatus = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
 export type WorkPhase = "PROJETO" | "EXECUCAO"
@@ -881,6 +882,7 @@ function buildTechnicalSnapshotFromProposal(input: {
     } | null
 }) {
     const calculation = (input.proposal.calculation ?? null) as Record<string, any> | null
+    const manualContractEstimate = getManualContractProductionEstimate(calculation)
     const calculationInputDimensioning = getCalculationInputDimensioning(input.proposal.calculation ?? null)
     const technicalPowerKwp = getTechnicalPowerFromDimensioningInput(calculationInputDimensioning)
     const rawOutputDimensioning = calculation?.output?.dimensioning
@@ -921,6 +923,9 @@ function buildTechnicalSnapshotFromProposal(input: {
                 qtd_placas_solo: calculation?.input?.structure?.qtd_placas_solo ?? null,
                 qtd_placas_telhado: calculation?.input?.structure?.qtd_placas_telhado ?? null,
             },
+        },
+        contract: {
+            manual_production_estimate: manualContractEstimate,
         },
         equipment: hasEquipment
             ? {

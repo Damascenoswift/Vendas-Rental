@@ -20,6 +20,10 @@ import {
     type ProposalCalcParams,
     type ProposalStringInverterInput,
 } from "@/lib/proposal-calculation"
+import {
+    getManualContractProductionEstimate,
+    withManualContractProductionEstimate,
+} from "@/lib/proposal-contract-estimate"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -249,6 +253,7 @@ export function ProposalCalculatorComplete({
         initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
             ? (initialProposal.calculation.input as Partial<ProposalCalcInput>)
             : null
+    const initialManualContractEstimate = getManualContractProductionEstimate(initialProposal?.calculation ?? null) ?? ""
 
     const productById = useMemo(() => {
         const map = new Map<string, Product>()
@@ -379,6 +384,7 @@ export function ProposalCalculatorComplete({
             initialProposal?.contact?.mobile ??
             "",
     }))
+    const [manualContractEstimate, setManualContractEstimate] = useState(initialManualContractEstimate)
 
     const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">(
         normalizeStatusForForm(initialProposal?.status)
@@ -1280,6 +1286,11 @@ export function ProposalCalculatorComplete({
                 }
             }
 
+            const calculationForSave = withManualContractProductionEstimate(
+                calculationWithCommissionSplit,
+                manualContractEstimate,
+            )
+
             const proposalData: ProposalInsert & { source_mode: "complete" } = {
                 status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
                 total_value: unifiedTotalAvista,
@@ -1287,7 +1298,7 @@ export function ProposalCalculatorComplete({
                 additional_cost: calculated.output.extras.extras_total,
                 profit_margin: calculated.output.margin.margem_valor,
                 total_power: unifiedTotalPower,
-                calculation: calculationWithCommissionSplit as ProposalInsert["calculation"],
+                calculation: calculationForSave as ProposalInsert["calculation"],
                 source_mode: "complete",
                 ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
@@ -1663,6 +1674,14 @@ export function ProposalCalculatorComplete({
                         <div className="space-y-2">
                             <Label>kWh estimado</Label>
                             <Input value={calculated.output.dimensioning.kWh_estimado.toFixed(2)} disabled />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>kWh para contrato (manual)</Label>
+                            <Input
+                                placeholder="Ex: 14.500 kWh"
+                                value={manualContractEstimate}
+                                onChange={(event) => setManualContractEstimate(event.target.value)}
+                            />
                         </div>
                         <div className="space-y-2">
                             <Label>Potência inversor calculada (kW)</Label>

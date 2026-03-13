@@ -4,10 +4,12 @@
  * Este módulo centraliza todas as integrações com APIs externas:
  * 1. Clicksign - Assinatura digital de contratos
  * 2. Zapier - Automações e webhooks
+ * 3. COGNI - Sincronização de faturas/boletos de energia
  */
 
 export * from './clicksign'
 export * from './whatsapp'
+export * from './cogni'
 // Tipos comuns para todas as integrações
 export interface ApiResponse<T> {
   success: boolean
