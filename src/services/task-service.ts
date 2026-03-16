@@ -2401,3 +2401,87 @@ export async function removeTaskObserver(taskId: string, userId: string) {
     revalidatePath('/admin/tarefas')
     return { success: true }
 }
+
+type TaskAttachmentCleanupMonths = 6 | 12
+
+export async function cleanupOldTaskPdfAttachments(params?: { olderThanMonths?: TaskAttachmentCleanupMonths }) {
+    const olderThanMonths = params?.olderThanMonths === 6 ? 6 : 12
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: "Unauthorized" }
+
+    const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle()
+
+    if (profileError) return { error: profileError.message }
+    if ((profile as { role?: string | null } | null)?.role !== 'adm_mestre') {
+        return { error: "Sem permissão para limpar anexos antigos." }
+    }
+
+    const cutoffDate = new Date()
+    cutoffDate.setMonth(cutoffDate.getMonth() - olderThanMonths)
+    const cutoffIso = cutoffDate.toISOString()
+    const scanBatchSize = 500
+    const deleteBatchSize = 100
+
+    let scanned = 0
+    let deleted = 0
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : "Falha ao criar cliente admin para limpeza." }
+    }
+
+    while (true) {
+        const { data, error } = await supabaseAdmin
+            .schema('storage')
+            .from('objects')
+            .select('name, created_at')
+            .eq('bucket_id', 'task-attachments')
+            .ilike('name', '%.pdf')
+            .lt('created_at', cutoffIso)
+            .order('created_at', { ascending: true })
+            .range(0, scanBatchSize - 1)
+
+        if (error) {
+            console.error("Error listing old task PDF attachments:", error)
+            return { error: error.message }
+        }
+
+        const paths = ((data ?? []) as Array<{ name?: string | null }>)
+            .map((row) => (typeof row.name === "string" ? row.name.trim() : ""))
+            .filter((path) => path.length > 0)
+
+        if (paths.length === 0) break
+
+        scanned += paths.length
+
+        for (let index = 0; index < paths.length; index += deleteBatchSize) {
+            const batch = paths.slice(index, index + deleteBatchSize)
+            const { error: removeError } = await supabaseAdmin.storage
+                .from('task-attachments')
+                .remove(batch)
+
+            if (removeError) {
+                console.error("Error deleting old task PDF attachments:", removeError)
+                return { error: removeError.message }
+            }
+
+            deleted += batch.length
+        }
+    }
+
+    revalidatePath('/admin/tarefas')
+    return {
+        success: true,
+        olderThanMonths,
+        scanned,
+        deleted,
+        cutoffIso,
+    }
+}

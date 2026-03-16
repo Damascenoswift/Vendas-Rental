@@ -38,6 +38,7 @@ import { useToast } from "@/hooks/use-toast"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
+    MAX_TASK_ATTACHMENT_BYTES,
     MAX_TASK_ATTACHMENTS_PER_TASK,
     uploadTaskAttachments,
     validateTaskAttachmentFiles,
@@ -71,6 +72,7 @@ const taskSchema = z
     })
 
 type TaskFormValues = z.infer<typeof taskSchema>
+const TASK_ATTACHMENT_MAX_MB = Math.round(MAX_TASK_ATTACHMENT_BYTES / (1024 * 1024))
 
 export function TaskDialog() {
     const [open, setOpen] = useState(false)
@@ -665,7 +667,7 @@ export function TaskDialog() {
                                 </p>
                             ) : null}
                             <p className="text-xs text-muted-foreground">
-                                Até {MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa. Aceitos: PDF ou PNG (máx. 10MB cada).
+                                Até {MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa. Aceitos: PDF ou PNG (máx. {TASK_ATTACHMENT_MAX_MB}MB cada).
                             </p>
                         </div>
 

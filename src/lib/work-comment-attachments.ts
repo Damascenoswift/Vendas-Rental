@@ -3,8 +3,8 @@
 import { supabase } from "@/lib/supabase"
 
 export const WORK_COMMENT_ATTACHMENTS_BUCKET = "obra-comment-attachments"
-export const MAX_WORK_COMMENT_ATTACHMENT_BYTES = 10 * 1024 * 1024
-export const MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT = 5
+export const MAX_WORK_COMMENT_ATTACHMENT_BYTES = 50 * 1024 * 1024
+export const MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT = 8
 
 const WORK_COMMENT_ATTACHMENT_ALLOWED_MIME_TYPES = new Set([
     "application/pdf",
@@ -80,10 +80,14 @@ function isAllowedAttachmentType(file: File) {
     return WORK_COMMENT_ATTACHMENT_ALLOWED_EXTENSIONS.has(extension)
 }
 
+function getWorkCommentAttachmentMaxSizeLabel() {
+    return `${Math.round(MAX_WORK_COMMENT_ATTACHMENT_BYTES / (1024 * 1024))}MB`
+}
+
 export function validateWorkCommentAttachment(file: File | null | undefined) {
     if (!file) return "Selecione um documento para anexar."
     if (!isAllowedAttachmentType(file)) return "Formato inválido. Use PDF, imagem, DOC/DOCX ou XLS/XLSX."
-    if (file.size > MAX_WORK_COMMENT_ATTACHMENT_BYTES) return "Cada anexo deve ter no máximo 10MB."
+    if (file.size > MAX_WORK_COMMENT_ATTACHMENT_BYTES) return `Cada anexo deve ter no máximo ${getWorkCommentAttachmentMaxSizeLabel()}.`
     return null
 }
 

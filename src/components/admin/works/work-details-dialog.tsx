@@ -38,6 +38,7 @@ import {
 } from "@/services/work-cards-service"
 import { uploadWorkImage, validateWorkImageAttachment } from "@/lib/work-images"
 import {
+    MAX_WORK_COMMENT_ATTACHMENT_BYTES,
     MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT,
     uploadWorkCommentAttachments,
     validateWorkCommentAttachmentFiles
@@ -128,6 +129,8 @@ function parseCurrencyInput(value: string) {
     if (!Number.isFinite(parsed)) return null
     return parsed
 }
+
+const WORK_COMMENT_ATTACHMENT_MAX_MB = Math.round(MAX_WORK_COMMENT_ATTACHMENT_BYTES / (1024 * 1024))
 
 function getSnapshotValue(snapshot: unknown, path: string): unknown {
     if (!snapshot || typeof snapshot !== "object") return null
@@ -1667,7 +1670,7 @@ export function WorkDetailsDialog({
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Até {MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT} anexos por comentário (PDF, imagens, DOC/DOCX, XLS/XLSX; máximo 10MB por arquivo).
+                                Até {MAX_WORK_COMMENT_ATTACHMENTS_PER_COMMENT} anexos por comentário (PDF, imagens, DOC/DOCX, XLS/XLSX; máximo {WORK_COMMENT_ATTACHMENT_MAX_MB}MB por arquivo).
                             </p>
                             {commentAttachmentFiles.length > 0 ? (
                                 <div className="rounded-md border bg-slate-50 p-2 text-xs text-muted-foreground">

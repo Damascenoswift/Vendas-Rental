@@ -3,8 +3,8 @@
 import { supabase } from "@/lib/supabase"
 
 export const TASK_ATTACHMENTS_BUCKET = "task-attachments"
-export const MAX_TASK_ATTACHMENT_BYTES = 10 * 1024 * 1024
-export const MAX_TASK_ATTACHMENTS_PER_TASK = 5
+export const MAX_TASK_ATTACHMENT_BYTES = 50 * 1024 * 1024
+export const MAX_TASK_ATTACHMENTS_PER_TASK = 8
 
 const TASK_ATTACHMENT_ALLOWED_MIME_TYPES = new Set(["application/pdf", "image/png"])
 const TASK_ATTACHMENT_ALLOWED_EXTENSIONS = new Set(["pdf", "png"])
@@ -56,6 +56,10 @@ function isAllowedAttachmentType(file: File) {
     return TASK_ATTACHMENT_ALLOWED_EXTENSIONS.has(extension)
 }
 
+function getTaskAttachmentMaxSizeLabel() {
+    return `${Math.round(MAX_TASK_ATTACHMENT_BYTES / (1024 * 1024))}MB`
+}
+
 export function formatTaskAttachmentSize(size: number | null | undefined) {
     if (!size || size <= 0) return "0 B"
     if (size < 1024) return `${size} B`
@@ -66,7 +70,7 @@ export function formatTaskAttachmentSize(size: number | null | undefined) {
 export function validateTaskAttachment(file: File | null | undefined) {
     if (!file) return "Selecione um arquivo PDF ou PNG."
     if (!isAllowedAttachmentType(file)) return "Apenas arquivos PDF ou PNG são permitidos."
-    if (file.size > MAX_TASK_ATTACHMENT_BYTES) return "Cada arquivo deve ter no máximo 10MB."
+    if (file.size > MAX_TASK_ATTACHMENT_BYTES) return `Cada arquivo deve ter no máximo ${getTaskAttachmentMaxSizeLabel()}.`
     return null
 }
 

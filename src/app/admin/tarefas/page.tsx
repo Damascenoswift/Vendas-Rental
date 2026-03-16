@@ -2,6 +2,7 @@ import { getTasks, Brand, Department } from "@/services/task-service"
 import { KanbanBoard } from "@/components/admin/tasks/kanban-board"
 import { TaskDialog } from "@/components/admin/tasks/task-dialog"
 import { TaskBackfillButton } from "@/components/admin/tasks/task-backfill-button"
+import { TaskAttachmentsCleanupButton } from "@/components/admin/tasks/task-attachments-cleanup-button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskDashboard } from "@/components/admin/tasks/task-dashboard"
 import { TaskFilters } from "@/components/admin/tasks/task-filters"
@@ -56,6 +57,7 @@ export default async function TasksPage({
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
+                    {profile?.role === "adm_mestre" ? <TaskAttachmentsCleanupButton /> : null}
                     <TaskBackfillButton />
                     <TaskDialog />
                 </div>

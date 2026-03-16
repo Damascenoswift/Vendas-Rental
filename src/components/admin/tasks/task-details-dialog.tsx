@@ -25,6 +25,7 @@ import {
     updateTask,
 } from "@/services/task-service"
 import {
+    MAX_TASK_ATTACHMENT_BYTES,
     MAX_TASK_ATTACHMENTS_PER_TASK,
     formatTaskAttachmentSize,
     listTaskAttachments,
@@ -93,6 +94,8 @@ type MentionCandidate = {
     email: string | null
     alias: string
 }
+
+const TASK_ATTACHMENT_MAX_MB = Math.round(MAX_TASK_ATTACHMENT_BYTES / (1024 * 1024))
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
     { value: "LOW", label: "Baixa" },
@@ -1371,7 +1374,7 @@ export function TaskDetailsDialog({
                                         </p>
                                     ) : null}
                                     <p className="text-[11px] text-muted-foreground">
-                                        PDF ou PNG, até 10MB cada. Máximo de {MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa.
+                                        PDF ou PNG, até {TASK_ATTACHMENT_MAX_MB}MB cada. Máximo de {MAX_TASK_ATTACHMENTS_PER_TASK} arquivos por tarefa.
                                     </p>
                                     <div className="space-y-2">
                                         {attachments.map((attachment) => (
