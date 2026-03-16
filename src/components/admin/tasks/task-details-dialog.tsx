@@ -936,14 +936,9 @@ export function TaskDetailsDialog({
     const renderChecklistItems = (items: TaskChecklistItem[], mode: "binary" | "decision" = "binary") => (
         <div className="space-y-2">
             {mode === "decision" && (
-                <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-                    {CHECKLIST_DECISION_OPTIONS.map((option) => (
-                        <span key={option.value} className="inline-flex items-center gap-1.5">
-                            <span className={`h-2.5 w-2.5 rounded-full border ${option.dotClassName}`} />
-                            {option.label}
-                        </span>
-                    ))}
-                </div>
+                <p className="text-xs font-medium text-muted-foreground">
+                    Clique em um status:
+                </p>
             )}
             {items.map((item) => {
                 const decisionStatus = resolveChecklistDecisionStatus(item)
@@ -954,11 +949,12 @@ export function TaskDetailsDialog({
                     : ""
                 const completedAtLabel = formatDateTime(item.completed_at)
                 const dueDateLabel = formatDateOnly(item.due_date)
-                return (
-                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
-                        <div className="flex items-start gap-2">
-                            {mode === "decision" ? (
-                                <div className="mt-0.5 flex items-center gap-1.5">
+
+                if (mode === "decision") {
+                    return (
+                        <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-3">
+                            <div className="w-full space-y-2">
+                                <div className="flex flex-wrap gap-2">
                                     {CHECKLIST_DECISION_OPTIONS.map((option) => {
                                         const isActive = decisionStatus === option.value
                                         return (
@@ -966,23 +962,66 @@ export function TaskDetailsDialog({
                                                 key={option.value}
                                                 type="button"
                                                 onClick={() => handleToggleChecklist(item, option.value)}
-                                                className="rounded-full p-0.5 transition hover:scale-105"
+                                                className={`inline-flex h-9 min-w-[118px] items-center justify-center gap-2 rounded-full border px-4 text-xs font-semibold transition-all ${isActive ? option.activeClassName : option.inactiveClassName}`}
                                                 aria-label={`${option.label}: ${item.title}`}
                                                 title={option.label}
                                             >
-                                                <span
-                                                    className={`block h-3.5 w-3.5 rounded-full border ${option.dotClassName} ${isActive ? "scale-110 ring-2 ring-offset-1 ring-primary/30 opacity-100" : "opacity-40"}`}
-                                                />
+                                                <span className={`h-2.5 w-2.5 rounded-full border border-current ${isActive ? "bg-current/90" : "bg-current/50"}`} />
+                                                {option.label}
                                             </button>
                                         )
                                     })}
                                 </div>
-                            ) : (
-                                <Checkbox
-                                    checked={isApproved}
-                                    onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked ? "APPROVED" : "IN_REVIEW")}
-                                />
-                            )}
+                                <div className="space-y-1">
+                                    <span className={`text-sm ${isApproved ? "line-through text-muted-foreground" : ""}`}>
+                                        {item.title}
+                                    </span>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                        {dueDateLabel && <span>Prazo: {dueDateLabel}</span>}
+                                        {responsibleName && (
+                                            <span className="flex items-center gap-2">
+                                                <span
+                                                    className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                                                    style={{ backgroundColor: stringToHsl(responsibleName) }}
+                                                >
+                                                    {getInitials(responsibleName)}
+                                                </span>
+                                                <span>Responsável: {responsibleName}</span>
+                                            </span>
+                                        )}
+                                        {isApproved && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
+                                        {isApproved && completedByName && (
+                                            <span className="flex items-center gap-2">
+                                                <span
+                                                    className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
+                                                    style={{ backgroundColor: stringToHsl(completedByName) }}
+                                                >
+                                                    {getInitials(completedByName)}
+                                                </span>
+                                                <span>{completedByName}</span>
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteChecklist(item.id)}
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
+                        </div>
+                    )
+                }
+
+                return (
+                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
+                        <div className="flex items-start gap-2">
+                            <Checkbox
+                                checked={isApproved}
+                                onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked ? "APPROVED" : "IN_REVIEW")}
+                            />
                             <div className="space-y-1">
                                 <span className={`text-sm ${isApproved ? "line-through text-muted-foreground" : ""}`}>
                                     {item.title}
