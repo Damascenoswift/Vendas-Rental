@@ -1783,6 +1783,7 @@ export async function addTaskChecklistItem(
                 checklistItemId: insertedChecklistId ?? `${taskId}:new:${Date.now()}`,
                 checklistTitle: title.trim(),
                 isDone: false,
+                decisionStatus: 'IN_REVIEW',
                 actorUserId: user.id,
                 responsibleUserId,
                 action: "CREATED",
@@ -2057,6 +2058,7 @@ export async function toggleTaskChecklistItem(
             checklistItemId: itemId,
             checklistTitle: itemWithTask?.title ?? "",
             isDone: nextIsDone,
+            decisionStatus: nextDecisionStatus,
             actorUserId: user.id,
             responsibleUserId: checklistResponsibleUserId,
         })

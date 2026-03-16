@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache"
 import { getProfile } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import {
+    buildChecklistNotificationDedupeKey,
+    buildChecklistNotificationMessage,
+    buildChecklistNotificationTitle,
+    normalizeChecklistNotificationDecisionStatus,
+} from "@/services/task-checklist-notification"
 
 export type NotificationType =
     | "TASK_COMMENT"
@@ -2019,6 +2025,7 @@ export async function createTaskChecklistNotifications(params: {
     checklistItemId: string
     checklistTitle: string
     isDone: boolean
+    decisionStatus?: "APPROVED" | "IN_REVIEW" | "REJECTED" | null
     actorUserId: string
     responsibleUserId?: string | null
     action?: "TOGGLED" | "CREATED"
@@ -2062,6 +2069,7 @@ export async function createTaskChecklistNotifications(params: {
         checklistItemId: params.checklistItemId,
         checklistResponsibleUserId: params.responsibleUserId?.trim() || null,
         action: params.action ?? "TOGGLED",
+        decisionStatus: params.decisionStatus ?? null,
     })
 
     if (actorResult.error) {
@@ -2073,7 +2081,10 @@ export async function createTaskChecklistNotifications(params: {
     const taskTitle = (taskRecipientsResult.task.title ?? "Tarefa sem título").trim() || "Tarefa sem título"
     const checklistTitle = (params.checklistTitle ?? "").trim() || "Checklist sem título"
     const action = params.action ?? "TOGGLED"
-    const actionLabel = action === "CREATED" ? "adicionou" : (params.isDone ? "concluiu" : "reabriu")
+    const decisionStatus = normalizeChecklistNotificationDecisionStatus({
+        decisionStatus: params.decisionStatus,
+        isDone: params.isDone,
+    })
 
     const recipients = [...taskRecipientsResult.recipients]
     if (params.responsibleUserId?.trim()) {
@@ -2083,10 +2094,13 @@ export async function createTaskChecklistNotifications(params: {
         })
     }
 
-    const message =
-        action === "CREATED"
-            ? `${actorDisplay} adicionou "${checklistTitle}" em "${taskTitle}".`
-            : `${actorDisplay} ${actionLabel} "${checklistTitle}" em "${taskTitle}".`
+    const message = buildChecklistNotificationMessage({
+        action,
+        actorDisplay,
+        checklistTitle,
+        taskTitle,
+        decisionStatus,
+    })
 
     await dispatchNotificationEvent({
         domain: "TASK",
@@ -2096,12 +2110,17 @@ export async function createTaskChecklistNotifications(params: {
         entityType: "TASK",
         entityId: params.taskId,
         taskId: params.taskId,
-        title: `${actorDisplay} ${actionLabel} um checklist da tarefa`,
+        title: buildChecklistNotificationTitle({
+            action,
+            actorDisplay,
+            decisionStatus,
+        }),
         message,
         metadata: {
             checklist_item_id: params.checklistItemId,
             checklist_title: checklistTitle,
             checklist_is_done: params.isDone,
+            checklist_decision_status: decisionStatus,
             checklist_action: action,
             checklist_responsible_user_id: params.responsibleUserId?.trim() || null,
             task_title: taskTitle,
@@ -2109,10 +2128,11 @@ export async function createTaskChecklistNotifications(params: {
             target_path: `/admin/tarefas?openTask=${params.taskId}`,
         },
         recipients,
-        dedupeKey:
-            action === "CREATED"
-                ? `TASK_CHECKLIST_UPDATED:${params.checklistItemId}:CREATED`
-                : `TASK_CHECKLIST_UPDATED:${params.checklistItemId}:${params.isDone ? "DONE" : "TODO"}`,
+        dedupeKey: buildChecklistNotificationDedupeKey({
+            action,
+            checklistItemId: params.checklistItemId,
+            decisionStatus,
+        }),
         targetPath: `/admin/tarefas?openTask=${params.taskId}`,
     })
 }
