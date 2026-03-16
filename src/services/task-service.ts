@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasFullAccess, type UserProfile } from "@/lib/auth"
+import { canUserSeeTaskInMineScope } from "@/lib/task-visibility"
 import {
     createIndicationNotificationEvent,
     createTaskChecklistNotifications,
@@ -472,8 +473,7 @@ export async function getTasks(filters?: {
 
     const rows = filters?.assigneeId
         ? allRows.filter((task) => {
-            if (task.assignee_id === filters.assigneeId) return true
-            return observerTaskIdSet?.has(task.id) ?? false
+            return canUserSeeTaskInMineScope(task, filters.assigneeId as string, observerTaskIdSet)
         })
         : allRows
 

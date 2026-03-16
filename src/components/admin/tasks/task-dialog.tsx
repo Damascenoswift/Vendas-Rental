@@ -447,7 +447,7 @@ export function TaskDialog() {
                                             </FormControl>
                                             <SelectContent>
                                                 <SelectItem value="TEAM">Equipe (todos visualizam)</SelectItem>
-                                                <SelectItem value="RESTRICTED">Restrita (responsável + observadores)</SelectItem>
+                                                <SelectItem value="RESTRICTED">Restrita (criador + responsável + observadores)</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         <FormMessage />
@@ -496,7 +496,7 @@ export function TaskDialog() {
                             </div>
                             {visibilityScope === "RESTRICTED" && (
                                 <p className="text-xs text-muted-foreground">
-                                    Em tarefas restritas, acesso apenas do responsável e observadores selecionados.
+                                    Em tarefas restritas, acesso do criador, do responsável e dos observadores selecionados.
                                 </p>
                             )}
                         </div>
