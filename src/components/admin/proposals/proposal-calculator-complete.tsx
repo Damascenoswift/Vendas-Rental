@@ -86,6 +86,12 @@ type StringInverterRow = {
     purchase_required: boolean
 }
 
+type ProductionIndexSplitState = {
+    label: string
+    qtd_modulos: number
+    indice_producao: number
+}
+
 const COMMISSION_SPLIT_PERCENT_OPTIONS = [1, 1.5, 2, 2.5, 3] as const
 const COMMISSION_SPLIT_PERCENT_SET = new Set<number>(
     COMMISSION_SPLIT_PERCENT_OPTIONS.map((value) => Math.round(value * 10) / 10)
@@ -199,6 +205,63 @@ function formatSplitPercentOption(value: number) {
     return `${value.toFixed(1).replace(/\.0$/, "").replace(".", ",")}%`
 }
 
+function buildInitialProductionIndexSplits(params: {
+    initialInput: Partial<ProposalCalcInput> | null
+    defaultIndex: number
+    totalModules: number
+}) {
+    const rawSplits = Array.isArray(params.initialInput?.dimensioning?.indices_producao_multiplos)
+        ? params.initialInput.dimensioning?.indices_producao_multiplos
+        : []
+
+    const normalizedSplits = rawSplits
+        .map((split) => ({
+            label: (split?.label || "").trim(),
+            qtd_modulos: Number(split?.qtd_modulos || 0),
+            indice_producao: Number(split?.indice_producao || 0),
+        }))
+        .filter((split) =>
+            Number.isFinite(split.qtd_modulos) &&
+            split.qtd_modulos >= 0 &&
+            Number.isFinite(split.indice_producao) &&
+            split.indice_producao >= 0
+        )
+
+    if (normalizedSplits.length >= 2) {
+        const [first, second] = normalizedSplits
+        return {
+            enabled: true,
+            first: {
+                label: first.label || "Norte",
+                qtd_modulos: first.qtd_modulos,
+                indice_producao: first.indice_producao,
+            } satisfies ProductionIndexSplitState,
+            second: {
+                label: second.label || "Sul",
+                qtd_modulos: second.qtd_modulos,
+                indice_producao: second.indice_producao,
+            } satisfies ProductionIndexSplitState,
+        }
+    }
+
+    const safeTotalModules = Number.isFinite(params.totalModules) && params.totalModules > 0 ? params.totalModules : 0
+    const firstModules = Math.floor(safeTotalModules / 2)
+    const secondModules = Math.max(safeTotalModules - firstModules, 0)
+    return {
+        enabled: false,
+        first: {
+            label: "Norte",
+            qtd_modulos: firstModules,
+            indice_producao: params.defaultIndex,
+        } satisfies ProductionIndexSplitState,
+        second: {
+            label: "Sul",
+            qtd_modulos: secondModules,
+            indice_producao: params.defaultIndex,
+        } satisfies ProductionIndexSplitState,
+    }
+}
+
 function getSpecValue(product: Product, key: string) {
     const specs = product.specs
     if (!specs || typeof specs !== "object" || Array.isArray(specs)) {
@@ -254,6 +317,11 @@ export function ProposalCalculatorComplete({
         initialProposal?.calculation?.input && typeof initialProposal.calculation.input === "object"
             ? (initialProposal.calculation.input as Partial<ProposalCalcInput>)
             : null
+    const initialProductionSplitsConfig = buildInitialProductionIndexSplits({
+        initialInput: initialCalculationInput,
+        defaultIndex: rules.indice_producao ?? 112,
+        totalModules: Number(initialCalculationInput?.dimensioning?.qtd_modulos ?? 0),
+    })
     const initialManualContractEstimate = formatManualContractProductionEstimateInput(
         getManualContractProductionEstimate(initialProposal?.calculation ?? null) ?? ""
     )
@@ -536,6 +604,11 @@ export function ProposalCalculatorComplete({
             },
         }
     })
+    const [useMultipleProductionIndexes, setUseMultipleProductionIndexes] = useState(
+        initialProductionSplitsConfig.enabled
+    )
+    const [splitNorth, setSplitNorth] = useState<ProductionIndexSplitState>(initialProductionSplitsConfig.first)
+    const [splitSouth, setSplitSouth] = useState<ProductionIndexSplitState>(initialProductionSplitsConfig.second)
 
     const { showToast } = useToast()
     const router = useRouter()
@@ -634,12 +707,30 @@ export function ProposalCalculatorComplete({
         kitGeradorValor,
     ])
     const isKitValueBelowInverterCost = kitGeradorValor > 0 && kitGeradorValor < inverterTotalCostForKit
+    const productionSplitTotalModules = splitNorth.qtd_modulos + splitSouth.qtd_modulos
+    const productionSplitDifference = Number(input.dimensioning.qtd_modulos || 0) - productionSplitTotalModules
+    const productionSplitEntries = useMemo<ProposalCalcInput["dimensioning"]["indices_producao_multiplos"]>(() => {
+        if (!useMultipleProductionIndexes) return undefined
+        return [
+            {
+                label: splitNorth.label,
+                qtd_modulos: splitNorth.qtd_modulos,
+                indice_producao: splitNorth.indice_producao,
+            },
+            {
+                label: splitSouth.label,
+                qtd_modulos: splitSouth.qtd_modulos,
+                indice_producao: splitSouth.indice_producao,
+            },
+        ]
+    }, [splitNorth, splitSouth, useMultipleProductionIndexes])
 
     const calculationInput = useMemo<ProposalCalcInput>(
         () => ({
             ...input,
             dimensioning: {
                 ...input.dimensioning,
+                indices_producao_multiplos: productionSplitEntries,
                 potencia_inversor_string_kw: isStringInverterMode ? input.dimensioning.potencia_inversor_string_kw : 0,
                 qtd_inversor_string: isStringInverterMode ? stringInverterTotalQty : 0,
                 qtd_inversor_micro: isMicroInverterMode ? input.dimensioning.qtd_inversor_micro : 0,
@@ -658,6 +749,7 @@ export function ProposalCalculatorComplete({
             isMicroInverterMode,
             isStringInverterMode,
             normalizedStringInverters,
+            productionSplitEntries,
             stringInverterTotalCost,
             stringInverterTotalQty,
         ]
@@ -1057,6 +1149,24 @@ export function ProposalCalculatorComplete({
                 description: "Informe a quantidade de módulos para gerar o orçamento.",
             })
             return
+        }
+        if (useMultipleProductionIndexes) {
+            if (productionSplitTotalModules <= 0) {
+                showToast({
+                    variant: "error",
+                    title: "Índices de produção incompletos",
+                    description: "Informe a quantidade de módulos para Norte e Sul.",
+                })
+                return
+            }
+            if (Math.abs(productionSplitDifference) > 0.0001) {
+                showToast({
+                    variant: "error",
+                    title: "Total de módulos divergente",
+                    description: "A soma das quantidades Norte e Sul deve ser igual à quantidade total de módulos.",
+                })
+                return
+            }
         }
         if (kitGeradorValor <= 0) {
             showToast({
@@ -1511,6 +1621,88 @@ export function ProposalCalculatorComplete({
                                 onChange={(e) => updateDimensioning({ indice_producao: toNumber(e.target.value) })}
                             />
                         </div>
+                        <div className="space-y-3 rounded-md border p-3 md:col-span-2">
+                            <div className="flex items-center gap-2">
+                                <Checkbox
+                                    checked={useMultipleProductionIndexes}
+                                    onChange={(e) => {
+                                        const enabled = e.target.checked
+                                        setUseMultipleProductionIndexes(enabled)
+                                        if (!enabled) return
+                                        if (splitNorth.qtd_modulos > 0 || splitSouth.qtd_modulos > 0) return
+                                        const totalModules = Number(input.dimensioning.qtd_modulos || 0)
+                                        const northModules = Math.floor(totalModules / 2)
+                                        const southModules = Math.max(totalModules - northModules, 0)
+                                        const baseIndex = Number(input.dimensioning.indice_producao || 0)
+                                        setSplitNorth((prev) => ({
+                                            ...prev,
+                                            qtd_modulos: northModules,
+                                            indice_producao: baseIndex,
+                                        }))
+                                        setSplitSouth((prev) => ({
+                                            ...prev,
+                                            qtd_modulos: southModules,
+                                            indice_producao: baseIndex,
+                                        }))
+                                    }}
+                                />
+                                <Label>Usar 2 índices de produção (Norte e Sul)</Label>
+                            </div>
+                            {useMultipleProductionIndexes ? (
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Qtd. módulos Norte</Label>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            value={splitNorth.qtd_modulos}
+                                            onChange={(e) =>
+                                                setSplitNorth((prev) => ({ ...prev, qtd_modulos: toNumber(e.target.value) }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Índice Norte</Label>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            value={splitNorth.indice_producao}
+                                            onChange={(e) =>
+                                                setSplitNorth((prev) => ({ ...prev, indice_producao: toNumber(e.target.value) }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Qtd. módulos Sul</Label>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            value={splitSouth.qtd_modulos}
+                                            onChange={(e) =>
+                                                setSplitSouth((prev) => ({ ...prev, qtd_modulos: toNumber(e.target.value) }))
+                                            }
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Índice Sul</Label>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            value={splitSouth.indice_producao}
+                                            onChange={(e) =>
+                                                setSplitSouth((prev) => ({ ...prev, indice_producao: toNumber(e.target.value) }))
+                                            }
+                                        />
+                                    </div>
+                                    <p className={`text-xs md:col-span-2 ${Math.abs(productionSplitDifference) > 0.0001 ? "text-red-600" : "text-muted-foreground"}`}>
+                                        Total nas orientações: {productionSplitTotalModules.toLocaleString("pt-BR")} módulos.
+                                        {Math.abs(productionSplitDifference) > 0.0001
+                                            ? ` Ajuste para bater com o total de ${Number(input.dimensioning.qtd_modulos || 0).toLocaleString("pt-BR")} módulos.`
+                                            : " Total válido para o cálculo."}
+                                    </p>
+                                </div>
+                            ) : null}
+                        </div>
                         <div className="space-y-2">
                             <Label>Tarifa kWh (R$)</Label>
                             <Input
@@ -1690,6 +1882,10 @@ export function ProposalCalculatorComplete({
                         <div className="space-y-2">
                             <Label>kWh estimado</Label>
                             <Input value={calculated.output.dimensioning.kWh_estimado.toFixed(2)} disabled />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Índice efetivo aplicado</Label>
+                            <Input value={calculated.output.dimensioning.indice_producao_efetivo.toFixed(2)} disabled />
                         </div>
                         <div className="space-y-2">
                             <Label>Potência inversor calculada (kW)</Label>
