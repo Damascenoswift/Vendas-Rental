@@ -7,7 +7,7 @@ import type { WorkCard } from "@/services/work-cards-service"
 import { differenceInBusinessDays } from "@/lib/business-days"
 
 function getStatusLabel(status: WorkCard["status"]) {
-    if (status === "FECHADA") return "Obra Fechada"
+    if (status === "FECHADA") return "Concluída"
     if (status === "PARA_INICIAR") return "Para Iniciar"
     return "Em Andamento"
 }

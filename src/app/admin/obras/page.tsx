@@ -5,6 +5,7 @@ import { getWorkCardById, getWorkCards, type WorkCardStatus } from "@/services/w
 import { WorkFilters } from "@/components/admin/works/work-filters"
 import { WorkBoard } from "@/components/admin/works/work-board"
 import { hasWorksOnlyScope } from "@/lib/department-access"
+import { normalizeWorkStatusFilter } from "@/lib/work-status-filter"
 
 export const dynamic = "force-dynamic"
 
@@ -18,11 +19,6 @@ const ALLOWED_ROLES = [
     "funcionario_n1",
     "funcionario_n2",
 ]
-
-function normalizeStatus(value?: string | null): WorkCardStatus {
-    if (value === "PARA_INICIAR" || value === "EM_ANDAMENTO") return value
-    return "FECHADA"
-}
 
 export default async function AdminWorksPage({
     searchParams,
@@ -44,7 +40,7 @@ export default async function AdminWorksPage({
         redirect("/dashboard")
     }
 
-    const status = normalizeStatus(params?.status)
+    const status: WorkCardStatus = normalizeWorkStatusFilter(params?.status)
     const search = params?.q?.trim() || undefined
     const initialOpenWorkId = params?.openWork?.trim() || null
 

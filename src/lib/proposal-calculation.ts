@@ -21,12 +21,18 @@ export type ProposalStringInverterInput = {
 
 export type ProposalTradeMode = "TOTAL_VALUE" | "INSTALLMENTS"
 export type ProposalInverterType = "STRING" | "MICRO" | "AMPLIACAO"
+export type ProposalProductionIndexSplit = {
+    label?: string
+    qtd_modulos: number
+    indice_producao: number
+}
 
 export type ProposalCalcInput = {
     dimensioning: {
         qtd_modulos: number
         potencia_modulo_w: number
         indice_producao: number
+        indices_producao_multiplos?: ProposalProductionIndexSplit[]
         tipo_inversor: ProposalInverterType
         fator_oversizing: number
         potencia_inversor_string_kw?: number
@@ -77,6 +83,7 @@ export type ProposalCalcOutput = {
     dimensioning: {
         kWp: number
         kWh_estimado: number
+        indice_producao_efetivo: number
         inversor: {
             tipo: ProposalInverterType
             pot_string_kw: number
@@ -187,6 +194,52 @@ function pmt(rate: number, nper: number, pv: number) {
     if (nper <= 0) return 0
     if (rate === 0) return pv / nper
     return (rate * pv) / (1 - Math.pow(1 + rate, -nper))
+}
+
+function resolveEffectiveProductionIndex(params: {
+    qtd_modulos: number
+    indice_producao_base: number
+    indices_producao_multiplos?: ProposalProductionIndexSplit[]
+}) {
+    const totalModules = Number(params.qtd_modulos || 0)
+    const baseIndex = Number(params.indice_producao_base || 0)
+    if (!Number.isFinite(totalModules) || totalModules <= 0) return baseIndex
+
+    const normalizedSplits = Array.isArray(params.indices_producao_multiplos)
+        ? params.indices_producao_multiplos
+            .map((split) => ({
+                qtd_modulos: Number(split?.qtd_modulos || 0),
+                indice_producao: Number(split?.indice_producao || 0),
+            }))
+            .filter((split) =>
+                Number.isFinite(split.qtd_modulos) &&
+                split.qtd_modulos > 0 &&
+                Number.isFinite(split.indice_producao) &&
+                split.indice_producao >= 0
+            )
+        : []
+
+    if (normalizedSplits.length === 0) return baseIndex
+
+    const allocatedModules = normalizedSplits.reduce((sum, split) => sum + split.qtd_modulos, 0)
+    if (!Number.isFinite(allocatedModules) || allocatedModules <= 0) return baseIndex
+
+    if (allocatedModules <= totalModules) {
+        const weightedAllocated = normalizedSplits.reduce(
+            (sum, split) => sum + (split.qtd_modulos * split.indice_producao),
+            0
+        )
+        const remainingModules = totalModules - allocatedModules
+        const weightedTotal = weightedAllocated + (remainingModules * baseIndex)
+        return weightedTotal / totalModules
+    }
+
+    const scale = totalModules / allocatedModules
+    const weightedScaled = normalizedSplits.reduce(
+        (sum, split) => sum + ((split.qtd_modulos * scale) * split.indice_producao),
+        0
+    )
+    return weightedScaled / totalModules
 }
 
 export function calculateFinancedBalanceAfterGrace(params: {
@@ -308,6 +361,11 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const qtdModulos = Number(input.dimensioning.qtd_modulos || 0)
     const potenciaModuloW = Number(input.dimensioning.potencia_modulo_w || 0)
     const indiceProducao = Number(input.dimensioning.indice_producao || 0)
+    const indiceProducaoEfetivo = resolveEffectiveProductionIndex({
+        qtd_modulos: qtdModulos,
+        indice_producao_base: indiceProducao,
+        indices_producao_multiplos: input.dimensioning.indices_producao_multiplos,
+    })
     const fatorOversizing = Number(input.dimensioning.fator_oversizing || params.default_oversizing_factor)
     const inverterType = input.dimensioning.tipo_inversor
     const isStringInverter = inverterType === "STRING"
@@ -315,7 +373,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
     const isExpansion = inverterType === "AMPLIACAO"
 
     const kWp = (qtdModulos * potenciaModuloW) / 1000
-    const kWhEstimado = (qtdModulos * potenciaModuloW * indiceProducao) / 1000
+    const kWhEstimado = (qtdModulos * potenciaModuloW * indiceProducaoEfetivo) / 1000
 
     const potenciaInversorStringInformada = Number(input.dimensioning.potencia_inversor_string_kw || 0)
     const qtdMicroSugerida = roundMode(qtdModulos / params.micro_per_modules_divisor, params.micro_rounding_mode)
@@ -455,6 +513,7 @@ export function calculateProposal(input: ProposalCalcInput): ProposalCalculation
         dimensioning: {
             kWp,
             kWh_estimado: kWhEstimado,
+            indice_producao_efetivo: indiceProducaoEfetivo,
             inversor: {
                 tipo: inverterType,
                 pot_string_kw: potStringKw,

@@ -72,7 +72,7 @@ import { getProductRealtimeInfo, type ProductRealtimeInfo } from "@/services/pro
 import { formatManualContractProductionEstimateInput } from "@/lib/proposal-contract-estimate"
 
 function statusLabel(status: WorkCard["status"]) {
-    if (status === "FECHADA") return "Obra Fechada"
+    if (status === "FECHADA") return "Obra Concluída"
     if (status === "PARA_INICIAR") return "Obra Para Iniciar"
     return "Obra em Andamento"
 }
@@ -1398,7 +1398,7 @@ export function WorkDetailsDialog({
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="FECHADA">Obra Fechada</SelectItem>
+                                        <SelectItem value="FECHADA">Obra Concluída</SelectItem>
                                         <SelectItem value="PARA_INICIAR">Obra Para Iniciar</SelectItem>
                                         <SelectItem value="EM_ANDAMENTO">Obra em Andamento</SelectItem>
                                     </SelectContent>
@@ -1419,7 +1419,7 @@ export function WorkDetailsDialog({
                                     onClick={() => handleUpdateWorkStatus("FECHADA")}
                                     disabled={isSaving}
                                 >
-                                    Voltar para Obras Fechadas
+                                    Voltar para Obras Concluídas
                                 </Button>
                             ) : null}
                             <Button

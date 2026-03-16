@@ -6,26 +6,17 @@ import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { useDebounce } from "@/hooks/use-debounce"
-
-export type WorkStatusFilter = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
-
-const STATUS_OPTIONS: Array<{ value: WorkStatusFilter; label: string }> = [
-    { value: "FECHADA", label: "Obras Fechadas" },
-    { value: "PARA_INICIAR", label: "Obras Para Iniciar" },
-    { value: "EM_ANDAMENTO", label: "Obras em Andamento" },
-]
-
-function normalizeStatus(value: string | null): WorkStatusFilter {
-    if (value === "PARA_INICIAR" || value === "EM_ANDAMENTO") return value
-    return "FECHADA"
-}
+import {
+    WORK_STATUS_FILTER_OPTIONS,
+    normalizeWorkStatusFilter,
+} from "@/lib/work-status-filter"
 
 export function WorkFilters() {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
 
-    const currentStatus = normalizeStatus(searchParams.get("status"))
+    const currentStatus = normalizeWorkStatusFilter(searchParams.get("status"))
     const searchFromUrl = searchParams.get("q")?.trim() ?? ""
     const [search, setSearch] = useState(searchFromUrl)
     const debouncedSearch = useDebounce(search, 350)
@@ -69,7 +60,7 @@ export function WorkFilters() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-                {STATUS_OPTIONS.map((option) => (
+                {WORK_STATUS_FILTER_OPTIONS.map((option) => (
                     <Button
                         key={option.value}
                         type="button"
