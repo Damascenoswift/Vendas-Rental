@@ -6,7 +6,7 @@ import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, ChevronDown, ChevronUp, Paperclip, Trash2, UserPlus, X } from "lucide-react"
 
-import type { Task, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority, TaskProposalOption } from "@/services/task-service"
+import type { Task, TaskChecklistDecision, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority, TaskProposalOption } from "@/services/task-service"
 import {
     addTaskChecklistItem,
     addTaskComment,
@@ -24,6 +24,11 @@ import {
     toggleTaskChecklistItem,
     updateTask,
 } from "@/services/task-service"
+import {
+    CHECKLIST_DECISION_OPTIONS,
+    resolveChecklistDecisionStatus,
+    toChecklistTogglePayload,
+} from "@/components/admin/tasks/checklist-decision"
 import {
     MAX_TASK_ATTACHMENT_BYTES,
     MAX_TASK_ATTACHMENTS_PER_TASK,
@@ -513,9 +518,15 @@ export function TaskDetailsDialog({
         setIsSavingChecklist(false)
     }
 
-    const handleToggleChecklist = async (item: TaskChecklistItem, nextChecked: boolean) => {
+    const handleToggleChecklist = async (item: TaskChecklistItem, nextDecision: TaskChecklistDecision) => {
         if (!task) return
-        const result = await toggleTaskChecklistItem(item.id, nextChecked)
+        const currentDecision = resolveChecklistDecisionStatus(item)
+        if (currentDecision === nextDecision) return
+
+        const payload = toChecklistTogglePayload(nextDecision)
+        const result = await toggleTaskChecklistItem(item.id, payload.isDone, {
+            decisionStatus: payload.decisionStatus,
+        })
         const updated = await getTaskChecklists(task.id)
         setChecklists(updated)
         if (result?.error) {
@@ -922,9 +933,21 @@ export function TaskDetailsDialog({
             .join(" • ")
         : "Nenhum vínculo configurado."
 
-    const renderChecklistItems = (items: TaskChecklistItem[]) => (
+    const renderChecklistItems = (items: TaskChecklistItem[], mode: "binary" | "decision" = "binary") => (
         <div className="space-y-2">
+            {mode === "decision" && (
+                <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                    {CHECKLIST_DECISION_OPTIONS.map((option) => (
+                        <span key={option.value} className="inline-flex items-center gap-1.5">
+                            <span className={`h-2.5 w-2.5 rounded-full border ${option.dotClassName}`} />
+                            {option.label}
+                        </span>
+                    ))}
+                </div>
+            )}
             {items.map((item) => {
+                const decisionStatus = resolveChecklistDecisionStatus(item)
+                const isApproved = decisionStatus === "APPROVED"
                 const completedByName = item.completed_by_user?.name || item.completed_by_user?.email || ""
                 const responsibleName = item.responsible_user_id
                     ? (usersById.get(item.responsible_user_id) ?? "Usuário vinculado")
@@ -934,12 +957,34 @@ export function TaskDetailsDialog({
                 return (
                     <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-2">
                         <div className="flex items-start gap-2">
-                            <Checkbox
-                                checked={item.is_done}
-                                onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked)}
-                            />
+                            {mode === "decision" ? (
+                                <div className="mt-0.5 flex items-center gap-1.5">
+                                    {CHECKLIST_DECISION_OPTIONS.map((option) => {
+                                        const isActive = decisionStatus === option.value
+                                        return (
+                                            <button
+                                                key={option.value}
+                                                type="button"
+                                                onClick={() => handleToggleChecklist(item, option.value)}
+                                                className="rounded-full p-0.5 transition hover:scale-105"
+                                                aria-label={`${option.label}: ${item.title}`}
+                                                title={option.label}
+                                            >
+                                                <span
+                                                    className={`block h-3.5 w-3.5 rounded-full border ${option.dotClassName} ${isActive ? "scale-110 ring-2 ring-offset-1 ring-primary/30 opacity-100" : "opacity-40"}`}
+                                                />
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            ) : (
+                                <Checkbox
+                                    checked={isApproved}
+                                    onChange={(event) => handleToggleChecklist(item, event.currentTarget.checked ? "APPROVED" : "IN_REVIEW")}
+                                />
+                            )}
                             <div className="space-y-1">
-                                <span className={`text-sm ${item.is_done ? "line-through text-muted-foreground" : ""}`}>
+                                <span className={`text-sm ${isApproved ? "line-through text-muted-foreground" : ""}`}>
                                     {item.title}
                                 </span>
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -955,8 +1000,8 @@ export function TaskDetailsDialog({
                                             <span>Responsável: {responsibleName}</span>
                                         </span>
                                     )}
-                                    {item.is_done && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
-                                    {completedByName && (
+                                    {isApproved && completedAtLabel && <span>Concluído em: {completedAtLabel}</span>}
+                                    {isApproved && completedByName && (
                                         <span className="flex items-center gap-2">
                                             <span
                                                 className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-semibold text-white"
@@ -1484,7 +1529,7 @@ export function TaskDetailsDialog({
 
                         <div className="grid gap-3">
                             <h4 className="text-sm font-semibold">Checklist Cadastro</h4>
-                            {renderChecklistItems(cadastroChecklists)}
+                            {renderChecklistItems(cadastroChecklists, "binary")}
                         </div>
 
                         <div className="grid gap-3 rounded-md border bg-muted/20 p-3">
@@ -1506,7 +1551,7 @@ export function TaskDetailsDialog({
                             </div>
 
                             {task.energisa_activated_at ? (
-                                renderChecklistItems(energisaChecklists)
+                                renderChecklistItems(energisaChecklists, "binary")
                             ) : (
                                 <p className="text-xs text-muted-foreground">
                                     {isActivatingEnergisa
@@ -1555,7 +1600,7 @@ export function TaskDetailsDialog({
                                     Adicionar
                                 </Button>
                             </div>
-                            {renderChecklistItems(generalChecklists)}
+                            {renderChecklistItems(generalChecklists, "decision")}
                         </div>
                     </div>
 

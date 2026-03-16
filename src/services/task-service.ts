@@ -18,6 +18,7 @@ export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'finan
 export type Brand = 'rental' | 'dorata'
 export type TaskVisibilityScope = 'TEAM' | 'RESTRICTED'
 export type TaskChecklistPhase = 'cadastro' | 'energisa' | 'geral'
+export type TaskChecklistDecision = 'IN_REVIEW' | 'APPROVED' | 'REJECTED'
 export type TaskChecklistEventKey =
     | 'DOCS_APPROVED'
     | 'DOCS_INCOMPLETE'
@@ -277,6 +278,7 @@ export interface TaskChecklistItem {
     task_id: string
     title: string
     event_key?: TaskChecklistEventKey
+    decision_status?: TaskChecklistDecision | null
     is_done: boolean
     sort_order: number
     created_at: string
@@ -1561,6 +1563,7 @@ export async function getTaskChecklists(taskId: string) {
     let data: any[] | null = null
     let error: { message?: string | null } | null = null
     let includeResponsibleUserId = true
+    let includeDecisionStatus = true
 
     while (true) {
         const checklistColumns = [
@@ -1568,6 +1571,7 @@ export async function getTaskChecklists(taskId: string) {
             'task_id',
             'title',
             'event_key',
+            includeDecisionStatus ? 'decision_status' : null,
             'is_done',
             'sort_order',
             'created_at',
@@ -1603,6 +1607,15 @@ export async function getTaskChecklists(taskId: string) {
             includeResponsibleUserId = false
             continue
         }
+        if (
+            includeDecisionStatus &&
+            missingColumn &&
+            missingColumn.table === 'task_checklists' &&
+            missingColumn.column === 'decision_status'
+        ) {
+            includeDecisionStatus = false
+            continue
+        }
 
         if (/relationship between 'task_checklists' and 'users'/i.test(error.message ?? '')) {
             const fallbackColumns = [
@@ -1610,6 +1623,7 @@ export async function getTaskChecklists(taskId: string) {
                 'task_id',
                 'title',
                 'event_key',
+                includeDecisionStatus ? 'decision_status' : null,
                 'is_done',
                 'sort_order',
                 'created_at',
@@ -1642,6 +1656,15 @@ export async function getTaskChecklists(taskId: string) {
                 includeResponsibleUserId = false
                 continue
             }
+            if (
+                includeDecisionStatus &&
+                fallbackMissingColumn &&
+                fallbackMissingColumn.table === 'task_checklists' &&
+                fallbackMissingColumn.column === 'decision_status'
+            ) {
+                includeDecisionStatus = false
+                continue
+            }
         }
 
         break
@@ -1652,10 +1675,19 @@ export async function getTaskChecklists(taskId: string) {
         return []
     }
 
-    return ((data ?? []) as any[]).map((item) => ({
-        ...item,
-        phase: normalizeChecklistPhaseValue(item.phase),
-    })) as TaskChecklistItem[]
+    return ((data ?? []) as any[]).map((item) => {
+        const rawDecision = item.decision_status
+        const decisionStatus: TaskChecklistDecision =
+            rawDecision === 'APPROVED' || rawDecision === 'REJECTED' || rawDecision === 'IN_REVIEW'
+                ? rawDecision
+                : (item.is_done ? 'APPROVED' : 'IN_REVIEW')
+
+        return {
+            ...item,
+            decision_status: decisionStatus,
+            phase: normalizeChecklistPhaseValue(item.phase),
+        }
+    }) as TaskChecklistItem[]
 }
 
 export async function addTaskChecklistItem(
@@ -1679,6 +1711,7 @@ export async function addTaskChecklistItem(
         phase: options?.phase ?? null,
         sort_order: options?.sortOrder ?? 0,
         event_key: options?.eventKey ?? null,
+        decision_status: 'IN_REVIEW',
         responsible_user_id: options?.responsibleUserId ?? null,
     }
     let responsibleColumnAvailable = true
@@ -1705,6 +1738,15 @@ export async function addTaskChecklistItem(
         ) {
             delete payload.responsible_user_id
             responsibleColumnAvailable = false
+            continue
+        }
+        if (
+            missingColumn &&
+            missingColumn.table === 'task_checklists' &&
+            missingColumn.column === 'decision_status' &&
+            'decision_status' in payload
+        ) {
+            delete payload.decision_status
             continue
         }
 
@@ -1840,10 +1882,23 @@ export async function triggerTaskDocAlert(taskId: string, alertType: 'DOCS_INCOM
     return { success: true }
 }
 
-export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
+export async function toggleTaskChecklistItem(
+    itemId: string,
+    isDone: boolean,
+    options?: {
+        decisionStatus?: TaskChecklistDecision | null
+    }
+) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return { error: "Unauthorized" }
+
+    const requestedDecision = options?.decisionStatus
+    const nextDecisionStatus: TaskChecklistDecision =
+        requestedDecision === 'APPROVED' || requestedDecision === 'REJECTED' || requestedDecision === 'IN_REVIEW'
+            ? requestedDecision
+            : (isDone ? 'APPROVED' : 'IN_REVIEW')
+    const nextIsDone = nextDecisionStatus === 'APPROVED'
 
     let eventKeyColumnAvailable = true
     const { data: itemWithTaskData, error: itemFetchError } = await supabase
@@ -1910,23 +1965,43 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
     }
 
     let resolvedIndicacaoId = itemWithTask?.task?.indicacao_id ?? null
-    if (isDone && eventKey && itemWithTask?.task) {
+    if (nextIsDone && eventKey && itemWithTask?.task) {
         resolvedIndicacaoId = await resolveTaskIndicacaoId(supabase, itemWithTask.task as TaskLeadLink)
         if (!resolvedIndicacaoId) {
             return { error: "Vincule a tarefa a uma indicação antes de concluir este checklist." }
         }
     }
 
-    const { error } = await supabase
-        .from('task_checklists')
-        .update({
-            is_done: isDone,
-            completed_at: isDone ? new Date().toISOString() : null,
-            completed_by: isDone ? user.id : null,
-        })
-        .eq('id', itemId)
+    const updatePayload: Record<string, unknown> = {
+        is_done: nextIsDone,
+        completed_at: nextIsDone ? new Date().toISOString() : null,
+        completed_by: nextIsDone ? user.id : null,
+        decision_status: nextDecisionStatus,
+    }
+    let decisionStatusColumnAvailable = true
 
-    if (error) return { error: error.message }
+    while (true) {
+        const { error } = await supabase
+            .from('task_checklists')
+            .update(updatePayload)
+            .eq('id', itemId)
+
+        if (!error) break
+
+        const missingColumn = parseMissingColumnError(error.message)
+        if (
+            missingColumn &&
+            missingColumn.table === 'task_checklists' &&
+            missingColumn.column === 'decision_status' &&
+            'decision_status' in updatePayload
+        ) {
+            delete updatePayload.decision_status
+            decisionStatusColumnAvailable = false
+            continue
+        }
+
+        return { error: error.message }
+    }
 
     if (checklistResponsibleUserId && itemWithTask?.task_id) {
         const { error: observerUpsertError } = await supabase
@@ -1949,19 +2024,24 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
 
     // Keep doc commands mutually exclusive in the same task
     if (
-        isDone &&
+        nextIsDone &&
         eventKey &&
         DOC_EVENT_KEYS.includes(eventKey) &&
         itemWithTask?.task_id &&
         eventKeyColumnAvailable
     ) {
+        const clearDocPayload: Record<string, unknown> = {
+            is_done: false,
+            completed_at: null,
+            completed_by: null,
+        }
+        if (decisionStatusColumnAvailable) {
+            clearDocPayload.decision_status = 'IN_REVIEW'
+        }
+
         const { error: clearDocError } = await supabase
             .from('task_checklists')
-            .update({
-                is_done: false,
-                completed_at: null,
-                completed_by: null,
-            })
+            .update(clearDocPayload)
             .eq('task_id', itemWithTask.task_id)
             .in('event_key', DOC_EVENT_KEYS as string[])
             .neq('id', itemId)
@@ -1976,7 +2056,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
             taskId: itemWithTask?.task_id ?? "",
             checklistItemId: itemId,
             checklistTitle: itemWithTask?.title ?? "",
-            isDone,
+            isDone: nextIsDone,
             actorUserId: user.id,
             responsibleUserId: checklistResponsibleUserId,
         })
@@ -1985,7 +2065,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
     }
 
     // Reflect key milestones/doc commands to the lead of the seller
-    if (isDone && eventKey && resolvedIndicacaoId) {
+    if (nextIsDone && eventKey && resolvedIndicacaoId) {
         const indicacaoId = resolvedIndicacaoId
         let supabaseAdmin: any
         try {
@@ -2123,7 +2203,7 @@ export async function toggleTaskChecklistItem(itemId: string, isDone: boolean) {
                     actorUserId: user.id,
                     title: indicationEvent.title,
                     message: indicationEvent.message,
-                    dedupeToken: `task-checklist:${itemId}:${eventKey}:${isDone ? 'done' : 'todo'}`,
+                    dedupeToken: `task-checklist:${itemId}:${eventKey}:${nextIsDone ? 'done' : 'todo'}`,
                     metadata: {
                         source: 'task_checklist',
                         task_id: itemWithTask?.task_id ?? null,
