@@ -30,6 +30,7 @@ import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 import { hasWorksOnlyScope } from "@/lib/department-access"
+import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
 
 type SidebarProps = React.HTMLAttributes<HTMLDivElement>
 
@@ -57,6 +58,10 @@ export function Sidebar({ className }: SidebarProps) {
     const department = profile?.department ?? null
     const worksOnlyScope = hasWorksOnlyScope(department)
     const canAccessInternalChat = Boolean(profile?.internalChatAccess)
+    const canAccessWhatsAppInbox = hasWhatsAppInboxAccess({
+        role,
+        whatsapp_inbox_access: profile?.whatsappInboxAccess ?? null,
+    })
     const canAccessIndicacoes =
         Boolean(role) && (
             ['adm_mestre', 'funcionario_n1', 'funcionario_n2', 'adm_dorata', 'supervisor'].includes(role) ||
@@ -250,7 +255,7 @@ export function Sidebar({ className }: SidebarProps) {
                             <NavItem collapsed={isCollapsed} href="/admin/usuarios" label="Usuários" icon={Users} />
                         )}
 
-                        {['adm_mestre', 'adm_dorata', 'suporte_tecnico', 'suporte_limitado'].includes(role) && (
+                        {canAccessWhatsAppInbox && (
                             <NavItem collapsed={isCollapsed} href="/admin/whatsapp" label="WhatsApp" icon={MessageCircle} />
                         )}
                     </div>
