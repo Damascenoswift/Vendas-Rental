@@ -42,6 +42,17 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -87,6 +98,7 @@ type ConversationBrand = "rental" | "dorata" | "funcionario" | "diversos"
 type BrandFilter = "all" | ConversationBrand
 type MediaPickerKind = "image" | "document" | "audio"
 type ConversationViewMode = "kanban" | "list"
+type KanbanColumnKey = "PENDING_BRAND" | "funcionario" | "dorata" | "rental" | "diversos"
 
 type PendingOutgoingMedia = {
   mediaType: WhatsAppOutboundMediaType
@@ -123,7 +135,21 @@ const MEDIA_PICKER_ACCEPT: Record<MediaPickerKind, string> = {
   audio: "audio/mpeg,audio/mp3,audio/ogg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,.mp3,.ogg,.wav,.m4a,.aac",
 }
 
-const KANBAN_STATUS_COLUMNS: Array<Exclude<StatusFilter, "all">> = ["PENDING_BRAND", "OPEN", "CLOSED"]
+const KANBAN_BRAND_COLUMNS: KanbanColumnKey[] = [
+  "PENDING_BRAND",
+  "funcionario",
+  "dorata",
+  "rental",
+  "diversos",
+]
+
+const KANBAN_COLUMN_LABELS: Record<KanbanColumnKey, string> = {
+  PENDING_BRAND: "Pendente de marca",
+  funcionario: "Funcionários",
+  dorata: "Dorata",
+  rental: "Rental",
+  diversos: "Diversos",
+}
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-"
@@ -255,12 +281,40 @@ export function WhatsAppInbox({
     })
   }, [])
 
-  const conversationsByStatus = useMemo(() => {
-    return {
-      PENDING_BRAND: conversations.filter((conversation) => conversation.status === "PENDING_BRAND"),
-      OPEN: conversations.filter((conversation) => conversation.status === "OPEN"),
-      CLOSED: conversations.filter((conversation) => conversation.status === "CLOSED"),
+  const conversationsByKanbanColumn = useMemo<Record<KanbanColumnKey, WhatsAppConversationListItem[]>>(() => {
+    const grouped: Record<KanbanColumnKey, WhatsAppConversationListItem[]> = {
+      PENDING_BRAND: [],
+      funcionario: [],
+      dorata: [],
+      rental: [],
+      diversos: [],
     }
+
+    for (const conversation of conversations) {
+      if (conversation.status === "PENDING_BRAND" || !conversation.brand) {
+        grouped.PENDING_BRAND.push(conversation)
+        continue
+      }
+
+      if (conversation.brand === "dorata") {
+        grouped.dorata.push(conversation)
+        continue
+      }
+
+      if (conversation.brand === "rental") {
+        grouped.rental.push(conversation)
+        continue
+      }
+
+      if (conversation.brand === "diversos") {
+        grouped.diversos.push(conversation)
+        continue
+      }
+
+      grouped.funcionario.push(conversation)
+    }
+
+    return grouped
   }, [conversations])
 
   const loadConversations = useCallback(
@@ -1371,7 +1425,7 @@ export function WhatsAppInbox({
             ) : (
               <div className="p-4 text-sm text-muted-foreground space-y-2">
                 <p className="font-medium text-foreground">Quadro Kanban ativo</p>
-                <p>As colunas estão no painel principal com rolagem separada.</p>
+                <p>As colunas estão separadas por marca com rolagem independente.</p>
                 <p>Selecione uma conversa no Kanban para abrir o painel flutuante.</p>
               </div>
             )}
@@ -1387,22 +1441,22 @@ export function WhatsAppInbox({
         >
           {conversationViewMode === "kanban" ? (
             <ScrollArea className="h-[70vh] w-full [&_[data-radix-scroll-area-viewport]]:scroll-smooth">
-              <div className="min-w-[1060px] p-4">
-                <div className="grid grid-cols-3 gap-4">
-                  {KANBAN_STATUS_COLUMNS.map((status) => {
-                    const statusConversations = conversationsByStatus[status]
+              <div className="min-w-[1700px] p-4">
+                <div className="grid grid-cols-5 gap-4">
+                  {KANBAN_BRAND_COLUMNS.map((columnKey) => {
+                    const columnConversations = conversationsByKanbanColumn[columnKey]
                     return (
                       <div
-                        key={status}
+                        key={columnKey}
                         className="rounded-xl border bg-white/85 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75"
                       >
                         <div className="flex items-center justify-between border-b px-3 py-2">
-                          <p className="text-sm font-semibold">{STATUS_LABELS[status]}</p>
-                          <Badge variant="secondary">{statusConversations.length}</Badge>
+                          <p className="text-sm font-semibold">{KANBAN_COLUMN_LABELS[columnKey]}</p>
+                          <Badge variant="secondary">{columnConversations.length}</Badge>
                         </div>
                         <ScrollArea className="h-[calc(70vh-168px)] px-2 pb-2 [&_[data-radix-scroll-area-viewport]]:scroll-smooth">
                           <div className="space-y-2 pt-2">
-                            {statusConversations.map((conversation) => {
+                            {columnConversations.map((conversation) => {
                               const isSelected = conversation.id === selectedConversationId
                               return (
                                 <button
@@ -1446,7 +1500,7 @@ export function WhatsAppInbox({
                               )
                             })}
 
-                            {statusConversations.length === 0 ? (
+                            {columnConversations.length === 0 ? (
                               <div className="rounded-md border border-dashed bg-white px-3 py-5 text-center text-xs text-muted-foreground">
                                 Sem conversas
                               </div>
@@ -1589,16 +1643,47 @@ export function WhatsAppInbox({
                       {selectedConversation.assigned_user_id === currentUserId ? "Liberar" : "Assumir"}
                     </Button>
 
-                    <Button
-                      variant={selectedConversation.status === "CLOSED" ? "default" : "outline"}
-                      size="sm"
-                      disabled={actionLoading}
-                      onClick={() => {
-                        void handleCloseOrReopen()
-                      }}
-                    >
-                      {selectedConversation.status === "CLOSED" ? "Reabrir" : "Fechar"}
-                    </Button>
+                    {selectedConversation.status === "CLOSED" ? (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={actionLoading}
+                        onClick={() => {
+                          void handleCloseOrReopen()
+                        }}
+                      >
+                        Reabrir
+                      </Button>
+                    ) : (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" disabled={actionLoading}>
+                            Fechar
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Tem certeza que deseja fechar essa conversa?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Você poderá reabrir a conversa depois, se precisar.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => {
+                                void handleCloseOrReopen()
+                              }}
+                              disabled={actionLoading}
+                            >
+                              Fechar conversa
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 </div>
 
