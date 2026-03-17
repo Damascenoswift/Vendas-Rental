@@ -134,6 +134,13 @@ function isWindowOpen(windowExpiresAt: string | null) {
   return expiresAt > Date.now()
 }
 
+function formatRecordingDuration(totalSeconds: number) {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const minutes = Math.floor(safeSeconds / 60)
+  const seconds = safeSeconds % 60
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
+
 function conversationDisplayName(conversation: WhatsAppConversationListItem) {
   return (
     conversation.contact_name ||
@@ -147,6 +154,10 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const { showToast } = useToast()
   const selectedConversationIdRef = useRef<string | null>(null)
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [conversations, setConversations] = useState<WhatsAppConversationListItem[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
@@ -171,6 +182,8 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const [draft, setDraft] = useState("")
   const [pendingMedia, setPendingMedia] = useState<PendingOutgoingMedia | null>(null)
   const [uploadingMedia, setUploadingMedia] = useState(false)
+  const [recordingAudio, setRecordingAudio] = useState(false)
+  const [recordingSeconds, setRecordingSeconds] = useState(0)
 
   const debouncedSearch = useDebounce(search, 350)
   const debouncedContactSearch = useDebounce(contactSearch, 300)
@@ -350,6 +363,28 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   }, [pendingMedia, selectedConversationId])
 
   useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current)
+        recordingIntervalRef.current = null
+      }
+
+      const recorder = mediaRecorderRef.current
+      if (recorder && recorder.state !== "inactive") {
+        recorder.onstop = null
+        recorder.stop()
+      }
+      mediaRecorderRef.current = null
+      audioChunksRef.current = []
+
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+        mediaStreamRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     void loadConversations({ preserveSelection: true })
   }, [loadConversations])
 
@@ -479,31 +514,8 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
     })
   }, [loadConversations, selectedConversation, showToast, withAction])
 
-  const openMediaPicker = useCallback(
-    (kind: MediaPickerKind) => {
-      if (!selectedConversation) {
-        showToast({
-          variant: "error",
-          title: "Selecione uma conversa",
-          description: "Escolha uma conversa antes de anexar arquivos.",
-        })
-        return
-      }
-
-      const input = mediaFileInputRef.current
-      if (!input) return
-      input.accept = MEDIA_PICKER_ACCEPT[kind]
-      input.click()
-    },
-    [selectedConversation, showToast]
-  )
-
-  const handleMediaInputChange = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      event.target.value = ""
-      if (!file) return
-
+  const uploadPendingMediaFile = useCallback(
+    async (file: File) => {
       if (!selectedConversation) {
         showToast({
           variant: "error",
@@ -580,6 +592,200 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
       })
     },
     [pendingMedia?.storagePath, selectedConversation, showToast]
+  )
+
+  const stopRecordingTimer = useCallback(() => {
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current)
+      recordingIntervalRef.current = null
+    }
+  }, [])
+
+  const stopRecordingTracks = useCallback(() => {
+    if (!mediaStreamRef.current) return
+    mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+    mediaStreamRef.current = null
+  }, [])
+
+  const stopAudioRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current
+
+    if (!recorder || recorder.state === "inactive") {
+      setRecordingAudio(false)
+      setRecordingSeconds(0)
+      stopRecordingTimer()
+      stopRecordingTracks()
+      return
+    }
+
+    recorder.stop()
+    setRecordingAudio(false)
+    setRecordingSeconds(0)
+    stopRecordingTimer()
+  }, [stopRecordingTimer, stopRecordingTracks])
+
+  const startAudioRecording = useCallback(async () => {
+    if (!selectedConversation) {
+      showToast({
+        variant: "error",
+        title: "Selecione uma conversa",
+        description: "Escolha uma conversa antes de gravar áudio.",
+      })
+      return
+    }
+
+    if (recordingAudio || uploadingMedia || actionLoading) return
+
+    if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+      showToast({
+        variant: "error",
+        title: "Gravação indisponível",
+        description: "Seu navegador não suporta gravação de áudio.",
+      })
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showToast({
+        variant: "error",
+        title: "Gravação indisponível",
+        description: "Não foi possível acessar o microfone neste navegador.",
+      })
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const preferredMimeTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ]
+
+      const mimeType = preferredMimeTypes.find((item) => {
+        try {
+          return MediaRecorder.isTypeSupported(item)
+        } catch {
+          return false
+        }
+      })
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      mediaRecorderRef.current = recorder
+      mediaStreamRef.current = stream
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.onstop = () => {
+        const effectiveType = recorder.mimeType || audioChunksRef.current[0]?.type || "audio/webm"
+        const extension = effectiveType.includes("ogg")
+          ? "ogg"
+          : effectiveType.includes("mp4") || effectiveType.includes("m4a")
+            ? "m4a"
+            : "webm"
+
+        const blob = new Blob(audioChunksRef.current, { type: effectiveType })
+        audioChunksRef.current = []
+        mediaRecorderRef.current = null
+        stopRecordingTracks()
+
+        if (blob.size <= 0) {
+          showToast({
+            variant: "error",
+            title: "Áudio vazio",
+            description: "Não foi possível capturar o áudio gravado.",
+          })
+          return
+        }
+
+        const file = new File([blob], `audio-${Date.now()}.${extension}`, {
+          type: effectiveType,
+        })
+
+        void uploadPendingMediaFile(file)
+      }
+
+      recorder.onerror = () => {
+        showToast({
+          variant: "error",
+          title: "Falha na gravação",
+          description: "Não foi possível gravar o áudio.",
+        })
+        stopAudioRecording()
+      }
+
+      recorder.start(250)
+      setRecordingAudio(true)
+      setRecordingSeconds(0)
+      stopRecordingTimer()
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1)
+      }, 1000)
+    } catch (error) {
+      stopRecordingTracks()
+      showToast({
+        variant: "error",
+        title: "Permissão negada",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Autorize o uso do microfone para gravar e enviar áudios.",
+      })
+    }
+  }, [
+    actionLoading,
+    recordingAudio,
+    selectedConversation,
+    showToast,
+    stopAudioRecording,
+    stopRecordingTimer,
+    stopRecordingTracks,
+    uploadPendingMediaFile,
+    uploadingMedia,
+  ])
+
+  const openMediaPicker = useCallback(
+    (kind: Exclude<MediaPickerKind, "audio">) => {
+      if (!selectedConversation) {
+        showToast({
+          variant: "error",
+          title: "Selecione uma conversa",
+          description: "Escolha uma conversa antes de anexar arquivos.",
+        })
+        return
+      }
+
+      const input = mediaFileInputRef.current
+      if (!input) return
+      input.accept = MEDIA_PICKER_ACCEPT[kind]
+      input.click()
+    },
+    [selectedConversation, showToast]
+  )
+
+  const handleAudioButtonClick = useCallback(() => {
+    if (recordingAudio) {
+      stopAudioRecording()
+      return
+    }
+    void startAudioRecording()
+  }, [recordingAudio, startAudioRecording, stopAudioRecording])
+
+  const handleMediaInputChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = ""
+      if (!file) return
+
+      await uploadPendingMediaFile(file)
+    },
+    [uploadPendingMediaFile]
   )
 
   const removePendingMedia = useCallback(async () => {
@@ -1037,12 +1243,18 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault()
-                      if (!actionLoading && !uploadingMedia && canSend.allowed) {
+                      if (!actionLoading && !uploadingMedia && !recordingAudio && canSend.allowed) {
                         void handleSendMessage()
                       }
                     }
                   }}
                 />
+
+                {recordingAudio ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    Gravando áudio... {formatRecordingDuration(recordingSeconds)}
+                  </div>
+                ) : null}
 
                 {pendingMedia ? (
                   <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
@@ -1076,7 +1288,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                       size="sm"
                       variant="outline"
                       onClick={() => openMediaPicker("image")}
-                      disabled={!canSend.allowed || actionLoading || uploadingMedia}
+                      disabled={!canSend.allowed || actionLoading || uploadingMedia || recordingAudio}
                     >
                       <FileImage className="h-4 w-4" />
                       Foto
@@ -1086,7 +1298,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                       size="sm"
                       variant="outline"
                       onClick={() => openMediaPicker("document")}
-                      disabled={!canSend.allowed || actionLoading || uploadingMedia}
+                      disabled={!canSend.allowed || actionLoading || uploadingMedia || recordingAudio}
                     >
                       <FileText className="h-4 w-4" />
                       PDF
@@ -1094,12 +1306,12 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      onClick={() => openMediaPicker("audio")}
+                      variant={recordingAudio ? "destructive" : "outline"}
+                      onClick={() => handleAudioButtonClick()}
                       disabled={!canSend.allowed || actionLoading || uploadingMedia}
                     >
                       <AudioLines className="h-4 w-4" />
-                      Áudio
+                      {recordingAudio ? "Parar" : "Áudio"}
                     </Button>
                   </div>
 
@@ -1110,6 +1322,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                     disabled={
                       actionLoading ||
                       uploadingMedia ||
+                      recordingAudio ||
                       !canSend.allowed ||
                       (!draft.trim() && !pendingMedia)
                     }
