@@ -7,6 +7,7 @@ import {
   getWhatsAppProvider,
   isWhatsAppInboxEnabled,
   normalizeWhatsAppIdentifier,
+  sendWhatsAppMediaMessage as sendWhatsAppCloudMediaMessage,
   sendWhatsAppTextMessage as sendWhatsAppCloudTextMessage,
   type SendMessageResult,
   type WhatsAppBrand,
@@ -15,7 +16,18 @@ import {
   type WhatsAppMessageStatus,
   type WhatsAppMessageType,
 } from "@/lib/integrations/whatsapp"
-import { sendZApiTextMessage } from "@/lib/integrations/whatsapp-zapi"
+import {
+  sendZApiAudioMessage,
+  sendZApiDocumentMessage,
+  sendZApiImageMessage,
+  sendZApiTextMessage,
+} from "@/lib/integrations/whatsapp-zapi"
+import {
+  WHATSAPP_OUTBOUND_MEDIA_BUCKET,
+  formatOutboundMediaBodyText,
+  isWhatsAppOutboundMediaType,
+  type WhatsAppOutboundMediaType,
+} from "@/lib/whatsapp-media"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
@@ -168,6 +180,26 @@ function mapSendResultToMessageStatus(sendResult: SendMessageResult): WhatsAppMe
   return "sent"
 }
 
+function mapMessageRowToModel(row: MessageRow): WhatsAppMessage {
+  return {
+    id: row.id,
+    conversation_id: row.conversation_id,
+    direction: row.direction,
+    wa_message_id: row.wa_message_id,
+    message_type: row.message_type,
+    body_text: row.body_text,
+    status: row.status,
+    sender_user_id: row.sender_user_id,
+    sender_user_name: null,
+    error_message: row.error_message,
+    created_at: row.created_at,
+    sent_at: row.sent_at,
+    delivered_at: row.delivered_at,
+    read_at: row.read_at,
+    failed_at: row.failed_at,
+  }
+}
+
 function buildWhatsAppAgentDisplayName(input: { name?: string; email?: string | null }) {
   const name = input.name?.trim()
   if (name) return name
@@ -226,6 +258,50 @@ async function sendWhatsAppByConfiguredProvider(input: {
   return sendWhatsAppCloudTextMessage({
     to: input.to,
     text: input.text,
+    phoneNumberId: input.phoneNumberId,
+  })
+}
+
+async function sendWhatsAppMediaByConfiguredProvider(input: {
+  to: string
+  mediaType: WhatsAppOutboundMediaType
+  mediaUrl: string
+  caption?: string | null
+  fileName?: string | null
+  phoneNumberId: string
+}): Promise<SendMessageResult> {
+  const provider = getWhatsAppProvider()
+
+  if (provider === "z_api") {
+    if (input.mediaType === "image") {
+      return sendZApiImageMessage({
+        to: input.to,
+        imageUrl: input.mediaUrl,
+        caption: input.caption,
+      })
+    }
+
+    if (input.mediaType === "document") {
+      return sendZApiDocumentMessage({
+        to: input.to,
+        documentUrl: input.mediaUrl,
+        fileName: input.fileName,
+        caption: input.caption,
+      })
+    }
+
+    return sendZApiAudioMessage({
+      to: input.to,
+      audioUrl: input.mediaUrl,
+    })
+  }
+
+  return sendWhatsAppCloudMediaMessage({
+    to: input.to,
+    mediaType: input.mediaType,
+    mediaUrl: input.mediaUrl,
+    caption: input.caption,
+    fileName: input.fileName,
     phoneNumberId: input.phoneNumberId,
   })
 }
@@ -1119,23 +1195,7 @@ export async function sendWhatsAppTextMessage(
     return {
       success: true,
       data: {
-        message: {
-          id: inserted.id,
-          conversation_id: inserted.conversation_id,
-          direction: inserted.direction,
-          wa_message_id: inserted.wa_message_id,
-          message_type: inserted.message_type,
-          body_text: inserted.body_text,
-          status: inserted.status,
-          sender_user_id: inserted.sender_user_id,
-          sender_user_name: null,
-          error_message: inserted.error_message,
-          created_at: inserted.created_at,
-          sent_at: inserted.sent_at,
-          delivered_at: inserted.delivered_at,
-          read_at: inserted.read_at,
-          failed_at: inserted.failed_at,
-        },
+        message: mapMessageRowToModel(inserted),
         send_result: sendResult,
       },
     }
@@ -1143,6 +1203,177 @@ export async function sendWhatsAppTextMessage(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao enviar mensagem.",
+    }
+  }
+}
+
+export async function sendWhatsAppMediaMessage(
+  conversationId: string,
+  input: {
+    mediaType: WhatsAppOutboundMediaType
+    storagePath: string
+    fileName?: string | null
+    caption?: string | null
+  }
+): Promise<ActionResult<{ message: WhatsAppMessage; send_result: SendMessageResult }>> {
+  try {
+    const { user } = await requireWhatsAppAccess()
+
+    if (!isWhatsAppOutboundMediaType(input.mediaType)) {
+      throw new WhatsAppActionError("Tipo de mídia inválido para envio.")
+    }
+
+    const storagePath = (input.storagePath || "").trim()
+    if (!storagePath) {
+      throw new WhatsAppActionError("Arquivo de mídia não informado.")
+    }
+
+    if (!storagePath.startsWith(`${conversationId}/`)) {
+      throw new WhatsAppActionError("Arquivo inválido para esta conversa.")
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const conversation = await fetchConversationById(conversationId)
+
+    if (!conversation.brand) {
+      throw new WhatsAppActionError("Defina a marca da conversa antes de enviar mensagens.")
+    }
+
+    if (conversation.status === "CLOSED") {
+      throw new WhatsAppActionError("Conversa fechada. Reabra para enviar novas mensagens.")
+    }
+
+    const now = Date.now()
+    if (!conversation.window_expires_at || new Date(conversation.window_expires_at).getTime() <= now) {
+      throw new WhatsAppActionError(
+        "Janela de 24h encerrada. O envio de mensagens foi bloqueado nesta fase."
+      )
+    }
+
+    const oneMinuteAgo = new Date(now - 60 * 1000).toISOString()
+    const { count: recentOutboundCount, error: rateError } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("direction", "OUTBOUND")
+      .eq("sender_user_id", user.id)
+      .gte("created_at", oneMinuteAgo)
+
+    if (rateError) {
+      throw new WhatsAppActionError(rateError.message)
+    }
+
+    if ((recentOutboundCount ?? 0) >= SEND_RATE_LIMIT_PER_MINUTE) {
+      throw new WhatsAppActionError(
+        "Limite de envio atingido temporariamente. Aguarde alguns segundos e tente novamente."
+      )
+    }
+
+    const { data: accountData, error: accountError } = await supabaseAdmin
+      .from("whatsapp_accounts")
+      .select("id, phone_number_id, status")
+      .eq("id", conversation.account_id)
+      .maybeSingle()
+
+    if (accountError || !accountData) {
+      throw new WhatsAppActionError(accountError?.message ?? "Conta WhatsApp não encontrada.")
+    }
+
+    if ((accountData as { status: string }).status !== "active") {
+      throw new WhatsAppActionError("Conta WhatsApp inativa. Verifique a configuração da integração.")
+    }
+
+    const { data: signedData, error: signedError } = await supabaseAdmin.storage
+      .from(WHATSAPP_OUTBOUND_MEDIA_BUCKET)
+      .createSignedUrl(storagePath, 60 * 30)
+
+    if (signedError || !signedData?.signedUrl) {
+      throw new WhatsAppActionError(signedError?.message ?? "Falha ao gerar link temporário do arquivo.")
+    }
+
+    const caption = input.caption?.trim() || null
+    const fileName = input.fileName?.trim() || null
+
+    const sendResult = await sendWhatsAppMediaByConfiguredProvider({
+      to: conversation.customer_wa_id,
+      mediaType: input.mediaType,
+      mediaUrl: signedData.signedUrl,
+      caption,
+      fileName,
+      phoneNumberId: (accountData as { phone_number_id: string }).phone_number_id,
+    })
+
+    if (!sendResult.success) {
+      throw new WhatsAppActionError(sendResult.error || "Falha no envio de mídia para o WhatsApp.")
+    }
+
+    const nowIso = new Date().toISOString()
+    const bodyText = formatOutboundMediaBodyText({
+      mediaType: input.mediaType,
+      caption,
+      fileName,
+    })
+
+    const { data: insertedData, error: insertError } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .insert({
+        conversation_id: conversationId,
+        direction: "OUTBOUND",
+        wa_message_id: sendResult.messageId ?? null,
+        message_type: input.mediaType,
+        body_text: bodyText,
+        status: mapSendResultToMessageStatus(sendResult),
+        sender_user_id: user.id,
+        raw_payload: {
+          provider_send_result: sendResult.raw ?? {},
+          outbound_media: {
+            media_type: input.mediaType,
+            storage_bucket: WHATSAPP_OUTBOUND_MEDIA_BUCKET,
+            storage_path: storagePath,
+            file_name: fileName,
+            caption,
+          },
+        },
+        sent_at: nowIso,
+      })
+      .select(
+        "id, conversation_id, direction, wa_message_id, message_type, body_text, status, sender_user_id, error_message, created_at, sent_at, delivered_at, read_at, failed_at"
+      )
+      .single()
+
+    if (insertError || !insertedData) {
+      throw new WhatsAppActionError(insertError?.message ?? "Falha ao registrar mensagem enviada")
+    }
+
+    const { error: conversationUpdateError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update({
+        status: "OPEN",
+        last_message_at: nowIso,
+      })
+      .eq("id", conversationId)
+
+    if (conversationUpdateError) {
+      console.error("whatsapp_conversation_last_message_update_failed", {
+        conversation_id: conversationId,
+        error: conversationUpdateError.message,
+      })
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    const inserted = insertedData as MessageRow
+
+    return {
+      success: true,
+      data: {
+        message: mapMessageRowToModel(inserted),
+        send_result: sendResult,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao enviar mídia.",
     }
   }
 }

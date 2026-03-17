@@ -1,7 +1,19 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Clock3, MessageCircle, Plus, RefreshCcw, Send, UserRound } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import {
+  AudioLines,
+  Clock3,
+  FileImage,
+  FileText,
+  MessageCircle,
+  Paperclip,
+  Plus,
+  RefreshCcw,
+  Send,
+  UserRound,
+  X,
+} from "lucide-react"
 
 import {
   assignWhatsAppConversation,
@@ -10,6 +22,7 @@ import {
   listWhatsAppConversations,
   searchWhatsAppContacts,
   reopenWhatsAppConversation,
+  sendWhatsAppMediaMessage,
   sendWhatsAppTextMessage,
   startWhatsAppConversationFromContact,
   setWhatsAppConversationBrand,
@@ -43,6 +56,14 @@ import {
 } from "@/components/ui/dialog"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useToast } from "@/hooks/use-toast"
+import {
+  WHATSAPP_OUTBOUND_MEDIA_BUCKET,
+  buildWhatsAppOutboundMediaStoragePath,
+  resolveWhatsAppOutboundMediaType,
+  sanitizeWhatsAppOutboundMediaFileName,
+  validateWhatsAppOutboundMediaFile,
+  type WhatsAppOutboundMediaType,
+} from "@/lib/whatsapp-media"
 import { supabase } from "@/lib/supabase"
 
 type WhatsAppInboxProps = {
@@ -53,6 +74,13 @@ type WhatsAppInboxProps = {
 type StatusFilter = "all" | "PENDING_BRAND" | "OPEN" | "CLOSED"
 type ConversationBrand = "rental" | "dorata" | "funcionario" | "diversos"
 type BrandFilter = "all" | ConversationBrand
+type MediaPickerKind = "image" | "document" | "audio"
+
+type PendingOutgoingMedia = {
+  mediaType: WhatsAppOutboundMediaType
+  storagePath: string
+  fileName: string
+}
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
   all: "Todos",
@@ -75,6 +103,12 @@ const MESSAGE_STATUS_LABELS: Record<string, string> = {
   delivered: "Entregue",
   read: "Lida",
   failed: "Falhou",
+}
+
+const MEDIA_PICKER_ACCEPT: Record<MediaPickerKind, string> = {
+  image: "image/jpeg,image/png,image/webp",
+  document: "application/pdf,.pdf",
+  audio: "audio/*,.mp3,.ogg,.wav,.m4a,.aac,.webm",
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -112,6 +146,7 @@ function conversationDisplayName(conversation: WhatsAppConversationListItem) {
 export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxProps) {
   const { showToast } = useToast()
   const selectedConversationIdRef = useRef<string | null>(null)
+  const mediaFileInputRef = useRef<HTMLInputElement | null>(null)
 
   const [conversations, setConversations] = useState<WhatsAppConversationListItem[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
@@ -134,6 +169,8 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const [unassignedOnly, setUnassignedOnly] = useState(false)
 
   const [draft, setDraft] = useState("")
+  const [pendingMedia, setPendingMedia] = useState<PendingOutgoingMedia | null>(null)
+  const [uploadingMedia, setUploadingMedia] = useState(false)
 
   const debouncedSearch = useDebounce(search, 350)
   const debouncedContactSearch = useDebounce(contactSearch, 300)
@@ -304,6 +341,15 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   }, [selectedConversationId])
 
   useEffect(() => {
+    if (!pendingMedia) return
+    if (!selectedConversationId || !pendingMedia.storagePath.startsWith(`${selectedConversationId}/`)) {
+      const previousPath = pendingMedia.storagePath
+      setPendingMedia(null)
+      void supabase.storage.from(WHATSAPP_OUTBOUND_MEDIA_BUCKET).remove([previousPath])
+    }
+  }, [pendingMedia, selectedConversationId])
+
+  useEffect(() => {
     void loadConversations({ preserveSelection: true })
   }, [loadConversations])
 
@@ -433,29 +479,150 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
     })
   }, [loadConversations, selectedConversation, showToast, withAction])
 
+  const openMediaPicker = useCallback(
+    (kind: MediaPickerKind) => {
+      if (!selectedConversation) {
+        showToast({
+          variant: "error",
+          title: "Selecione uma conversa",
+          description: "Escolha uma conversa antes de anexar arquivos.",
+        })
+        return
+      }
+
+      const input = mediaFileInputRef.current
+      if (!input) return
+      input.accept = MEDIA_PICKER_ACCEPT[kind]
+      input.click()
+    },
+    [selectedConversation, showToast]
+  )
+
+  const handleMediaInputChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = ""
+      if (!file) return
+
+      if (!selectedConversation) {
+        showToast({
+          variant: "error",
+          title: "Selecione uma conversa",
+          description: "Escolha uma conversa antes de anexar arquivos.",
+        })
+        return
+      }
+
+      const validationError = validateWhatsAppOutboundMediaFile({
+        fileName: file.name,
+        sizeBytes: file.size,
+        mimeType: file.type,
+      })
+
+      if (validationError) {
+        showToast({
+          variant: "error",
+          title: "Arquivo inválido",
+          description: validationError,
+        })
+        return
+      }
+
+      const mediaType = resolveWhatsAppOutboundMediaType({
+        fileName: file.name,
+        mimeType: file.type,
+      })
+
+      if (!mediaType) {
+        showToast({
+          variant: "error",
+          title: "Formato não suportado",
+          description: "Use foto, PDF ou áudio.",
+        })
+        return
+      }
+
+      const safeFileName = sanitizeWhatsAppOutboundMediaFileName({
+        fileName: file.name,
+        mediaType,
+      })
+
+      const storagePath = buildWhatsAppOutboundMediaStoragePath({
+        conversationId: selectedConversation.id,
+        safeFileName,
+      })
+
+      setUploadingMedia(true)
+      const { error } = await supabase.storage.from(WHATSAPP_OUTBOUND_MEDIA_BUCKET).upload(storagePath, file, {
+        upsert: false,
+        cacheControl: "3600",
+        contentType: file.type || undefined,
+      })
+      setUploadingMedia(false)
+
+      if (error) {
+        showToast({
+          variant: "error",
+          title: "Falha no upload",
+          description: error.message,
+        })
+        return
+      }
+
+      if (pendingMedia?.storagePath) {
+        void supabase.storage.from(WHATSAPP_OUTBOUND_MEDIA_BUCKET).remove([pendingMedia.storagePath])
+      }
+
+      setPendingMedia({
+        mediaType,
+        storagePath,
+        fileName: safeFileName,
+      })
+    },
+    [pendingMedia?.storagePath, selectedConversation, showToast]
+  )
+
+  const removePendingMedia = useCallback(async () => {
+    if (!pendingMedia) return
+
+    const path = pendingMedia.storagePath
+    setPendingMedia(null)
+    await supabase.storage.from(WHATSAPP_OUTBOUND_MEDIA_BUCKET).remove([path])
+  }, [pendingMedia])
+
   const handleSendMessage = useCallback(async () => {
     if (!selectedConversation) return
 
     const message = draft.trim()
-    if (!message) return
+    const hasPendingMedia = Boolean(pendingMedia)
+
+    if (!message && !hasPendingMedia) return
 
     await withAction(async () => {
-      const result = await sendWhatsAppTextMessage(selectedConversation.id, message)
+      const result = hasPendingMedia
+        ? await sendWhatsAppMediaMessage(selectedConversation.id, {
+            mediaType: pendingMedia.mediaType,
+            storagePath: pendingMedia.storagePath,
+            fileName: pendingMedia.fileName,
+            caption: message || null,
+          })
+        : await sendWhatsAppTextMessage(selectedConversation.id, message)
 
       if (!result.success) {
         showToast({
           variant: "error",
-          title: "Falha ao enviar mensagem",
+          title: hasPendingMedia ? "Falha ao enviar mídia" : "Falha ao enviar mensagem",
           description: result.error,
         })
         return
       }
 
       setDraft("")
+      setPendingMedia(null)
       await loadConversations({ preserveSelection: true })
       await loadMessages(selectedConversation.id)
     })
-  }, [draft, loadConversations, loadMessages, selectedConversation, showToast, withAction])
+  }, [draft, loadConversations, loadMessages, pendingMedia, selectedConversation, showToast, withAction])
 
   const handleLoadOlderMessages = useCallback(async () => {
     const selectedId = selectedConversationIdRef.current
@@ -485,7 +652,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
     if (!isWindowOpen(selectedConversation.window_expires_at)) {
       return {
         allowed: false,
-        reason: "Janela de 24h encerrada. Texto livre bloqueado nesta fase.",
+        reason: "Janela de 24h encerrada. O envio de mensagens está bloqueado nesta fase.",
       }
     }
 
@@ -853,22 +1020,111 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                   </div>
                 ) : null}
 
+                <input
+                  ref={mediaFileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleMediaInputChange(event)
+                  }}
+                />
+
                 <Textarea
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder="Digite a resposta para o cliente"
                   rows={4}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault()
+                      if (!actionLoading && !uploadingMedia && canSend.allowed) {
+                        void handleSendMessage()
+                      }
+                    }
+                  }}
                 />
 
-                <div className="flex justify-end">
+                {pendingMedia ? (
+                  <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{pendingMedia.fileName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {pendingMedia.mediaType === "image"
+                          ? "Foto"
+                          : pendingMedia.mediaType === "document"
+                            ? "PDF"
+                            : "Áudio"}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        void removePendingMedia()
+                      }}
+                      disabled={actionLoading || uploadingMedia}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openMediaPicker("image")}
+                      disabled={!canSend.allowed || actionLoading || uploadingMedia}
+                    >
+                      <FileImage className="h-4 w-4" />
+                      Foto
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openMediaPicker("document")}
+                      disabled={!canSend.allowed || actionLoading || uploadingMedia}
+                    >
+                      <FileText className="h-4 w-4" />
+                      PDF
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openMediaPicker("audio")}
+                      disabled={!canSend.allowed || actionLoading || uploadingMedia}
+                    >
+                      <AudioLines className="h-4 w-4" />
+                      Áudio
+                    </Button>
+                  </div>
+
                   <Button
                     onClick={() => {
                       void handleSendMessage()
                     }}
-                    disabled={actionLoading || !canSend.allowed || !draft.trim()}
+                    disabled={
+                      actionLoading ||
+                      uploadingMedia ||
+                      !canSend.allowed ||
+                      (!draft.trim() && !pendingMedia)
+                    }
                   >
-                    <Send className="h-4 w-4" />
-                    Enviar
+                    {uploadingMedia ? (
+                      <>
+                        <Paperclip className="h-4 w-4" />
+                        Enviando arquivo...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Enviar
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

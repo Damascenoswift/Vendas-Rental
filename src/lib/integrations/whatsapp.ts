@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { isWhatsAppOutboundMediaType, type WhatsAppOutboundMediaType } from "@/lib/whatsapp-media"
 
 export type WhatsAppConversationStatus = "PENDING_BRAND" | "OPEN" | "CLOSED"
 export type WhatsAppMessageDirection = "INBOUND" | "OUTBOUND"
@@ -35,6 +36,15 @@ export type SendMessageResult = {
 export type SendWhatsAppTextInput = {
   to: string
   text: string
+  phoneNumberId?: string
+}
+
+export type SendWhatsAppMediaInput = {
+  to: string
+  mediaType: WhatsAppOutboundMediaType
+  mediaUrl: string
+  caption?: string | null
+  fileName?: string | null
   phoneNumberId?: string
 }
 
@@ -256,6 +266,98 @@ export async function sendWhatsAppTextMessage(input: SendWhatsAppTextInput): Pro
       preview_url: false,
       body,
     },
+  }
+
+  try {
+    const response = await fetch(buildGraphApiUrl(phoneNumberId), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const json = (await response.json().catch(() => ({}))) as WhatsAppCloudSendResponse
+
+    if (!response.ok) {
+      return {
+        success: false,
+        statusCode: response.status,
+        error: json?.error?.message || `Erro WhatsApp Cloud API (${response.status})`,
+        raw: json,
+      }
+    }
+
+    return {
+      success: true,
+      statusCode: response.status,
+      messageId: json?.messages?.[0]?.id,
+      raw: json,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      statusCode: 500,
+      error: error instanceof Error ? error.message : "Falha ao conectar na WhatsApp Cloud API",
+    }
+  }
+}
+
+export async function sendWhatsAppMediaMessage(input: SendWhatsAppMediaInput): Promise<SendMessageResult> {
+  const token = getCloudApiToken()
+  const phoneNumberId = input.phoneNumberId || getDefaultPhoneNumberId()
+  const to = normalizeWhatsAppIdentifier(input.to)
+  const mediaUrl = input.mediaUrl?.trim() || ""
+  const caption = input.caption?.trim() || ""
+  const fileName = input.fileName?.trim() || ""
+
+  if (!to) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Destino invalido para envio WhatsApp.",
+    }
+  }
+
+  if (!isWhatsAppOutboundMediaType(input.mediaType)) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Tipo de mídia inválido para envio.",
+    }
+  }
+
+  if (!mediaUrl) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "URL de mídia inválida para envio WhatsApp.",
+    }
+  }
+
+  const payload: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: input.mediaType,
+  }
+
+  if (input.mediaType === "image") {
+    payload.image = {
+      link: mediaUrl,
+      ...(caption ? { caption } : {}),
+    }
+  } else if (input.mediaType === "document") {
+    payload.document = {
+      link: mediaUrl,
+      ...(caption ? { caption } : {}),
+      ...(fileName ? { filename: fileName } : {}),
+    }
+  } else {
+    payload.audio = {
+      link: mediaUrl,
+    }
   }
 
   try {

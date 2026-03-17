@@ -293,15 +293,18 @@ export async function sendZApiTextMessage(input: {
     }
   }
 
+  return sendZApiRequest("send-text", {
+    phone: to,
+    message: body,
+  })
+}
+
+async function sendZApiRequest(path: string, payload: Record<string, unknown>): Promise<SendMessageResult> {
   const instanceId = getRequiredEnv("WHATSAPP_ZAPI_INSTANCE_ID")
   const instanceToken = getRequiredEnv("WHATSAPP_ZAPI_INSTANCE_TOKEN")
   const clientToken = getRequiredEnv("WHATSAPP_ZAPI_CLIENT_TOKEN")
 
-  const url = `https://api.z-api.io/instances/${instanceId}/token/${instanceToken}/send-text`
-  const payload = {
-    phone: to,
-    message: body,
-  }
+  const url = `https://api.z-api.io/instances/${instanceId}/token/${instanceToken}/${path}`
 
   try {
     const response = await fetch(url, {
@@ -346,4 +349,111 @@ export async function sendZApiTextMessage(input: {
       error: error instanceof Error ? error.message : "Falha ao conectar na Z-API",
     }
   }
+}
+
+function getDocumentExtensionFromUrlOrName(value: string) {
+  const lastSegment = value.split("?")[0]?.split("#")[0] || value
+  const extension = lastSegment.split(".").pop()?.toLowerCase() || ""
+  if (!extension) return null
+  return extension.replace(/[^a-z0-9]/g, "") || null
+}
+
+export async function sendZApiImageMessage(input: {
+  to: string
+  imageUrl: string
+  caption?: string | null
+}): Promise<SendMessageResult> {
+  const to = normalizeWhatsAppIdentifier(input.to)
+  const imageUrl = input.imageUrl?.trim() || ""
+  const caption = input.caption?.trim() || ""
+
+  if (!to) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Destino invalido para envio WhatsApp.",
+    }
+  }
+
+  if (!imageUrl) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "URL da imagem inválida.",
+    }
+  }
+
+  return sendZApiRequest("send-image", {
+    phone: to,
+    image: imageUrl,
+    ...(caption ? { caption } : {}),
+  })
+}
+
+export async function sendZApiDocumentMessage(input: {
+  to: string
+  documentUrl: string
+  fileName?: string | null
+  caption?: string | null
+}): Promise<SendMessageResult> {
+  const to = normalizeWhatsAppIdentifier(input.to)
+  const documentUrl = input.documentUrl?.trim() || ""
+  const fileName = input.fileName?.trim() || ""
+  const caption = input.caption?.trim() || ""
+
+  if (!to) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Destino invalido para envio WhatsApp.",
+    }
+  }
+
+  if (!documentUrl) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "URL do documento inválida.",
+    }
+  }
+
+  const extensionSource = fileName || documentUrl
+  const extension = getDocumentExtensionFromUrlOrName(extensionSource)
+  const path = extension ? `send-document/${extension}` : "send-document"
+
+  return sendZApiRequest(path, {
+    phone: to,
+    document: documentUrl,
+    ...(fileName ? { fileName } : {}),
+    ...(caption ? { caption } : {}),
+  })
+}
+
+export async function sendZApiAudioMessage(input: {
+  to: string
+  audioUrl: string
+}): Promise<SendMessageResult> {
+  const to = normalizeWhatsAppIdentifier(input.to)
+  const audioUrl = input.audioUrl?.trim() || ""
+
+  if (!to) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Destino invalido para envio WhatsApp.",
+    }
+  }
+
+  if (!audioUrl) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "URL do áudio inválida.",
+    }
+  }
+
+  return sendZApiRequest("send-audio", {
+    phone: to,
+    audio: audioUrl,
+  })
 }
