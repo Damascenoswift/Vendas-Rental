@@ -174,6 +174,9 @@ export function WhatsAppInbox({
 }: WhatsAppInboxProps) {
   const { showToast } = useToast()
   const selectedConversationIdRef = useRef<string | null>(null)
+  const conversationPanelRef = useRef<HTMLDivElement | null>(null)
+  const messagesScrollAreaRef = useRef<HTMLDivElement | null>(null)
+  const shouldScrollMessagesToBottomRef = useRef(false)
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -219,6 +222,33 @@ export function WhatsAppInbox({
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   )
+
+  const getMessagesViewportElement = useCallback(() => {
+    if (!messagesScrollAreaRef.current) return null
+    return messagesScrollAreaRef.current.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]"
+    )
+  }, [])
+
+  const scrollMessagesToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const viewport = getMessagesViewportElement()
+      if (!viewport) return
+      viewport.scrollTo({
+        top: viewport.scrollHeight,
+        behavior,
+      })
+    },
+    [getMessagesViewportElement]
+  )
+
+  const ensureConversationPanelInView = useCallback(() => {
+    if (!conversationPanelRef.current) return
+    conversationPanelRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    })
+  }, [])
 
   const conversationsByStatus = useMemo(() => {
     return {
@@ -389,6 +419,19 @@ export function WhatsAppInbox({
   }, [selectedConversationId])
 
   useEffect(() => {
+    if (!selectedConversationId) return
+    shouldScrollMessagesToBottomRef.current = true
+
+    const frameId = window.requestAnimationFrame(() => {
+      ensureConversationPanelInView()
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [ensureConversationPanelInView, selectedConversationId])
+
+  useEffect(() => {
     if (typeof window === "undefined") return
     const savedMode = window.localStorage.getItem("whatsapp_inbox_view_mode")
     if (savedMode === "kanban" || savedMode === "list") {
@@ -451,6 +494,21 @@ export function WhatsAppInbox({
 
     void loadMessages(selectedConversationId)
   }, [loadMessages, selectedConversationId])
+
+  useEffect(() => {
+    if (!selectedConversationId) return
+    if (loadingMessages) return
+    if (!shouldScrollMessagesToBottomRef.current) return
+
+    const frameId = window.requestAnimationFrame(() => {
+      scrollMessagesToBottom("auto")
+      shouldScrollMessagesToBottomRef.current = false
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [loadingMessages, messages, scrollMessagesToBottom, selectedConversationId])
 
   useEffect(() => {
     const channel = supabase
@@ -975,8 +1033,22 @@ export function WhatsAppInbox({
       setPendingMedia(null)
       await loadConversations({ preserveSelection: true })
       await loadMessages(selectedConversation.id)
+      window.requestAnimationFrame(() => {
+        scrollMessagesToBottom("smooth")
+        ensureConversationPanelInView()
+      })
     })
-  }, [draft, loadConversations, loadMessages, pendingMedia, selectedConversation, showToast, withAction])
+  }, [
+    draft,
+    ensureConversationPanelInView,
+    loadConversations,
+    loadMessages,
+    pendingMedia,
+    scrollMessagesToBottom,
+    selectedConversation,
+    showToast,
+    withAction,
+  ])
 
   const handleLoadOlderMessages = useCallback(async () => {
     const selectedId = selectedConversationIdRef.current
@@ -1333,6 +1405,7 @@ export function WhatsAppInbox({
           ) : null}
 
           <div
+            ref={conversationPanelRef}
             className={
               conversationViewMode === "kanban"
                 ? `absolute inset-y-3 right-3 z-20 w-[min(780px,calc(100%-1.5rem))] rounded-xl border bg-white shadow-2xl overflow-hidden ${
@@ -1548,7 +1621,10 @@ export function WhatsAppInbox({
                 </Dialog>
               ) : null}
 
-              <ScrollArea className="flex-1 p-4 bg-slate-50/40">
+              <ScrollArea
+                ref={messagesScrollAreaRef}
+                className="flex-1 p-4 bg-slate-50/40 [&_[data-radix-scroll-area-viewport]]:scroll-smooth"
+              >
                 <div className="space-y-3">
                   {hasMoreMessages ? (
                     <div className="flex justify-center pb-1">
