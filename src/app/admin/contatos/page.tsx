@@ -3,6 +3,9 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
+import { getContactDuplicateOverview } from "@/app/actions/contacts"
+import { ContactDedupeSyncButton } from "@/components/admin/contacts/contact-dedupe-sync-button"
+import { Badge } from "@/components/ui/badge"
 import {
     Table,
     TableBody,
@@ -13,6 +16,13 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card"
 
 export const dynamic = "force-dynamic"
 
@@ -103,6 +113,11 @@ export default async function AdminContactsPage({
     const currentPage = Math.min(Math.max(page, 1), totalPages)
     const showFrom = total === 0 ? 0 : from + 1
     const showTo = total === 0 ? 0 : Math.min(from + perPage, total)
+    const duplicateOverviewResult = await getContactDuplicateOverview(8)
+    const duplicateOverview = duplicateOverviewResult.success ? duplicateOverviewResult.data : null
+    const duplicateOverviewError = duplicateOverviewResult.success
+        ? null
+        : duplicateOverviewResult.error ?? "Não foi possível analisar duplicidade de contatos."
 
     const buildPageLink = (targetPage: number) => {
         const params = new URLSearchParams()
@@ -135,10 +150,73 @@ export default async function AdminContactsPage({
                         </Button>
                     )}
                 </form>
-                <div className="text-sm text-muted-foreground">
-                    {total} contato(s)
+                <div className="flex items-center gap-2">
+                    <div className="text-sm text-muted-foreground">
+                        {total} contato(s)
+                    </div>
+                    {duplicateOverview && (
+                        <ContactDedupeSyncButton
+                            canSync={duplicateOverview.can_sync}
+                            duplicateGroups={duplicateOverview.duplicate_groups}
+                            duplicateContacts={duplicateOverview.duplicate_contacts}
+                        />
+                    )}
                 </div>
             </div>
+
+            {duplicateOverview && (
+                <Card className="gap-4 border-dashed">
+                    <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-1">
+                            <CardTitle className="text-base">Controle de Contatos Duplicados</CardTitle>
+                            <CardDescription>
+                                Duplicidade detectada por número (WhatsApp, telefone ou celular normalizado).
+                            </CardDescription>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline">
+                                {duplicateOverview.duplicate_groups} grupo(s) com conflito
+                            </Badge>
+                            <Badge variant="outline">
+                                {duplicateOverview.duplicate_contacts} contato(s) para consolidar
+                            </Badge>
+                            <Badge variant={duplicateOverview.can_sync ? "success" : "secondary"}>
+                                {duplicateOverview.can_sync ? "Sincronização habilitada" : "Somente visualização"}
+                            </Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {duplicateOverview.duplicate_groups === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                                Nenhum conflito encontrado. Todos os números estão com contato único.
+                            </p>
+                        ) : (
+                            duplicateOverview.groups.map((group) => (
+                                <div
+                                    key={`${group.key}-${group.sample_contact_ids.join("-")}`}
+                                    className="rounded-lg border bg-background/80 px-4 py-3"
+                                >
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <p className="text-sm font-medium">
+                                            {group.sample_names.join(" • ")}
+                                        </p>
+                                        <Badge variant="outline">{group.total_contacts} contatos</Badge>
+                                    </div>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                        Números: {group.numbers.join(", ")}
+                                    </p>
+                                </div>
+                            ))
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
+            {duplicateOverviewError && (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                    {duplicateOverviewError}
+                </div>
+            )}
 
             <div className="rounded-md border bg-white">
                 <Table>
