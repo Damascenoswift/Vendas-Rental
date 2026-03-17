@@ -141,6 +141,11 @@ function formatRecordingDuration(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }
 
+function isAudioPlaceholderText(value: string | null | undefined) {
+  const text = (value || "").trim().toLowerCase()
+  return text === "[audio recebido no whatsapp]" || text === "[audio enviado no whatsapp]"
+}
+
 function conversationDisplayName(conversation: WhatsAppConversationListItem) {
   return (
     conversation.contact_name ||
@@ -1174,6 +1179,8 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
 
                   {messages.map((message) => {
                     const isOutbound = message.direction === "OUTBOUND"
+                    const hasAudioPlayer = message.message_type === "audio" && Boolean(message.media_url)
+                    const hideBodyText = hasAudioPlayer && isAudioPlaceholderText(message.body_text)
 
                     return (
                       <div
@@ -1185,7 +1192,17 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                             isOutbound ? "bg-blue-600 text-white border-blue-600" : "bg-white"
                           }`}
                         >
-                          <p className="whitespace-pre-wrap">{message.body_text || "(sem conteúdo)"}</p>
+                          {!hideBodyText ? (
+                            <p className="whitespace-pre-wrap">{message.body_text || "(sem conteúdo)"}</p>
+                          ) : null}
+                          {hasAudioPlayer ? (
+                            <audio
+                              controls
+                              preload="none"
+                              src={message.media_url || undefined}
+                              className={hideBodyText ? "" : "mt-2"}
+                            />
+                          ) : null}
                           <div
                             className={`mt-2 flex items-center justify-between gap-2 text-xs ${
                               isOutbound ? "text-blue-100" : "text-muted-foreground"

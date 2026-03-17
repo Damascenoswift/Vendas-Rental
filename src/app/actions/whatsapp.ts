@@ -77,6 +77,8 @@ export type WhatsAppMessage = {
   wa_message_id: string | null
   message_type: WhatsAppMessageType
   body_text: string | null
+  media_url: string | null
+  media_file_name: string | null
   status: WhatsAppMessageStatus
   sender_user_id: string | null
   sender_user_name: string | null
@@ -134,6 +136,7 @@ type MessageRow = {
   wa_message_id: string | null
   message_type: WhatsAppMessageType
   body_text: string | null
+  raw_payload?: Record<string, unknown> | null
   status: WhatsAppMessageStatus
   sender_user_id: string | null
   error_message: string | null
@@ -142,6 +145,98 @@ type MessageRow = {
   delivered_at: string | null
   read_at: string | null
   failed_at: string | null
+}
+
+type ResolvedMessageMedia = {
+  url: string
+  fileName: string | null
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function toStringOrNull(value: unknown) {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
+function extractDirectMediaFromRawPayload(
+  rawPayload: Record<string, unknown> | null,
+  messageType: WhatsAppMessageType
+): ResolvedMessageMedia | null {
+  if (!rawPayload) return null
+
+  if (messageType === "audio") {
+    const audio = toRecord(rawPayload.audio)
+    const url = toStringOrNull(audio?.audioUrl)
+    return url ? { url, fileName: null } : null
+  }
+
+  if (messageType === "image") {
+    const image = toRecord(rawPayload.image)
+    const url = toStringOrNull(image?.imageUrl)
+    return url ? { url, fileName: null } : null
+  }
+
+  if (messageType === "document") {
+    const document = toRecord(rawPayload.document)
+    const url = toStringOrNull(document?.documentUrl)
+    if (!url) return null
+    const fileName = toStringOrNull(document?.fileName) || toStringOrNull(document?.title)
+    return { url, fileName }
+  }
+
+  return null
+}
+
+function extractOutboundStoredMedia(rawPayload: Record<string, unknown> | null) {
+  if (!rawPayload) return null
+  const outboundMedia = toRecord(rawPayload.outbound_media)
+  if (!outboundMedia) return null
+
+  const bucket = toStringOrNull(outboundMedia.storage_bucket)
+  const path = toStringOrNull(outboundMedia.storage_path)
+  if (!path) return null
+
+  return {
+    bucket: bucket || WHATSAPP_OUTBOUND_MEDIA_BUCKET,
+    path,
+    fileName: toStringOrNull(outboundMedia.file_name),
+  }
+}
+
+async function resolveMessageMedia(
+  row: MessageRow,
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+): Promise<ResolvedMessageMedia | null> {
+  if (
+    row.message_type !== "audio" &&
+    row.message_type !== "image" &&
+    row.message_type !== "document"
+  ) {
+    return null
+  }
+
+  const rawPayload = toRecord(row.raw_payload)
+  const storedMedia = extractOutboundStoredMedia(rawPayload)
+
+  if (storedMedia) {
+    const { data, error } = await supabaseAdmin.storage
+      .from(storedMedia.bucket)
+      .createSignedUrl(storedMedia.path, 60 * 30)
+
+    if (!error && data?.signedUrl) {
+      return {
+        url: data.signedUrl,
+        fileName: storedMedia.fileName,
+      }
+    }
+  }
+
+  return extractDirectMediaFromRawPayload(rawPayload, row.message_type)
 }
 
 type ContactSearchRow = {
@@ -188,6 +283,8 @@ function mapMessageRowToModel(row: MessageRow): WhatsAppMessage {
     wa_message_id: row.wa_message_id,
     message_type: row.message_type,
     body_text: row.body_text,
+    media_url: null,
+    media_file_name: null,
     status: row.status,
     sender_user_id: row.sender_user_id,
     sender_user_name: null,
@@ -612,7 +709,7 @@ export async function getWhatsAppConversationMessages(
     let messageQuery = supabaseAdmin
       .from("whatsapp_messages")
       .select(
-        "id, conversation_id, direction, wa_message_id, message_type, body_text, status, sender_user_id, error_message, created_at, sent_at, delivered_at, read_at, failed_at"
+        "id, conversation_id, direction, wa_message_id, message_type, body_text, raw_payload, status, sender_user_id, error_message, created_at, sent_at, delivered_at, read_at, failed_at"
       )
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
@@ -660,23 +757,31 @@ export async function getWhatsAppConversationMessages(
       }
     }
 
-    const messages = messageRows.map((row) => ({
-      id: row.id,
-      conversation_id: row.conversation_id,
-      direction: row.direction,
-      wa_message_id: row.wa_message_id,
-      message_type: row.message_type,
-      body_text: row.body_text,
-      status: row.status,
-      sender_user_id: row.sender_user_id,
-      sender_user_name: row.sender_user_id ? sendersById.get(row.sender_user_id) ?? null : null,
-      error_message: row.error_message,
-      created_at: row.created_at,
-      sent_at: row.sent_at,
-      delivered_at: row.delivered_at,
-      read_at: row.read_at,
-      failed_at: row.failed_at,
-    }))
+    const messages = await Promise.all(
+      messageRows.map(async (row) => {
+        const media = await resolveMessageMedia(row, supabaseAdmin)
+
+        return {
+          id: row.id,
+          conversation_id: row.conversation_id,
+          direction: row.direction,
+          wa_message_id: row.wa_message_id,
+          message_type: row.message_type,
+          body_text: row.body_text,
+          media_url: media?.url ?? null,
+          media_file_name: media?.fileName ?? null,
+          status: row.status,
+          sender_user_id: row.sender_user_id,
+          sender_user_name: row.sender_user_id ? sendersById.get(row.sender_user_id) ?? null : null,
+          error_message: row.error_message,
+          created_at: row.created_at,
+          sent_at: row.sent_at,
+          delivered_at: row.delivered_at,
+          read_at: row.read_at,
+          failed_at: row.failed_at,
+        } satisfies WhatsAppMessage
+      })
+    )
 
     if (!beforeCursor && conversation.unread_count > 0) {
       const { error: unreadResetError } = await supabaseAdmin

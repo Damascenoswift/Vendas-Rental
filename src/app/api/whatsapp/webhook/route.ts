@@ -64,6 +64,7 @@ type MessageRowForWebhookUpsert = {
   dedupe_hash: string | null
   message_type: ReturnType<typeof mapInboundMessageType>
   body_text: string | null
+  raw_payload: Record<string, unknown> | null
   status: WhatsAppMessageStatus
   sent_at: string | null
   delivered_at: string | null
@@ -460,7 +461,7 @@ async function upsertOutboundMessageFromWebhook(input: {
     const { data } = await supabaseAdmin
       .from("whatsapp_messages")
       .select(
-        "id, conversation_id, wa_message_id, dedupe_hash, message_type, body_text, status, sent_at, delivered_at, read_at, failed_at"
+        "id, conversation_id, wa_message_id, dedupe_hash, message_type, body_text, raw_payload, status, sent_at, delivered_at, read_at, failed_at"
       )
       .eq("wa_message_id", input.waMessageId)
       .eq("direction", "OUTBOUND")
@@ -472,7 +473,7 @@ async function upsertOutboundMessageFromWebhook(input: {
     const { data } = await supabaseAdmin
       .from("whatsapp_messages")
       .select(
-        "id, conversation_id, wa_message_id, dedupe_hash, message_type, body_text, status, sent_at, delivered_at, read_at, failed_at"
+        "id, conversation_id, wa_message_id, dedupe_hash, message_type, body_text, raw_payload, status, sent_at, delivered_at, read_at, failed_at"
       )
       .eq("dedupe_hash", dedupeHash)
       .eq("direction", "OUTBOUND")
@@ -483,9 +484,17 @@ async function upsertOutboundMessageFromWebhook(input: {
   }
 
   if (existing) {
+    const currentRawPayload =
+      existing.raw_payload && typeof existing.raw_payload === "object"
+        ? existing.raw_payload
+        : {}
+
     const nextStatus = mergeMessageStatus(existing.status, mappedStatus)
     const updates: Record<string, unknown> = {
-      raw_payload: input.rawPayload as Record<string, unknown>,
+      raw_payload: {
+        ...currentRawPayload,
+        zapi_webhook_payload: input.rawPayload as Record<string, unknown>,
+      },
     }
 
     if (input.waMessageId && !existing.wa_message_id) {
@@ -793,7 +802,6 @@ async function processZApiStatusPayload(payload: ZApiMessageStatusCallbackPayloa
 
   const updates: Record<string, unknown> = {
     status: mappedStatus,
-    raw_payload: payload,
   }
 
   if (mappedStatus === "sent") {
