@@ -407,11 +407,11 @@ export default function DashboardPage() {
 
         const pendingSignatureRows = rentalRows
           .filter((row) => !row.assinada_em)
-          .filter((row) => row.status === "AGUARDANDO_ASSINATURA" || Boolean(row.contrato_enviado_em))
+          .filter((row) => row.status !== "CONCLUIDA" && row.status !== "REJEITADA")
           .sort((a, b) => {
-            const aSentAt = getTimestampValue(a.contrato_enviado_em)
-            const bSentAt = getTimestampValue(b.contrato_enviado_em)
-            if (aSentAt !== bSentAt) return aSentAt - bSentAt
+            const aCreatedAt = getTimestampValue(a.created_at)
+            const bCreatedAt = getTimestampValue(b.created_at)
+            if (aCreatedAt !== bCreatedAt) return aCreatedAt - bCreatedAt
             return getTimestampValue(a.updated_at) - getTimestampValue(b.updated_at)
           })
           .slice(0, 10)
@@ -705,9 +705,9 @@ export default function DashboardPage() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-2">
                     <div>
-                      <h3 className="text-sm font-semibold text-foreground">Em aberto para assinatura</h3>
+                      <h3 className="text-sm font-semibold text-foreground">Em andamento desde a indicação</h3>
                       <p className="text-xs text-muted-foreground">
-                        Prioriza os contratos enviados e ainda não assinados.
+                        Mostra o processo desde o cadastro inicial até a assinatura.
                       </p>
                     </div>
                     <Badge variant="secondary">{metrics.pendentesAssinatura.length}</Badge>
@@ -716,7 +716,7 @@ export default function DashboardPage() {
                   {metrics.pendentesAssinatura.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-border/70 bg-background/50 p-4">
                       <p className="text-sm text-muted-foreground">
-                        Nenhum contrato pendente de assinatura no momento.
+                        Nenhuma indicação em andamento no momento.
                       </p>
                     </div>
                   ) : (
@@ -738,7 +738,10 @@ export default function DashboardPage() {
                               </Badge>
                               <span>Etapa: {getCurrentStepLabel(indicacao)}</span>
                               <span>
-                                Enviado: {indicacao.contrato_enviado_em ? formatDateTime(indicacao.contrato_enviado_em) : "—"}
+                                Indicado: {formatDateTime(indicacao.created_at)}
+                              </span>
+                              <span>
+                                Contrato enviado: {indicacao.contrato_enviado_em ? formatDateTime(indicacao.contrato_enviado_em) : "—"}
                               </span>
                             </div>
                             <div className="pt-1">
