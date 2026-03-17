@@ -1240,76 +1240,108 @@ export function WhatsAppInbox({
                 ) : null}
               </div>
             ) : (
-              <div className="min-w-[900px] p-3">
-                <div className="grid grid-cols-3 gap-3">
-                  {KANBAN_STATUS_COLUMNS.map((status) => {
-                    const statusConversations = conversationsByStatus[status]
-                    return (
-                      <div key={status} className="rounded-md border bg-slate-50/60">
-                        <div className="flex items-center justify-between border-b px-3 py-2">
-                          <p className="text-sm font-semibold">{STATUS_LABELS[status]}</p>
-                          <Badge variant="secondary">{statusConversations.length}</Badge>
-                        </div>
-                        <div className="space-y-2 p-2">
-                          {statusConversations.map((conversation) => {
-                            const isSelected = conversation.id === selectedConversationId
-                            return (
-                              <button
-                                type="button"
-                                key={conversation.id}
-                                onClick={() => setSelectedConversationId(conversation.id)}
-                                className={`w-full rounded-md border bg-white p-2 text-left transition-colors ${
-                                  isSelected ? "border-blue-400 bg-blue-50" : "hover:bg-slate-50"
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="truncate text-sm font-medium">
-                                    {conversationDisplayName(conversation)}
-                                  </p>
-                                  {conversation.unread_count > 0 ? (
-                                    <Badge variant="default">{conversation.unread_count}</Badge>
-                                  ) : null}
-                                </div>
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {conversation.customer_wa_id}
-                                </p>
-                                <div className="mt-2 flex flex-wrap items-center gap-1">
-                                  <Badge variant={conversation.brand ? "secondary" : "outline"}>
-                                    {conversation.brand
-                                      ? BRAND_LABELS[conversation.brand as ConversationBrand]
-                                      : "Sem marca"}
-                                  </Badge>
-                                  {conversation.is_restricted ? (
-                                    <Badge variant="destructive">
-                                      <Lock className="mr-1 h-3 w-3" />
-                                      Restrita
-                                    </Badge>
-                                  ) : null}
-                                </div>
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  {conversation.assigned_user_name || "Não atribuído"}
-                                </p>
-                              </button>
-                            )
-                          })}
-
-                          {statusConversations.length === 0 ? (
-                            <div className="rounded-md border border-dashed bg-white px-3 py-5 text-center text-xs text-muted-foreground">
-                              Sem conversas
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+              <div className="p-4 text-sm text-muted-foreground space-y-2">
+                <p className="font-medium text-foreground">Quadro Kanban ativo</p>
+                <p>As colunas estão no painel principal com rolagem separada.</p>
+                <p>Selecione uma conversa no Kanban para abrir o painel flutuante.</p>
               </div>
             )}
           </ScrollArea>
         </div>
 
-        <div className="rounded-md border bg-white min-h-[70vh] flex flex-col">
-          {selectedConversation ? (
+        <div
+          className={`rounded-md border min-h-[70vh] ${
+            conversationViewMode === "kanban"
+              ? "relative overflow-hidden bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100"
+              : "bg-white flex flex-col"
+          }`}
+        >
+          {conversationViewMode === "kanban" ? (
+            <ScrollArea className="h-[70vh] w-full [&_[data-radix-scroll-area-viewport]]:scroll-smooth">
+              <div className="min-w-[1060px] p-4">
+                <div className="grid grid-cols-3 gap-4">
+                  {KANBAN_STATUS_COLUMNS.map((status) => {
+                    const statusConversations = conversationsByStatus[status]
+                    return (
+                      <div
+                        key={status}
+                        className="rounded-xl border bg-white/85 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75"
+                      >
+                        <div className="flex items-center justify-between border-b px-3 py-2">
+                          <p className="text-sm font-semibold">{STATUS_LABELS[status]}</p>
+                          <Badge variant="secondary">{statusConversations.length}</Badge>
+                        </div>
+                        <ScrollArea className="h-[calc(70vh-168px)] px-2 pb-2 [&_[data-radix-scroll-area-viewport]]:scroll-smooth">
+                          <div className="space-y-2 pt-2">
+                            {statusConversations.map((conversation) => {
+                              const isSelected = conversation.id === selectedConversationId
+                              return (
+                                <button
+                                  type="button"
+                                  key={conversation.id}
+                                  onClick={() => setSelectedConversationId(conversation.id)}
+                                  className={`w-full rounded-lg border bg-white p-2.5 text-left transition-all ${
+                                    isSelected
+                                      ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                                      : "border-slate-200 hover:-translate-y-[1px] hover:border-slate-300 hover:shadow"
+                                  }`}
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="truncate text-sm font-medium">
+                                      {conversationDisplayName(conversation)}
+                                    </p>
+                                    {conversation.unread_count > 0 ? (
+                                      <Badge variant="default">{conversation.unread_count}</Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="truncate text-xs text-muted-foreground">
+                                    {conversation.customer_wa_id}
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-1">
+                                    <Badge variant={conversation.brand ? "secondary" : "outline"}>
+                                      {conversation.brand
+                                        ? BRAND_LABELS[conversation.brand as ConversationBrand]
+                                        : "Sem marca"}
+                                    </Badge>
+                                    {conversation.is_restricted ? (
+                                      <Badge variant="destructive">
+                                        <Lock className="mr-1 h-3 w-3" />
+                                        Restrita
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className="mt-2 text-xs text-muted-foreground">
+                                    {conversation.assigned_user_name || "Não atribuído"}
+                                  </p>
+                                </button>
+                              )
+                            })}
+
+                            {statusConversations.length === 0 ? (
+                              <div className="rounded-md border border-dashed bg-white px-3 py-5 text-center text-xs text-muted-foreground">
+                                Sem conversas
+                              </div>
+                            ) : null}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </ScrollArea>
+          ) : null}
+
+          <div
+            className={
+              conversationViewMode === "kanban"
+                ? `absolute inset-y-3 right-3 z-20 w-[min(780px,calc(100%-1.5rem))] rounded-xl border bg-white shadow-2xl overflow-hidden ${
+                    selectedConversation ? "flex flex-col" : "hidden"
+                  }`
+                : "flex h-full flex-col"
+            }
+          >
+            {selectedConversation ? (
             <>
               <div className="border-b p-4 space-y-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -1327,6 +1359,18 @@ export function WhatsAppInbox({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {conversationViewMode === "kanban" ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedConversationId(null)}
+                        disabled={actionLoading}
+                      >
+                        <X className="h-4 w-4" />
+                        Fechar painel
+                      </Button>
+                    ) : null}
+
                     {canManageConversationRestrictions ? (
                       <Button
                         variant="outline"
@@ -1747,6 +1791,15 @@ export function WhatsAppInbox({
               <p>Selecione uma conversa para começar o atendimento.</p>
             </div>
           )}
+          </div>
+
+          {conversationViewMode === "kanban" && !selectedConversation ? (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+              <div className="rounded-xl border bg-white/90 px-5 py-3 text-sm text-muted-foreground shadow-md backdrop-blur">
+                Selecione uma conversa no Kanban para abrir o painel flutuante.
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
