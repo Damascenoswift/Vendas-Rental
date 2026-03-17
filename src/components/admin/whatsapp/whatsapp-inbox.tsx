@@ -1222,7 +1222,12 @@ export function WhatsAppInbox({
                   }}
                   disabled={loadingConversations || loadingMessages || actionLoading}
                 >
-                  <RefreshCcw className="h-4 w-4" />
+                  <RefreshCcw
+                    className={`h-4 w-4 ${
+                      loadingConversations || loadingMessages ? "animate-spin" : ""
+                    }`}
+                  />
+                  Sincronizar
                 </Button>
               </div>
             </div>

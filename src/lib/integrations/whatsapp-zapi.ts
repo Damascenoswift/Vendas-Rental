@@ -83,7 +83,7 @@ function getRequiredEnv(name: string) {
 
 function normalizeEventType(value: unknown) {
   if (typeof value !== "string") return ""
-  return value.trim().toLowerCase()
+  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "")
 }
 
 function extractTrimmedString(value: unknown): string | null {
@@ -92,14 +92,53 @@ function extractTrimmedString(value: unknown): string | null {
   return trimmed || null
 }
 
+function isLikelyZApiInboundPayload(payload: Record<string, unknown>) {
+  const messageId = extractTrimmedString(payload.messageId)
+  const phone = extractTrimmedString(payload.phone)
+  if (!messageId || !phone) return false
+
+  return Boolean(
+    isObject(payload.text) ||
+      isObject(payload.image) ||
+      isObject(payload.document) ||
+      isObject(payload.audio) ||
+      isObject(payload.video) ||
+      isObject(payload.sticker) ||
+      isObject(payload.location) ||
+      isObject(payload.contact)
+  )
+}
+
+function isLikelyZApiStatusPayload(payload: Record<string, unknown>) {
+  const status = extractTrimmedString(payload.status)
+  if (!status) return false
+  if (!Array.isArray(payload.ids)) return false
+
+  return payload.ids.some((id) => typeof id === "string" && id.trim().length > 0)
+}
+
 export function isZApiReceivedCallback(payload: unknown): payload is ZApiReceivedCallbackPayload {
   if (!isObject(payload)) return false
-  return normalizeEventType(payload.type) === "receivedcallback"
+
+  const eventType = normalizeEventType(payload.type)
+  if (eventType) {
+    if (eventType === "receivedcallback") return true
+    if (eventType.includes("status")) return false
+    if (eventType.includes("received")) return true
+  }
+
+  return isLikelyZApiInboundPayload(payload)
 }
 
 export function isZApiMessageStatusCallback(payload: unknown): payload is ZApiMessageStatusCallbackPayload {
   if (!isObject(payload)) return false
-  return normalizeEventType(payload.type) === "messagestatuscallback"
+
+  const eventType = normalizeEventType(payload.type)
+  if (eventType) {
+    return eventType === "messagestatuscallback" || eventType.includes("status")
+  }
+
+  return isLikelyZApiStatusPayload(payload)
 }
 
 export function verifyZApiWebhookToken(
