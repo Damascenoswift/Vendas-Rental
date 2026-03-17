@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Trash2, User } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EditUserDialog } from "./edit-user-dialog"
+import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
 
 interface UsersListProps {
     users: any[]
@@ -85,12 +86,22 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                         <TableHead>Função</TableHead>
                         <TableHead>Vendas</TableHead>
                         <TableHead>Chat interno</TableHead>
+                        <TableHead>WhatsApp</TableHead>
                         <TableHead>Marcas</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {users.map((user) => (
+                    {users.map((user) => {
+                        const whatsappAccess = hasWhatsAppInboxAccess({
+                            role: user.role ?? null,
+                            whatsapp_inbox_access:
+                                typeof user.whatsapp_inbox_access === "boolean"
+                                    ? user.whatsapp_inbox_access
+                                    : null,
+                        })
+
+                        return (
                         <TableRow key={user.id}>
                             <TableCell className="font-medium">
                                 <div className="flex items-center gap-2">
@@ -115,6 +126,11 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                                 </Badge>
                             </TableCell>
                             <TableCell>
+                                <Badge variant={whatsappAccess ? "success" : "secondary"}>
+                                    {whatsappAccess ? "Ativo" : "Inativo"}
+                                </Badge>
+                            </TableCell>
+                            <TableCell>
                                 <div className="flex gap-1">
                                     {user.allowed_brands?.map((brand: string) => (
                                         <Badge key={brand} variant="secondary" className="text-xs">
@@ -130,10 +146,11 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                                 </div>
                             </TableCell>
                         </TableRow>
-                    ))}
+                        )
+                    })}
                     {users.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={7} className="h-24 text-center">
+                            <TableCell colSpan={8} className="h-24 text-center">
                                 Nenhum usuário encontrado.
                             </TableCell>
                         </TableRow>

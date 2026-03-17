@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { roleHasSalesAccessByDefault } from '@/lib/sales-access'
 import { roleHasInternalChatAccessByDefault } from '@/lib/internal-chat-access'
+import { roleHasWhatsAppInboxAccessByDefault } from '@/lib/whatsapp-inbox-access'
 
 import { CreateUserState } from '@/app/actions/auth-admin'
 
@@ -25,6 +26,7 @@ export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
     const [selectedRole, setSelectedRole] = useState("")
     const [salesAccess, setSalesAccess] = useState(false)
     const [internalChatAccess, setInternalChatAccess] = useState(false)
+    const [whatsAppInboxAccess, setWhatsAppInboxAccess] = useState(false)
 
     return (
         <form action={formAction} className="space-y-6 max-w-md mx-auto p-6 border rounded-lg shadow-sm bg-white">
@@ -76,6 +78,7 @@ export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
                         setSelectedRole(nextRole)
                         setSalesAccess(roleHasSalesAccessByDefault(nextRole))
                         setInternalChatAccess(roleHasInternalChatAccessByDefault(nextRole))
+                        setWhatsAppInboxAccess(roleHasWhatsAppInboxAccessByDefault(nextRole))
                     }}
                 >
                     <option value="" disabled>Selecione um cargo</option>
@@ -126,6 +129,29 @@ export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {
                         type="checkbox"
                         checked={internalChatAccess}
                         onChange={(e) => setInternalChatAccess(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                <input
+                    type="hidden"
+                    name="whatsapp_inbox_access"
+                    value={whatsAppInboxAccess ? "true" : "false"}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                    <div>
+                        <Label htmlFor="whatsapp_inbox_access_toggle">Acesso ao WhatsApp</Label>
+                        <p className="text-[10px] text-muted-foreground">
+                            Permite atender clientes na inbox WhatsApp.
+                        </p>
+                    </div>
+                    <input
+                        id="whatsapp_inbox_access_toggle"
+                        type="checkbox"
+                        checked={whatsAppInboxAccess}
+                        onChange={(e) => setWhatsAppInboxAccess(e.target.checked)}
                         className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                     />
                 </div>

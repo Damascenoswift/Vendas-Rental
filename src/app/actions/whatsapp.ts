@@ -17,13 +17,7 @@ import {
 import { sendZApiTextMessage } from "@/lib/integrations/whatsapp-zapi"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
-
-const WHATSAPP_ALLOWED_ROLES = [
-  "adm_mestre",
-  "adm_dorata",
-  "suporte_tecnico",
-  "suporte_limitado",
-] as const
+import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
 
 const SEND_RATE_LIMIT_PER_MINUTE = 20
 const MESSAGE_PAGE_SIZE_DEFAULT = 100
@@ -231,9 +225,13 @@ async function requireWhatsAppAccess() {
   }
 
   const profile = await getProfile(supabase, user.id)
-  const role = profile?.role
+  const role = profile?.role ?? null
+  const canAccessInbox = hasWhatsAppInboxAccess({
+    role,
+    whatsapp_inbox_access: profile?.whatsappInboxAccess ?? null,
+  })
 
-  if (!role || !WHATSAPP_ALLOWED_ROLES.includes(role as (typeof WHATSAPP_ALLOWED_ROLES)[number])) {
+  if (!canAccessInbox) {
     throw new WhatsAppActionError("Sem permissão para acessar a inbox WhatsApp.")
   }
 
@@ -290,17 +288,49 @@ export async function listWhatsAppAgents(): Promise<ActionResult<WhatsAppAgent[]
     await requireWhatsAppAccess()
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const { data, error } = await supabaseAdmin
+    let { data, error } = await supabaseAdmin
       .from("users")
-      .select("id, name, email")
-      .in("role", Array.from(WHATSAPP_ALLOWED_ROLES))
+      .select("id, name, email, role, status, whatsapp_inbox_access")
       .order("name", { ascending: true })
+
+    if (error && /could not find the 'whatsapp_inbox_access' column/i.test(error.message ?? "")) {
+      const fallback = await supabaseAdmin
+        .from("users")
+        .select("id, name, email, role, status")
+        .order("name", { ascending: true })
+
+      data = fallback.data as typeof data
+      error = fallback.error as typeof error
+    }
 
     if (error) {
       throw new WhatsAppActionError(error.message)
     }
 
-    const agents = (data ?? []) as WhatsAppAgent[]
+    const agents = (data ?? [])
+      .filter((row) => {
+        const value = row as {
+          role?: string | null
+          status?: string | null
+          whatsapp_inbox_access?: boolean | null
+        }
+
+        const status = (value.status ?? "").toLowerCase()
+        const isActive = !status || status === "active" || status === "ativo"
+        if (!isActive) return false
+
+        return hasWhatsAppInboxAccess({
+          role: value.role ?? null,
+          whatsapp_inbox_access:
+            typeof value.whatsapp_inbox_access === "boolean" ? value.whatsapp_inbox_access : null,
+        })
+      })
+      .map((row) => ({
+        id: (row as { id: string }).id,
+        name: (row as { name?: string | null }).name ?? null,
+        email: (row as { email?: string | null }).email ?? null,
+      })) as WhatsAppAgent[]
+
     return { success: true, data: agents }
   } catch (error) {
     return {

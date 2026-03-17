@@ -8,6 +8,7 @@ import type { UserRole, Brand, UserProfile } from '@/lib/auth'
 import { hasFullAccess } from '@/lib/auth'
 import { hasSalesAccess, roleHasSalesAccessByDefault } from '@/lib/sales-access'
 import { roleHasInternalChatAccessByDefault } from '@/lib/internal-chat-access'
+import { roleHasWhatsAppInboxAccessByDefault } from '@/lib/whatsapp-inbox-access'
 
 // Schema de validação
 const userRoleValues = [
@@ -53,12 +54,22 @@ const resolveSalesAccess = (role: UserRole, rawValue: unknown) => {
     return roleHasSalesAccessByDefault(role)
 }
 
+const resolveWhatsAppInboxAccess = (role: UserRole, rawValue: unknown) => {
+    const parsed = parseBooleanUnknown(rawValue)
+    if (typeof parsed === 'boolean') return parsed
+    return roleHasWhatsAppInboxAccessByDefault(role)
+}
+
 const isMissingSalesAccessColumnError = (error?: { message?: string | null } | null) => {
     return /could not find the 'sales_access' column/i.test(error?.message ?? '')
 }
 
 const isMissingInternalChatAccessColumnError = (error?: { message?: string | null } | null) => {
     return /could not find the 'internal_chat_access' column/i.test(error?.message ?? '')
+}
+
+const isMissingWhatsAppInboxAccessColumnError = (error?: { message?: string | null } | null) => {
+    return /could not find the 'whatsapp_inbox_access' column/i.test(error?.message ?? '')
 }
 
 const isValidRole = (value: unknown): value is UserRole => {
@@ -94,6 +105,7 @@ const createUserSchema = z.object({
     supervised_company_name: z.string().optional(),
     sales_access: z.boolean().optional(),
     internal_chat_access: z.boolean().optional(),
+    whatsapp_inbox_access: z.boolean().optional(),
 })
 
 export type CreateUserState = {
@@ -169,6 +181,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         supervised_company_name: optionalString(formData.get('supervised_company_name')),
         sales_access: parseBooleanField(formData.get('sales_access')),
         internal_chat_access: parseBooleanField(formData.get('internal_chat_access')),
+        whatsapp_inbox_access: parseBooleanField(formData.get('whatsapp_inbox_access')),
     }
 
     const validated = createUserSchema.safeParse(rawData)
@@ -194,11 +207,14 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         supervised_company_name,
         sales_access,
         internal_chat_access,
+        whatsapp_inbox_access,
     } = validated.data
     const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
     const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
     const normalizedSalesAccess = sales_access ?? roleHasSalesAccessByDefault(role)
     const normalizedInternalChatAccess = internal_chat_access ?? roleHasInternalChatAccessByDefault(role)
+    const normalizedWhatsAppInboxAccess =
+        whatsapp_inbox_access ?? roleHasWhatsAppInboxAccessByDefault(role)
 
     const supabaseAdmin = createSupabaseServiceClient()
 
@@ -216,6 +232,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
             supervised_company_name: normalizedSupervisedCompanyName,
             sales_access: normalizedSalesAccess,
             internal_chat_access: normalizedInternalChatAccess,
+            whatsapp_inbox_access: normalizedWhatsAppInboxAccess,
         }
     })
 
@@ -244,6 +261,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
         supervised_company_name: normalizedSupervisedCompanyName,
         sales_access: normalizedSalesAccess,
         internal_chat_access: normalizedInternalChatAccess,
+        whatsapp_inbox_access: normalizedWhatsAppInboxAccess,
     }
 
     if (department) {
@@ -279,6 +297,15 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
     if (upsertError && isMissingInternalChatAccessColumnError(upsertError)) {
         const retryPayload = { ...upsertPayload }
         delete retryPayload.internal_chat_access
+        const retry = await supabaseAdmin
+            .from('users')
+            .upsert(retryPayload, { onConflict: 'id' })
+        upsertError = retry.error
+    }
+
+    if (upsertError && isMissingWhatsAppInboxAccessColumnError(upsertError)) {
+        const retryPayload = { ...upsertPayload }
+        delete retryPayload.whatsapp_inbox_access
         const retry = await supabaseAdmin
             .from('users')
             .upsert(retryPayload, { onConflict: 'id' })
@@ -427,6 +454,7 @@ export async function syncUsersFromAuth() {
             const salesAccess = resolveSalesAccess(role, metadata.sales_access)
             const internalChatAccess =
                 parseBooleanUnknown(metadata.internal_chat_access) ?? roleHasInternalChatAccessByDefault(role)
+            const whatsappInboxAccess = resolveWhatsAppInboxAccess(role, metadata.whatsapp_inbox_access)
             const name = metadata.nome || metadata.name || authUser.email || 'Usuário'
             const phone = metadata.telefone || metadata.phone
             const department = metadata.department || 'outro'
@@ -448,6 +476,7 @@ export async function syncUsersFromAuth() {
                 supervised_company_name: supervisedCompanyName,
                 sales_access: salesAccess,
                 internal_chat_access: internalChatAccess,
+                whatsapp_inbox_access: whatsappInboxAccess,
             }
         })
 
@@ -484,6 +513,18 @@ export async function syncUsersFromAuth() {
                 const retryChunk = chunk.map((row) => {
                     const payload = { ...row } as Record<string, unknown>
                     delete payload.internal_chat_access
+                    return payload
+                })
+                const retry = await supabaseAdmin
+                    .from('users')
+                    .upsert(retryChunk, { onConflict: 'id' })
+                upsertError = retry.error
+            }
+
+            if (upsertError && isMissingWhatsAppInboxAccessColumnError(upsertError)) {
+                const retryChunk = chunk.map((row) => {
+                    const payload = { ...row } as Record<string, unknown>
+                    delete payload.whatsapp_inbox_access
                     return payload
                 })
                 const retry = await supabaseAdmin
@@ -578,6 +619,7 @@ const updateUserSchema = z.object({
     supervised_company_name: z.string().optional(),
     sales_access: z.boolean().optional(),
     internal_chat_access: z.boolean().optional(),
+    whatsapp_inbox_access: z.boolean().optional(),
 })
 
 export async function updateUser(prevState: CreateUserState, formData: FormData): Promise<CreateUserState> {
@@ -601,6 +643,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervised_company_name: optionalString(formData.get('supervised_company_name')),
         sales_access: parseBooleanField(formData.get('sales_access')),
         internal_chat_access: parseBooleanField(formData.get('internal_chat_access')),
+        whatsapp_inbox_access: parseBooleanField(formData.get('whatsapp_inbox_access')),
     }
 
     const validated = updateUserSchema.safeParse(rawData)
@@ -628,12 +671,15 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervised_company_name,
         sales_access,
         internal_chat_access,
+        whatsapp_inbox_access,
     } = validated.data
     const supabaseAdmin = createSupabaseServiceClient()
     const normalizedCompanyName = role === 'vendedor_interno' ? company_name ?? null : null
     const normalizedSupervisedCompanyName = role === 'supervisor' ? supervised_company_name ?? null : null
     const normalizedSalesAccess = sales_access ?? roleHasSalesAccessByDefault(role)
     const normalizedInternalChatAccess = internal_chat_access ?? roleHasInternalChatAccessByDefault(role)
+    const normalizedWhatsAppInboxAccess =
+        whatsapp_inbox_access ?? roleHasWhatsAppInboxAccessByDefault(role)
 
     // 1. Update public.users table (Profile)
     const updatePayload: any = {
@@ -649,6 +695,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         supervised_company_name: normalizedSupervisedCompanyName,
         sales_access: normalizedSalesAccess,
         internal_chat_access: normalizedInternalChatAccess,
+        whatsapp_inbox_access: normalizedWhatsAppInboxAccess,
     }
 
     let { error: profileError } = await supabaseAdmin
@@ -676,6 +723,16 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         profileError = retry.error
     }
 
+    if (profileError && isMissingWhatsAppInboxAccessColumnError(profileError)) {
+        const retryPayload = { ...updatePayload }
+        delete retryPayload.whatsapp_inbox_access
+        const retry = await supabaseAdmin
+            .from('users')
+            .update(retryPayload)
+            .eq('id', userId)
+        profileError = retry.error
+    }
+
     if (profileError) {
         console.error('Erro ao atualizar perfil (public.users):', profileError)
         return { success: false, message: `Erro ao atualizar usuário: ${profileError.message}` }
@@ -694,6 +751,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
             supervised_company_name: normalizedSupervisedCompanyName,
             sales_access: normalizedSalesAccess,
             internal_chat_access: normalizedInternalChatAccess,
+            whatsapp_inbox_access: normalizedWhatsAppInboxAccess,
         }
     }
 

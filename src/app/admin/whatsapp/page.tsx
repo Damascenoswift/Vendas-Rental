@@ -4,11 +4,10 @@ import { getProfile } from "@/lib/auth"
 import { isWhatsAppInboxEnabled } from "@/lib/integrations/whatsapp"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
 import { WhatsAppInbox } from "@/components/admin/whatsapp/whatsapp-inbox"
 
 export const dynamic = "force-dynamic"
-
-const allowedRoles = ["adm_mestre", "adm_dorata", "suporte_tecnico", "suporte_limitado"] as const
 
 export default async function AdminWhatsAppPage() {
   const supabase = await createClient()
@@ -21,9 +20,12 @@ export default async function AdminWhatsAppPage() {
   }
 
   const profile = await getProfile(supabase, user.id)
-  const role = profile?.role
+  const canAccessInbox = hasWhatsAppInboxAccess({
+    role: profile?.role ?? null,
+    whatsapp_inbox_access: profile?.whatsappInboxAccess ?? null,
+  })
 
-  if (!role || !allowedRoles.includes(role as (typeof allowedRoles)[number])) {
+  if (!canAccessInbox) {
     return (
       <div className="container mx-auto py-10">
         <div className="rounded-md bg-destructive/10 p-4 text-destructive">
@@ -48,11 +50,20 @@ export default async function AdminWhatsAppPage() {
   }
 
   const supabaseAdmin = createSupabaseServiceClient()
-  const { data: agentsData, error: agentsError } = await supabaseAdmin
+  let { data: agentsData, error: agentsError } = await supabaseAdmin
     .from("users")
-    .select("id, name, email")
-    .in("role", Array.from(allowedRoles))
+    .select("id, name, email, role, whatsapp_inbox_access, status")
     .order("name", { ascending: true })
+
+  if (agentsError && /could not find the 'whatsapp_inbox_access' column/i.test(agentsError.message ?? "")) {
+    const fallback = await supabaseAdmin
+      .from("users")
+      .select("id, name, email, role, status")
+      .order("name", { ascending: true })
+
+    agentsData = fallback.data as typeof agentsData
+    agentsError = fallback.error as typeof agentsError
+  }
 
   if (agentsError) {
     return (
@@ -65,11 +76,29 @@ export default async function AdminWhatsAppPage() {
     )
   }
 
-  const agents = (agentsData ?? []).map((row) => ({
-    id: row.id as string,
-    name: (row as { name?: string | null }).name ?? null,
-    email: (row as { email?: string | null }).email ?? null,
-  }))
+  const agents = (agentsData ?? [])
+    .filter((row) => {
+      const data = row as {
+        role?: string | null
+        status?: string | null
+        whatsapp_inbox_access?: boolean | null
+      }
+
+      if (data.status && data.status !== "active" && data.status !== "ATIVO") {
+        return false
+      }
+
+      return hasWhatsAppInboxAccess({
+        role: data.role ?? null,
+        whatsapp_inbox_access:
+          typeof data.whatsapp_inbox_access === "boolean" ? data.whatsapp_inbox_access : null,
+      })
+    })
+    .map((row) => ({
+      id: row.id as string,
+      name: (row as { name?: string | null }).name ?? null,
+      email: (row as { email?: string | null }).email ?? null,
+    }))
 
   return <WhatsAppInbox currentUserId={user.id} initialAgents={agents} />
 }

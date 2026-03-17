@@ -1,6 +1,7 @@
 import type { User, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { hasInternalChatAccess } from '@/lib/internal-chat-access'
+import { hasWhatsAppInboxAccess } from '@/lib/whatsapp-inbox-access'
 
 export type UserRole =
   | 'vendedor_externo'
@@ -23,6 +24,7 @@ export type UserProfile = {
   supervisedCompanyName: string | null
   salesAccess?: boolean | null
   internalChatAccess?: boolean | null
+  whatsappInboxAccess?: boolean | null
   department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
@@ -109,7 +111,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
 }
 
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
-  let selectColumns = 'role, department, allowed_brands, sales_access, internal_chat_access, name, phone, email, company_name, supervised_company_name'
+  let selectColumns = 'role, department, allowed_brands, sales_access, internal_chat_access, whatsapp_inbox_access, name, phone, email, company_name, supervised_company_name'
 
   let { data, error } = await supabase
     .from('users')
@@ -120,8 +122,10 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
   const missingSalesAccessColumn = error && /could not find the 'sales_access' column/i.test(error.message ?? '')
   const missingInternalChatAccessColumn =
     error && /could not find the 'internal_chat_access' column/i.test(error.message ?? '')
+  const missingWhatsAppInboxAccessColumn =
+    error && /could not find the 'whatsapp_inbox_access' column/i.test(error.message ?? '')
 
-  if (missingSalesAccessColumn || missingInternalChatAccessColumn) {
+  if (missingSalesAccessColumn || missingInternalChatAccessColumn || missingWhatsAppInboxAccessColumn) {
     const fallbackColumns = [
       'role',
       'department',
@@ -139,6 +143,15 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
 
     if (!missingInternalChatAccessColumn) {
       fallbackColumns.splice(missingSalesAccessColumn ? 3 : 4, 0, 'internal_chat_access')
+    }
+
+    if (!missingWhatsAppInboxAccessColumn) {
+      const insertIndex = fallbackColumns.includes('internal_chat_access')
+        ? fallbackColumns.indexOf('internal_chat_access') + 1
+        : fallbackColumns.includes('sales_access')
+          ? fallbackColumns.indexOf('sales_access') + 1
+          : 3
+      fallbackColumns.splice(insertIndex, 0, 'whatsapp_inbox_access')
     }
 
     selectColumns = fallbackColumns.join(', ')
@@ -168,6 +181,7 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     supervised_company_name?: string | null
     sales_access?: boolean | null
     internal_chat_access?: boolean | null
+    whatsapp_inbox_access?: boolean | null
   }
 
   // Converter tipos do banco para tipos da aplicação
@@ -186,6 +200,11 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
       role: normalizedRole,
       department,
       internal_chat_access: typeof row.internal_chat_access === "boolean" ? row.internal_chat_access : null,
+    }),
+    whatsappInboxAccess: hasWhatsAppInboxAccess({
+      role: normalizedRole,
+      whatsapp_inbox_access:
+        typeof row.whatsapp_inbox_access === "boolean" ? row.whatsapp_inbox_access : null,
     }),
     department,
     allowedBrands,
