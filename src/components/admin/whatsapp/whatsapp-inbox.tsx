@@ -1440,7 +1440,10 @@ export function WhatsAppInbox({
           }`}
         >
           {conversationViewMode === "kanban" ? (
-            <ScrollArea className="h-[70vh] w-full [&_[data-radix-scroll-area-viewport]]:scroll-smooth">
+            <ScrollArea
+              scrollbarOrientation="both"
+              className="h-[70vh] w-full [&_[data-radix-scroll-area-viewport]]:overflow-x-auto [&_[data-radix-scroll-area-viewport]]:overflow-y-hidden [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-x] [&_[data-radix-scroll-area-viewport]]:[-webkit-overflow-scrolling:touch]"
+            >
               <div className="min-w-[1700px] p-4">
                 <div className="grid grid-cols-5 gap-4">
                   {KANBAN_BRAND_COLUMNS.map((columnKey) => {
@@ -1454,7 +1457,7 @@ export function WhatsAppInbox({
                           <p className="text-sm font-semibold">{KANBAN_COLUMN_LABELS[columnKey]}</p>
                           <Badge variant="secondary">{columnConversations.length}</Badge>
                         </div>
-                        <ScrollArea className="h-[calc(70vh-168px)] px-2 pb-2 [&_[data-radix-scroll-area-viewport]]:scroll-smooth">
+                        <ScrollArea className="h-[calc(70vh-168px)] px-2 pb-2 [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-y]">
                           <div className="space-y-2 pt-2">
                             {columnConversations.map((conversation) => {
                               const isSelected = conversation.id === selectedConversationId
