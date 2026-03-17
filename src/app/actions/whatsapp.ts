@@ -36,6 +36,9 @@ const SEND_RATE_LIMIT_PER_MINUTE = 20
 const MESSAGE_PAGE_SIZE_DEFAULT = 100
 const MESSAGE_PAGE_SIZE_MAX = 200
 const WINDOW_DURATION_MS = 24 * 60 * 60 * 1000
+const WHATSAPP_RESTRICTION_ADMIN_ROLES = new Set(["adm_mestre", "adm_dorata"])
+const RESTRICTION_SCHEMA_HINT =
+  "Execute a migration 113 (whatsapp_conversation_restrictions) no Supabase para habilitar conversas restritas."
 
 export type WhatsAppAgent = {
   id: string
@@ -68,6 +71,7 @@ export type WhatsAppConversationListItem = {
   unread_count: number
   last_message_at: string
   updated_at: string
+  is_restricted: boolean
 }
 
 export type WhatsAppMessage = {
@@ -94,6 +98,12 @@ export type WhatsAppContactOption = {
   id: string
   name: string
   whatsapp: string
+}
+
+export type WhatsAppConversationRestrictionSettings = {
+  conversation_id: string
+  is_restricted: boolean
+  allowed_user_ids: string[]
 }
 
 type ActionResult<T> = {
@@ -127,6 +137,7 @@ type ConversationRow = {
   unread_count: number
   last_message_at: string
   updated_at: string
+  is_restricted: boolean
 }
 
 type MessageRow = {
@@ -246,6 +257,15 @@ type ContactSearchRow = {
   whatsapp_normalized: string | null
 }
 
+type WhatsAppAccessContext = {
+  user: {
+    id: string
+    email?: string | null
+  }
+  profile: Awaited<ReturnType<typeof getProfile>>
+  isRestrictionAdmin: boolean
+}
+
 class WhatsAppActionError extends Error {
   constructor(message: string) {
     super(message)
@@ -268,6 +288,187 @@ function ensureValidBrand(value: string): value is WhatsAppBrand {
 
 function ensureValidStatus(value: string): value is WhatsAppConversationStatus {
   return value === "PENDING_BRAND" || value === "OPEN" || value === "CLOSED"
+}
+
+function isMissingColumnError(error: { message?: string } | null, columnName: string) {
+  const message = error?.message ?? ""
+  const escapedColumn = columnName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const columnRegex = new RegExp(`could not find the '${escapedColumn}' column`, "i")
+  return columnRegex.test(message)
+}
+
+function isMissingRelationError(error: { message?: string } | null, relationName: string) {
+  const message = error?.message ?? ""
+  const escapedName = relationName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const relationRegex = new RegExp(`relation .*${escapedName}.* does not exist`, "i")
+  return relationRegex.test(message)
+}
+
+function isWhatsAppRestrictionAdminRole(role?: string | null) {
+  return WHATSAPP_RESTRICTION_ADMIN_ROLES.has((role ?? "").trim())
+}
+
+function toConversationRow(row: Record<string, unknown>): ConversationRow {
+  return {
+    id: String(row.id),
+    account_id: String(row.account_id),
+    contact_id: typeof row.contact_id === "string" ? row.contact_id : null,
+    customer_wa_id: String(row.customer_wa_id),
+    customer_name: typeof row.customer_name === "string" ? row.customer_name : null,
+    brand: (row.brand as WhatsAppBrand | null) ?? null,
+    assigned_user_id: typeof row.assigned_user_id === "string" ? row.assigned_user_id : null,
+    status: row.status as WhatsAppConversationStatus,
+    window_expires_at: typeof row.window_expires_at === "string" ? row.window_expires_at : null,
+    unread_count:
+      typeof row.unread_count === "number"
+        ? row.unread_count
+        : Number.isFinite(Number(row.unread_count))
+          ? Number(row.unread_count)
+          : 0,
+    last_message_at: String(row.last_message_at),
+    updated_at: String(row.updated_at),
+    is_restricted: Boolean(row.is_restricted),
+  }
+}
+
+async function hasConversationExplicitAccess(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  conversationId: string
+  userId: string
+}) {
+  const { data, error } = await params.supabaseAdmin
+    .from("whatsapp_conversation_access")
+    .select("conversation_id")
+    .eq("conversation_id", params.conversationId)
+    .eq("user_id", params.userId)
+    .maybeSingle()
+
+  if (error) {
+    if (isMissingRelationError(error, "whatsapp_conversation_access")) {
+      return false
+    }
+    throw new WhatsAppActionError(error.message)
+  }
+
+  return Boolean(data)
+}
+
+async function ensureConversationVisible(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  conversation: ConversationRow
+  accessContext: Pick<WhatsAppAccessContext, "user" | "isRestrictionAdmin">
+}) {
+  const { conversation, accessContext } = params
+
+  if (!conversation.is_restricted) {
+    return
+  }
+
+  if (accessContext.isRestrictionAdmin) {
+    return
+  }
+
+  if (conversation.assigned_user_id === accessContext.user.id) {
+    return
+  }
+
+  const hasExplicitAccess = await hasConversationExplicitAccess({
+    supabaseAdmin: params.supabaseAdmin,
+    conversationId: conversation.id,
+    userId: accessContext.user.id,
+  })
+
+  if (hasExplicitAccess) {
+    return
+  }
+
+  throw new WhatsAppActionError("Conversa restrita. Você não tem permissão para visualizar esta conversa.")
+}
+
+async function filterConversationsByVisibility(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  conversations: ConversationRow[]
+  accessContext: Pick<WhatsAppAccessContext, "user" | "isRestrictionAdmin">
+}) {
+  const { conversations, accessContext } = params
+
+  if (accessContext.isRestrictionAdmin) {
+    return conversations
+  }
+
+  const restrictedToCheck = conversations.filter(
+    (conversation) => conversation.is_restricted && conversation.assigned_user_id !== accessContext.user.id
+  )
+
+  if (restrictedToCheck.length === 0) {
+    return conversations
+  }
+
+  const restrictedIds = restrictedToCheck.map((conversation) => conversation.id)
+  const { data, error } = await params.supabaseAdmin
+    .from("whatsapp_conversation_access")
+    .select("conversation_id")
+    .eq("user_id", accessContext.user.id)
+    .in("conversation_id", restrictedIds)
+
+  if (error) {
+    if (isMissingRelationError(error, "whatsapp_conversation_access")) {
+      return conversations.filter(
+        (conversation) => !conversation.is_restricted || conversation.assigned_user_id === accessContext.user.id
+      )
+    }
+    throw new WhatsAppActionError(error.message)
+  }
+
+  const allowedConversationIds = new Set(
+    (data ?? []).map((row: { conversation_id: string }) => row.conversation_id)
+  )
+
+  return conversations.filter((conversation) => {
+    if (!conversation.is_restricted) return true
+    if (conversation.assigned_user_id === accessContext.user.id) return true
+    return allowedConversationIds.has(conversation.id)
+  })
+}
+
+async function ensureRestrictionSchemaAvailable(
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+) {
+  const { error: conversationColumnError } = await supabaseAdmin
+    .from("whatsapp_conversations")
+    .select("is_restricted")
+    .limit(1)
+
+  if (conversationColumnError && isMissingColumnError(conversationColumnError, "is_restricted")) {
+    throw new WhatsAppActionError(
+      `Campo de restrição ainda não disponível no banco. ${RESTRICTION_SCHEMA_HINT}`
+    )
+  }
+
+  if (conversationColumnError) {
+    throw new WhatsAppActionError(conversationColumnError.message)
+  }
+
+  const { error: accessTableError } = await supabaseAdmin
+    .from("whatsapp_conversation_access")
+    .select("conversation_id")
+    .limit(1)
+
+  if (accessTableError && isMissingRelationError(accessTableError, "whatsapp_conversation_access")) {
+    throw new WhatsAppActionError(
+      `Tabela de acesso restrito ainda não disponível no banco. ${RESTRICTION_SCHEMA_HINT}`
+    )
+  }
+
+  if (accessTableError && isMissingColumnError(accessTableError, "conversation_id")) {
+    throw new WhatsAppActionError(
+      `Tabela de acesso restrito incompleta no banco. ${RESTRICTION_SCHEMA_HINT}`
+    )
+  }
+
+  if (accessTableError) {
+    throw new WhatsAppActionError(accessTableError.message)
+  }
 }
 
 function mapSendResultToMessageStatus(sendResult: SendMessageResult): WhatsAppMessageStatus {
@@ -431,19 +632,36 @@ async function requireWhatsAppAccess() {
   return {
     user,
     profile,
+    isRestrictionAdmin: isWhatsAppRestrictionAdminRole(role),
   }
 }
 
-async function fetchConversationById(conversationId: string) {
+async function fetchConversationById(
+  conversationId: string,
+  accessContext?: Pick<WhatsAppAccessContext, "user" | "isRestrictionAdmin">
+) {
   const supabaseAdmin = createSupabaseServiceClient()
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from("whatsapp_conversations")
     .select(
-      "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at"
+      "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at, is_restricted"
     )
     .eq("id", conversationId)
     .maybeSingle()
+
+  if (error && isMissingColumnError(error, "is_restricted")) {
+    const fallback = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .select(
+        "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at"
+      )
+      .eq("id", conversationId)
+      .maybeSingle()
+
+    data = fallback.data as typeof data
+    error = fallback.error as typeof error
+  }
 
   if (error) {
     throw new WhatsAppActionError(error.message)
@@ -453,7 +671,17 @@ async function fetchConversationById(conversationId: string) {
     throw new WhatsAppActionError("Conversa não encontrada.")
   }
 
-  return data as ConversationRow
+  const conversation = toConversationRow(data as Record<string, unknown>)
+
+  if (accessContext) {
+    await ensureConversationVisible({
+      supabaseAdmin,
+      conversation,
+      accessContext,
+    })
+  }
+
+  return conversation
 }
 
 async function insertConversationEvent(input: {
@@ -537,49 +765,68 @@ export async function listWhatsAppConversations(
   filters: WhatsAppConversationListFilters = {}
 ): Promise<ActionResult<WhatsAppConversationListItem[]>> {
   try {
-    await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
 
     const supabaseAdmin = createSupabaseServiceClient()
 
-    let query = supabaseAdmin
-      .from("whatsapp_conversations")
-      .select(
-        "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at"
-      )
-      .order("last_message_at", { ascending: false })
-      .limit(250)
+    const buildConversationQuery = (includeRestrictedColumn: boolean) => {
+      let query = supabaseAdmin
+        .from("whatsapp_conversations")
+        .select(
+          includeRestrictedColumn
+            ? "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at, is_restricted"
+            : "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at"
+        )
+        .order("last_message_at", { ascending: false })
+        .limit(250)
 
-    if (filters.unassignedOnly) {
-      query = query.is("assigned_user_id", null)
-    }
-
-    if (filters.brand && filters.brand !== "all") {
-      query = query.eq("brand", filters.brand)
-    }
-
-    if (filters.status && filters.status !== "all") {
-      query = query.eq("status", filters.status)
-    }
-
-    if (filters.search?.trim()) {
-      const sanitized = sanitizeSearchTerm(filters.search)
-      if (sanitized) {
-        const digits = sanitized.replace(/\D/g, "")
-        const conditions = [`customer_name.ilike.%${sanitized}%`]
-        if (digits) {
-          conditions.push(`customer_wa_id.ilike.%${digits}%`)
-        }
-        query = query.or(conditions.join(","))
+      if (filters.unassignedOnly) {
+        query = query.is("assigned_user_id", null)
       }
+
+      if (filters.brand && filters.brand !== "all") {
+        query = query.eq("brand", filters.brand)
+      }
+
+      if (filters.status && filters.status !== "all") {
+        query = query.eq("status", filters.status)
+      }
+
+      if (filters.search?.trim()) {
+        const sanitized = sanitizeSearchTerm(filters.search)
+        if (sanitized) {
+          const digits = sanitized.replace(/\D/g, "")
+          const conditions = [`customer_name.ilike.%${sanitized}%`]
+          if (digits) {
+            conditions.push(`customer_wa_id.ilike.%${digits}%`)
+          }
+          query = query.or(conditions.join(","))
+        }
+      }
+
+      return query
     }
 
-    const { data: conversationsData, error: conversationsError } = await query
+    let { data: conversationsData, error: conversationsError } = await buildConversationQuery(true)
+
+    if (conversationsError && isMissingColumnError(conversationsError, "is_restricted")) {
+      const fallback = await buildConversationQuery(false)
+      conversationsData = fallback.data as typeof conversationsData
+      conversationsError = fallback.error as typeof conversationsError
+    }
 
     if (conversationsError) {
       throw new WhatsAppActionError(conversationsError.message)
     }
 
-    const conversations = (conversationsData ?? []) as ConversationRow[]
+    const conversationRows = (conversationsData ?? []).map((row) =>
+      toConversationRow(row as Record<string, unknown>)
+    )
+    const conversations = await filterConversationsByVisibility({
+      supabaseAdmin,
+      conversations: conversationRows,
+      accessContext,
+    })
 
     if (conversations.length === 0) {
       return { success: true, data: [] }
@@ -634,25 +881,41 @@ export async function listWhatsAppConversations(
     }
 
     const contactsById = new Map(
-      (contactsResult.data ?? []).map((row: any) => [
+      (
+        (contactsResult.data ?? []) as Array<{
+          id: string
+          full_name: string | null
+          whatsapp: string | null
+          whatsapp_normalized: string | null
+        }>
+      ).map((row) => [
         row.id,
         {
-          full_name: row.full_name as string | null,
-          whatsapp: (row.whatsapp as string | null) || (row.whatsapp_normalized as string | null),
+          full_name: row.full_name,
+          whatsapp: row.whatsapp || row.whatsapp_normalized,
         },
       ])
     )
 
     const usersById = new Map(
-      (usersResult.data ?? []).map((row: any) => [row.id, row.name as string | null])
+      ((usersResult.data ?? []) as Array<{ id: string; name: string | null }>).map((row) => [
+        row.id,
+        row.name,
+      ])
     )
 
     const accountsById = new Map(
-      (accountsResult.data ?? []).map((row: any) => [
+      (
+        (accountsResult.data ?? []) as Array<{
+          id: string
+          phone_number_id: string
+          display_phone_number: string | null
+        }>
+      ).map((row) => [
         row.id,
         {
-          phone_number_id: row.phone_number_id as string,
-          display_phone_number: row.display_phone_number as string | null,
+          phone_number_id: row.phone_number_id,
+          display_phone_number: row.display_phone_number,
         },
       ])
     )
@@ -681,6 +944,7 @@ export async function listWhatsAppConversations(
         unread_count: conversation.unread_count,
         last_message_at: conversation.last_message_at,
         updated_at: conversation.updated_at,
+        is_restricted: conversation.is_restricted,
       } satisfies WhatsAppConversationListItem
     })
 
@@ -698,10 +962,10 @@ export async function getWhatsAppConversationMessages(
   options: ConversationMessagesQueryOptions = {}
 ): Promise<ActionResult<ConversationMessagesResult>> {
   try {
-    await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const conversation = await fetchConversationById(conversationId)
+    const conversation = await fetchConversationById(conversationId, accessContext)
     const requestedLimit = Number.isFinite(options.limit) ? Number(options.limit) : MESSAGE_PAGE_SIZE_DEFAULT
     const pageLimit = Math.min(MESSAGE_PAGE_SIZE_MAX, Math.max(1, Math.floor(requestedLimit)))
     const beforeCursor = options.before?.trim() || null
@@ -984,9 +1248,10 @@ export async function assignWhatsAppConversation(
   userId: string | null
 ): Promise<ActionResult<{ id: string; assigned_user_id: string | null }>> {
   try {
-    const { user } = await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
     const supabaseAdmin = createSupabaseServiceClient()
-    const conversation = await fetchConversationById(conversationId)
+    const conversation = await fetchConversationById(conversationId, accessContext)
 
     if (userId) {
       const { data: assigneeData, error: assigneeError } = await supabaseAdmin
@@ -1038,14 +1303,15 @@ export async function setWhatsAppConversationBrand(
   brand: WhatsAppBrand
 ): Promise<ActionResult<{ id: string; brand: WhatsAppBrand }>> {
   try {
-    const { user } = await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
 
     if (!ensureValidBrand(brand)) {
       throw new WhatsAppActionError("Marca inválida para a conversa.")
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const conversation = await fetchConversationById(conversationId)
+    const conversation = await fetchConversationById(conversationId, accessContext)
 
     const updates: Record<string, unknown> = {
       brand,
@@ -1092,8 +1358,10 @@ export async function closeWhatsAppConversation(
   conversationId: string
 ): Promise<ActionResult<{ id: string; status: "CLOSED" }>> {
   try {
-    const { user } = await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
     const supabaseAdmin = createSupabaseServiceClient()
+    await fetchConversationById(conversationId, accessContext)
 
     const { error: updateError } = await supabaseAdmin
       .from("whatsapp_conversations")
@@ -1128,9 +1396,10 @@ export async function reopenWhatsAppConversation(
   conversationId: string
 ): Promise<ActionResult<{ id: string; status: "OPEN" | "PENDING_BRAND" }>> {
   try {
-    const { user } = await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
     const supabaseAdmin = createSupabaseServiceClient()
-    const conversation = await fetchConversationById(conversationId)
+    const conversation = await fetchConversationById(conversationId, accessContext)
 
     const nextStatus: "OPEN" | "PENDING_BRAND" = conversation.brand ? "OPEN" : "PENDING_BRAND"
 
@@ -1166,12 +1435,160 @@ export async function reopenWhatsAppConversation(
   }
 }
 
+export async function getWhatsAppConversationRestrictionSettings(
+  conversationId: string
+): Promise<ActionResult<WhatsAppConversationRestrictionSettings>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    if (!accessContext.isRestrictionAdmin) {
+      throw new WhatsAppActionError(
+        "Somente adm_mestre e adm_dorata podem gerenciar conversas restritas."
+      )
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    await ensureRestrictionSchemaAvailable(supabaseAdmin)
+
+    const conversation = await fetchConversationById(conversationId, accessContext)
+
+    const { data: accessRows, error: accessError } = await supabaseAdmin
+      .from("whatsapp_conversation_access")
+      .select("user_id")
+      .eq("conversation_id", conversationId)
+
+    if (accessError) {
+      throw new WhatsAppActionError(accessError.message)
+    }
+
+    const allowedUserIds = (accessRows ?? [])
+      .map((row) => (row as { user_id: string | null }).user_id)
+      .filter((value): value is string => Boolean(value))
+
+    return {
+      success: true,
+      data: {
+        conversation_id: conversation.id,
+        is_restricted: conversation.is_restricted,
+        allowed_user_ids: allowedUserIds,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Falha ao carregar permissões da conversa restrita.",
+    }
+  }
+}
+
+export async function setWhatsAppConversationRestriction(
+  conversationId: string,
+  input: {
+    isRestricted: boolean
+    allowedUserIds?: string[]
+  }
+): Promise<ActionResult<WhatsAppConversationRestrictionSettings>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    if (!accessContext.isRestrictionAdmin) {
+      throw new WhatsAppActionError(
+        "Somente adm_mestre e adm_dorata podem gerenciar conversas restritas."
+      )
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    await ensureRestrictionSchemaAvailable(supabaseAdmin)
+    const conversation = await fetchConversationById(conversationId, accessContext)
+
+    const normalizedAllowedUserIds = Array.from(
+      new Set(
+        (input.allowedUserIds ?? [])
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      )
+    )
+
+    if (normalizedAllowedUserIds.length > 0) {
+      const { data: usersData, error: usersError } = await supabaseAdmin
+        .from("users")
+        .select("id")
+        .in("id", normalizedAllowedUserIds)
+
+      if (usersError) {
+        throw new WhatsAppActionError(usersError.message)
+      }
+
+      const existingIds = new Set((usersData ?? []).map((row: { id: string }) => row.id))
+      const missingIds = normalizedAllowedUserIds.filter((id) => !existingIds.has(id))
+      if (missingIds.length > 0) {
+        throw new WhatsAppActionError("Um ou mais usuários selecionados não existem.")
+      }
+    }
+
+    const { error: updateConversationError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update({ is_restricted: input.isRestricted })
+      .eq("id", conversationId)
+
+    if (updateConversationError) {
+      throw new WhatsAppActionError(updateConversationError.message)
+    }
+
+    const { error: deleteAccessError } = await supabaseAdmin
+      .from("whatsapp_conversation_access")
+      .delete()
+      .eq("conversation_id", conversationId)
+
+    if (deleteAccessError) {
+      throw new WhatsAppActionError(deleteAccessError.message)
+    }
+
+    if (input.isRestricted && normalizedAllowedUserIds.length > 0) {
+      const accessRows = normalizedAllowedUserIds.map((allowedUserId) => ({
+        conversation_id: conversationId,
+        user_id: allowedUserId,
+        granted_by_user_id: accessContext.user.id,
+      }))
+
+      const { error: insertAccessError } = await supabaseAdmin
+        .from("whatsapp_conversation_access")
+        .insert(accessRows)
+
+      if (insertAccessError) {
+        throw new WhatsAppActionError(insertAccessError.message)
+      }
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: {
+        conversation_id: conversation.id,
+        is_restricted: input.isRestricted,
+        allowed_user_ids: input.isRestricted ? normalizedAllowedUserIds : [],
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Falha ao atualizar permissões da conversa restrita.",
+    }
+  }
+}
+
 export async function sendWhatsAppTextMessage(
   conversationId: string,
   text: string
 ): Promise<ActionResult<{ message: WhatsAppMessage; send_result: SendMessageResult }>> {
   try {
-    const { user, profile } = await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
+    const { user, profile } = accessContext
 
     const messageText = text.trim()
 
@@ -1180,7 +1597,7 @@ export async function sendWhatsAppTextMessage(
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const conversation = await fetchConversationById(conversationId)
+    const conversation = await fetchConversationById(conversationId, accessContext)
 
     if (!conversation.brand) {
       throw new WhatsAppActionError("Defina a marca da conversa antes de enviar mensagens.")
@@ -1322,7 +1739,8 @@ export async function sendWhatsAppMediaMessage(
   }
 ): Promise<ActionResult<{ message: WhatsAppMessage; send_result: SendMessageResult }>> {
   try {
-    const { user } = await requireWhatsAppAccess()
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
 
     if (!isWhatsAppOutboundMediaType(input.mediaType)) {
       throw new WhatsAppActionError("Tipo de mídia inválido para envio.")
@@ -1338,7 +1756,7 @@ export async function sendWhatsAppMediaMessage(
     }
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const conversation = await fetchConversationById(conversationId)
+    const conversation = await fetchConversationById(conversationId, accessContext)
 
     if (!conversation.brand) {
       throw new WhatsAppActionError("Defina a marca da conversa antes de enviar mensagens.")

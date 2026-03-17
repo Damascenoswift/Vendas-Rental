@@ -100,5 +100,14 @@ export default async function AdminWhatsAppPage() {
       email: (row as { email?: string | null }).email ?? null,
     }))
 
-  return <WhatsAppInbox currentUserId={user.id} initialAgents={agents} />
+  const canManageConversationRestrictions =
+    profile?.role === "adm_mestre" || profile?.role === "adm_dorata"
+
+  return (
+    <WhatsAppInbox
+      currentUserId={user.id}
+      initialAgents={agents}
+      canManageConversationRestrictions={canManageConversationRestrictions}
+    />
+  )
 }

@@ -6,11 +6,15 @@ import {
   Clock3,
   FileImage,
   FileText,
+  LayoutGrid,
+  List,
+  Lock,
   MessageCircle,
   Paperclip,
   Plus,
   RefreshCcw,
   Send,
+  Unlock,
   UserRound,
   X,
 } from "lucide-react"
@@ -18,12 +22,14 @@ import {
 import {
   assignWhatsAppConversation,
   closeWhatsAppConversation,
+  getWhatsAppConversationRestrictionSettings,
   getWhatsAppConversationMessages,
   listWhatsAppConversations,
   searchWhatsAppContacts,
   reopenWhatsAppConversation,
   sendWhatsAppMediaMessage,
   sendWhatsAppTextMessage,
+  setWhatsAppConversationRestriction,
   startWhatsAppConversationFromContact,
   setWhatsAppConversationBrand,
   type WhatsAppAgent,
@@ -33,6 +39,7 @@ import {
 } from "@/app/actions/whatsapp"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -50,6 +57,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -69,12 +77,14 @@ import { supabase } from "@/lib/supabase"
 type WhatsAppInboxProps = {
   currentUserId: string
   initialAgents: WhatsAppAgent[]
+  canManageConversationRestrictions: boolean
 }
 
 type StatusFilter = "all" | "PENDING_BRAND" | "OPEN" | "CLOSED"
 type ConversationBrand = "rental" | "dorata" | "funcionario" | "diversos"
 type BrandFilter = "all" | ConversationBrand
 type MediaPickerKind = "image" | "document" | "audio"
+type ConversationViewMode = "kanban" | "list"
 
 type PendingOutgoingMedia = {
   mediaType: WhatsAppOutboundMediaType
@@ -110,6 +120,8 @@ const MEDIA_PICKER_ACCEPT: Record<MediaPickerKind, string> = {
   document: "application/pdf,.pdf",
   audio: "audio/*,.mp3,.ogg,.wav,.m4a,.aac,.webm",
 }
+
+const KANBAN_STATUS_COLUMNS: Array<Exclude<StatusFilter, "all">> = ["PENDING_BRAND", "OPEN", "CLOSED"]
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-"
@@ -155,7 +167,11 @@ function conversationDisplayName(conversation: WhatsAppConversationListItem) {
   )
 }
 
-export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxProps) {
+export function WhatsAppInbox({
+  currentUserId,
+  initialAgents,
+  canManageConversationRestrictions,
+}: WhatsAppInboxProps) {
   const { showToast } = useToast()
   const selectedConversationIdRef = useRef<string | null>(null)
   const mediaFileInputRef = useRef<HTMLInputElement | null>(null)
@@ -178,6 +194,12 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const [contactOptions, setContactOptions] = useState<WhatsAppContactOption[]>([])
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [startingConversation, setStartingConversation] = useState(false)
+  const [conversationViewMode, setConversationViewMode] = useState<ConversationViewMode>("kanban")
+  const [restrictionDialogOpen, setRestrictionDialogOpen] = useState(false)
+  const [loadingRestrictionSettings, setLoadingRestrictionSettings] = useState(false)
+  const [savingRestrictionSettings, setSavingRestrictionSettings] = useState(false)
+  const [restrictionDraftEnabled, setRestrictionDraftEnabled] = useState(false)
+  const [restrictionDraftAllowedUserIds, setRestrictionDraftAllowedUserIds] = useState<string[]>([])
 
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
@@ -197,6 +219,14 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   )
+
+  const conversationsByStatus = useMemo(() => {
+    return {
+      PENDING_BRAND: conversations.filter((conversation) => conversation.status === "PENDING_BRAND"),
+      OPEN: conversations.filter((conversation) => conversation.status === "OPEN"),
+      CLOSED: conversations.filter((conversation) => conversation.status === "CLOSED"),
+    }
+  }, [conversations])
 
   const loadConversations = useCallback(
     async (params?: { preserveSelection?: boolean }) => {
@@ -359,6 +389,19 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   }, [selectedConversationId])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    const savedMode = window.localStorage.getItem("whatsapp_inbox_view_mode")
+    if (savedMode === "kanban" || savedMode === "list") {
+      setConversationViewMode(savedMode)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    window.localStorage.setItem("whatsapp_inbox_view_mode", conversationViewMode)
+  }, [conversationViewMode])
+
+  useEffect(() => {
     if (!pendingMedia) return
     if (!selectedConversationId || !pendingMedia.storagePath.startsWith(`${selectedConversationId}/`)) {
       const previousPath = pendingMedia.storagePath
@@ -518,6 +561,77 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
       await loadConversations({ preserveSelection: true })
     })
   }, [loadConversations, selectedConversation, showToast, withAction])
+
+  const loadRestrictionSettings = useCallback(
+    async (conversationId: string) => {
+      setLoadingRestrictionSettings(true)
+      const result = await getWhatsAppConversationRestrictionSettings(conversationId)
+      setLoadingRestrictionSettings(false)
+
+      if (!result.success || !result.data) {
+        showToast({
+          variant: "error",
+          title: "Falha ao carregar restrição",
+          description: result.error || "Não foi possível carregar as permissões da conversa.",
+        })
+        return false
+      }
+
+      setRestrictionDraftEnabled(result.data.is_restricted)
+      setRestrictionDraftAllowedUserIds(result.data.allowed_user_ids)
+      return true
+    },
+    [showToast]
+  )
+
+  const handleOpenRestrictionDialog = useCallback(async () => {
+    if (!selectedConversation || !canManageConversationRestrictions) return
+    setRestrictionDialogOpen(true)
+    const loaded = await loadRestrictionSettings(selectedConversation.id)
+    if (!loaded) {
+      setRestrictionDialogOpen(false)
+    }
+  }, [canManageConversationRestrictions, loadRestrictionSettings, selectedConversation])
+
+  const handleToggleRestrictionUser = useCallback((userId: string, checked: boolean) => {
+    setRestrictionDraftAllowedUserIds((current) => {
+      if (checked) {
+        return current.includes(userId) ? current : [...current, userId]
+      }
+      return current.filter((item) => item !== userId)
+    })
+  }, [])
+
+  const handleSaveRestrictionSettings = useCallback(async () => {
+    if (!selectedConversation || !canManageConversationRestrictions || savingRestrictionSettings) return
+
+    setSavingRestrictionSettings(true)
+    const result = await setWhatsAppConversationRestriction(selectedConversation.id, {
+      isRestricted: restrictionDraftEnabled,
+      allowedUserIds: restrictionDraftEnabled ? restrictionDraftAllowedUserIds : [],
+    })
+    setSavingRestrictionSettings(false)
+
+    if (!result.success || !result.data) {
+      showToast({
+        variant: "error",
+        title: "Falha ao salvar restrição",
+        description: result.error || "Não foi possível atualizar a restrição da conversa.",
+      })
+      return
+    }
+
+    setRestrictionDialogOpen(false)
+    await loadConversations({ preserveSelection: true })
+  }, [
+    canManageConversationRestrictions,
+    loadConversations,
+    restrictionDraftAllowedUserIds,
+    restrictionDraftEnabled,
+    savingRestrictionSettings,
+    selectedConversation,
+    showToast,
+  ])
 
   const uploadPendingMediaFile = useCallback(
     async (file: File) => {
@@ -1012,57 +1126,156 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
               />
               Somente não atribuídas
             </label>
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">Visualização</span>
+              <div className="inline-flex items-center rounded-md border p-0.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={conversationViewMode === "kanban" ? "secondary" : "ghost"}
+                  className="h-7 px-2"
+                  onClick={() => setConversationViewMode("kanban")}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  Kanban
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={conversationViewMode === "list" ? "secondary" : "ghost"}
+                  className="h-7 px-2"
+                  onClick={() => setConversationViewMode("list")}
+                >
+                  <List className="h-3.5 w-3.5" />
+                  Lista
+                </Button>
+              </div>
+            </div>
           </div>
 
           <ScrollArea className="h-[64vh]">
-            <div className="divide-y">
-              {conversations.map((conversation) => {
-                const isSelected = conversation.id === selectedConversationId
-                const windowOpen = isWindowOpen(conversation.window_expires_at)
+            {conversationViewMode === "list" ? (
+              <div className="divide-y">
+                {conversations.map((conversation) => {
+                  const isSelected = conversation.id === selectedConversationId
+                  const windowOpen = isWindowOpen(conversation.window_expires_at)
 
-                return (
-                  <button
-                    type="button"
-                    key={conversation.id}
-                    onClick={() => setSelectedConversationId(conversation.id)}
-                    className={`w-full text-left p-3 transition-colors ${
-                      isSelected ? "bg-blue-50" : "hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{conversationDisplayName(conversation)}</p>
-                        <p className="text-xs text-muted-foreground truncate">{conversation.customer_wa_id}</p>
+                  return (
+                    <button
+                      type="button"
+                      key={conversation.id}
+                      onClick={() => setSelectedConversationId(conversation.id)}
+                      className={`w-full text-left p-3 transition-colors ${
+                        isSelected ? "bg-blue-50" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{conversationDisplayName(conversation)}</p>
+                          <p className="text-xs text-muted-foreground truncate">{conversation.customer_wa_id}</p>
+                        </div>
+                        {conversation.unread_count > 0 ? (
+                          <Badge variant="default">{conversation.unread_count}</Badge>
+                        ) : null}
                       </div>
-                      {conversation.unread_count > 0 ? (
-                        <Badge variant="default">{conversation.unread_count}</Badge>
-                      ) : null}
-                    </div>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-1">
-                      <Badge variant="outline">{conversation.status}</Badge>
-                      <Badge variant={conversation.brand ? "secondary" : "outline"}>
-                        {conversation.brand
-                          ? BRAND_LABELS[conversation.brand as ConversationBrand]
-                          : "Sem marca"}
-                      </Badge>
-                      <Badge variant={windowOpen ? "secondary" : "destructive"}>
-                        {windowOpen ? "Janela 24h ativa" : "Janela 24h encerrada"}
-                      </Badge>
-                    </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-1">
+                        <Badge variant="outline">{conversation.status}</Badge>
+                        <Badge variant={conversation.brand ? "secondary" : "outline"}>
+                          {conversation.brand
+                            ? BRAND_LABELS[conversation.brand as ConversationBrand]
+                            : "Sem marca"}
+                        </Badge>
+                        {conversation.is_restricted ? (
+                          <Badge variant="destructive">
+                            <Lock className="mr-1 h-3 w-3" />
+                            Restrita
+                          </Badge>
+                        ) : null}
+                        <Badge variant={windowOpen ? "secondary" : "destructive"}>
+                          {windowOpen ? "Janela 24h ativa" : "Janela 24h encerrada"}
+                        </Badge>
+                      </div>
 
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      <p>Responsável: {conversation.assigned_user_name || "Não atribuído"}</p>
-                      <p>Última atividade: {formatDateTime(conversation.last_message_at)}</p>
-                    </div>
-                  </button>
-                )
-              })}
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        <p>Responsável: {conversation.assigned_user_name || "Não atribuído"}</p>
+                        <p>Última atividade: {formatDateTime(conversation.last_message_at)}</p>
+                      </div>
+                    </button>
+                  )
+                })}
 
-              {conversations.length === 0 ? (
-                <div className="p-4 text-sm text-muted-foreground">Nenhuma conversa encontrada.</div>
-              ) : null}
-            </div>
+                {conversations.length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground">Nenhuma conversa encontrada.</div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="min-w-[900px] p-3">
+                <div className="grid grid-cols-3 gap-3">
+                  {KANBAN_STATUS_COLUMNS.map((status) => {
+                    const statusConversations = conversationsByStatus[status]
+                    return (
+                      <div key={status} className="rounded-md border bg-slate-50/60">
+                        <div className="flex items-center justify-between border-b px-3 py-2">
+                          <p className="text-sm font-semibold">{STATUS_LABELS[status]}</p>
+                          <Badge variant="secondary">{statusConversations.length}</Badge>
+                        </div>
+                        <div className="space-y-2 p-2">
+                          {statusConversations.map((conversation) => {
+                            const isSelected = conversation.id === selectedConversationId
+                            return (
+                              <button
+                                type="button"
+                                key={conversation.id}
+                                onClick={() => setSelectedConversationId(conversation.id)}
+                                className={`w-full rounded-md border bg-white p-2 text-left transition-colors ${
+                                  isSelected ? "border-blue-400 bg-blue-50" : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="truncate text-sm font-medium">
+                                    {conversationDisplayName(conversation)}
+                                  </p>
+                                  {conversation.unread_count > 0 ? (
+                                    <Badge variant="default">{conversation.unread_count}</Badge>
+                                  ) : null}
+                                </div>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {conversation.customer_wa_id}
+                                </p>
+                                <div className="mt-2 flex flex-wrap items-center gap-1">
+                                  <Badge variant={conversation.brand ? "secondary" : "outline"}>
+                                    {conversation.brand
+                                      ? BRAND_LABELS[conversation.brand as ConversationBrand]
+                                      : "Sem marca"}
+                                  </Badge>
+                                  {conversation.is_restricted ? (
+                                    <Badge variant="destructive">
+                                      <Lock className="mr-1 h-3 w-3" />
+                                      Restrita
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {conversation.assigned_user_name || "Não atribuído"}
+                                </p>
+                              </button>
+                            )
+                          })}
+
+                          {statusConversations.length === 0 ? (
+                            <div className="rounded-md border border-dashed bg-white px-3 py-5 text-center text-xs text-muted-foreground">
+                              Sem conversas
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </ScrollArea>
         </div>
 
@@ -1073,10 +1286,36 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-lg font-semibold">{conversationDisplayName(selectedConversation)}</p>
-                    <p className="text-sm text-muted-foreground">{selectedConversation.customer_wa_id}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-muted-foreground">{selectedConversation.customer_wa_id}</p>
+                      {selectedConversation.is_restricted ? (
+                        <Badge variant="destructive">
+                          <Lock className="mr-1 h-3 w-3" />
+                          Conversa restrita
+                        </Badge>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {canManageConversationRestrictions ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={actionLoading || savingRestrictionSettings}
+                        onClick={() => {
+                          void handleOpenRestrictionDialog()
+                        }}
+                      >
+                        {selectedConversation.is_restricted ? (
+                          <Lock className="h-4 w-4" />
+                        ) : (
+                          <Unlock className="h-4 w-4" />
+                        )}
+                        {selectedConversation.is_restricted ? "Gerenciar restrição" : "Restringir"}
+                      </Button>
+                    ) : null}
+
                     <Button
                       variant="outline"
                       size="sm"
@@ -1159,6 +1398,82 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                   </div>
                 </div>
               </div>
+
+              {canManageConversationRestrictions ? (
+                <Dialog open={restrictionDialogOpen} onOpenChange={setRestrictionDialogOpen}>
+                  <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>Permissões da conversa</DialogTitle>
+                      <DialogDescription>
+                        Conversas restritas ficam sempre visíveis para adm_mestre e adm_dorata.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    {loadingRestrictionSettings ? (
+                      <p className="text-sm text-muted-foreground">Carregando configurações...</p>
+                    ) : (
+                      <div className="space-y-4">
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={restrictionDraftEnabled}
+                            onChange={(event) => {
+                              setRestrictionDraftEnabled(event.target.checked)
+                            }}
+                            disabled={savingRestrictionSettings}
+                          />
+                          Restringir esta conversa
+                        </label>
+
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Usuários liberados (além dos admins)</p>
+                          <ScrollArea className="h-52 rounded-md border p-2">
+                            <div className="space-y-2">
+                              {initialAgents.map((agent) => {
+                                const checked = restrictionDraftAllowedUserIds.includes(agent.id)
+                                const label = agent.name || agent.email || agent.id
+
+                                return (
+                                  <label
+                                    key={agent.id}
+                                    className="flex items-center gap-2 rounded-md border bg-white px-2 py-1.5 text-sm"
+                                  >
+                                    <Checkbox
+                                      checked={checked}
+                                      onChange={(event) => {
+                                        handleToggleRestrictionUser(agent.id, event.target.checked)
+                                      }}
+                                      disabled={!restrictionDraftEnabled || savingRestrictionSettings}
+                                    />
+                                    <span className="truncate">{label}</span>
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          </ScrollArea>
+                        </div>
+                      </div>
+                    )}
+
+                    <DialogFooter>
+                      <Button
+                        variant="outline"
+                        onClick={() => setRestrictionDialogOpen(false)}
+                        disabled={savingRestrictionSettings}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          void handleSaveRestrictionSettings()
+                        }}
+                        disabled={loadingRestrictionSettings || savingRestrictionSettings}
+                      >
+                        {savingRestrictionSettings ? "Salvando..." : "Salvar"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              ) : null}
 
               <ScrollArea className="flex-1 p-4 bg-slate-50/40">
                 <div className="space-y-3">
