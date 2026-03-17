@@ -1572,7 +1572,7 @@ export interface Database {
     }
     Enums: {
       user_role_enum: 'vendedor_externo' | 'vendedor_interno' | 'supervisor' | 'adm_mestre' | 'adm_dorata' | 'suporte_tecnico' | 'suporte_limitado' | 'investidor' | 'funcionario_n1' | 'funcionario_n2'
-      brand_enum: 'dorata' | 'rental'
+      brand_enum: 'dorata' | 'rental' | 'funcionario' | 'diversos'
       department_enum: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro'
       product_type_enum: 'module' | 'inverter' | 'structure' | 'cable' | 'transformer' | 'other'
       proposal_status_enum: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'

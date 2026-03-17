@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 
 export type WhatsAppConversationStatus = "PENDING_BRAND" | "OPEN" | "CLOSED"
 export type WhatsAppMessageDirection = "INBOUND" | "OUTBOUND"
-export type WhatsAppBrand = "rental" | "dorata"
+export type WhatsAppBrand = "rental" | "dorata" | "funcionario" | "diversos"
 
 export type WhatsAppMessageStatus =
   | "received"

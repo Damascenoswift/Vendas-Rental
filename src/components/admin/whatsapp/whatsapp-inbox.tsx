@@ -51,13 +51,21 @@ type WhatsAppInboxProps = {
 }
 
 type StatusFilter = "all" | "PENDING_BRAND" | "OPEN" | "CLOSED"
-type BrandFilter = "all" | "rental" | "dorata"
+type ConversationBrand = "rental" | "dorata" | "funcionario" | "diversos"
+type BrandFilter = "all" | ConversationBrand
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
   all: "Todos",
   PENDING_BRAND: "Pendente de marca",
   OPEN: "Aberta",
   CLOSED: "Fechada",
+}
+
+const BRAND_LABELS: Record<ConversationBrand, string> = {
+  rental: "Rental",
+  dorata: "Dorata",
+  funcionario: "Funcionário",
+  diversos: "Diversos",
 }
 
 const MESSAGE_STATUS_LABELS: Record<string, string> = {
@@ -383,7 +391,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   )
 
   const handleSetBrand = useCallback(
-    async (brand: "rental" | "dorata") => {
+    async (brand: ConversationBrand) => {
       if (!selectedConversation) return
 
       await withAction(async () => {
@@ -602,8 +610,18 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas as marcas</SelectItem>
-                  <SelectItem value="rental">Rental</SelectItem>
-                  <SelectItem value="dorata">Dorata</SelectItem>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel>Marcas</SelectLabel>
+                    <SelectItem value="dorata">Dorata</SelectItem>
+                    <SelectItem value="rental">Rental</SelectItem>
+                  </SelectGroup>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel>Outros</SelectLabel>
+                    <SelectItem value="funcionario">Funcionário</SelectItem>
+                    <SelectItem value="diversos">Diversos</SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
@@ -646,7 +664,9 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                     <div className="mt-2 flex flex-wrap items-center gap-1">
                       <Badge variant="outline">{conversation.status}</Badge>
                       <Badge variant={conversation.brand ? "secondary" : "outline"}>
-                        {conversation.brand || "Sem marca"}
+                        {conversation.brand
+                          ? BRAND_LABELS[conversation.brand as ConversationBrand]
+                          : "Sem marca"}
                       </Badge>
                       <Badge variant={windowOpen ? "secondary" : "destructive"}>
                         {windowOpen ? "Janela 24h ativa" : "Janela 24h encerrada"}
@@ -711,7 +731,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                     value={selectedConversation.brand || "__none"}
                     onValueChange={(value) => {
                       if (value === "__none") return
-                      void handleSetBrand(value as "rental" | "dorata")
+                      void handleSetBrand(value as ConversationBrand)
                     }}
                     disabled={actionLoading}
                   >
@@ -729,12 +749,8 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                       <SelectSeparator />
                       <SelectGroup>
                         <SelectLabel>Outros</SelectLabel>
-                        <SelectItem value="__employee" disabled>
-                          Funcionario
-                        </SelectItem>
-                        <SelectItem value="__misc" disabled>
-                          Diversos
-                        </SelectItem>
+                        <SelectItem value="funcionario">Funcionário</SelectItem>
+                        <SelectItem value="diversos">Diversos</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>

@@ -151,7 +151,12 @@ function sanitizeSearchTerm(value: string) {
 }
 
 function ensureValidBrand(value: string): value is WhatsAppBrand {
-  return value === "rental" || value === "dorata"
+  return (
+    value === "rental" ||
+    value === "dorata" ||
+    value === "funcionario" ||
+    value === "diversos"
+  )
 }
 
 function ensureValidStatus(value: string): value is WhatsAppConversationStatus {
