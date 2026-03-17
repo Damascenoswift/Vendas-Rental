@@ -17,6 +17,7 @@ import {
   extractZApiInboundMessage,
   getZApiAccountData,
   getZApiStatusIds,
+  isZApiFromMe,
   isZApiMessageStatusCallback,
   isZApiReceivedCallback,
   mapZApiStatusToMessageStatus,
@@ -760,7 +761,7 @@ async function processZApiInboundPayload(payload: ZApiReceivedCallbackPayload) {
 
   const inboundMessage = extractZApiInboundMessage(payload)
 
-  if (payload.fromMe) {
+  if (isZApiFromMe(payload.fromMe)) {
     await upsertOutboundMessageFromWebhook({
       conversation,
       waMessageId: inboundMessage.waMessageId,
@@ -987,6 +988,9 @@ export async function handleZApiWebhookPost(
 
   console.info("whatsapp_webhook_zapi_event", {
     event_type: eventType,
+    from_me: isZApiFromMe((payload as { fromMe?: unknown })?.fromMe),
+    has_message_id: Boolean((payload as { messageId?: unknown })?.messageId),
+    has_phone: Boolean((payload as { phone?: unknown })?.phone),
   })
 
   if (isZApiReceivedCallback(payload)) {

@@ -13,7 +13,11 @@ export type ZApiReceivedCallbackPayload = ZApiEventPayload & {
   instanceId?: string
   connectedPhone?: string
   phone?: string
-  fromMe?: boolean
+  from?: string
+  chatId?: string
+  remoteJid?: string
+  senderPhone?: string
+  fromMe?: boolean | string | number
   isGroup?: boolean
   isNewsletter?: boolean
   messageId?: string
@@ -92,11 +96,17 @@ function extractTrimmedString(value: unknown): string | null {
   return trimmed || null
 }
 
-function isLikelyZApiInboundPayload(payload: Record<string, unknown>) {
-  const messageId = extractTrimmedString(payload.messageId)
-  const phone = extractTrimmedString(payload.phone)
-  if (!messageId || !phone) return false
+function extractPossibleCustomerIdentifier(payload: Record<string, unknown>) {
+  return normalizeWhatsAppIdentifier(
+    extractTrimmedString(payload.phone) ||
+      extractTrimmedString(payload.from) ||
+      extractTrimmedString(payload.chatId) ||
+      extractTrimmedString(payload.remoteJid) ||
+      extractTrimmedString(payload.senderPhone)
+  )
+}
 
+function hasInboundMessageContent(payload: Record<string, unknown>) {
   return Boolean(
     isObject(payload.text) ||
       isObject(payload.image) ||
@@ -107,6 +117,14 @@ function isLikelyZApiInboundPayload(payload: Record<string, unknown>) {
       isObject(payload.location) ||
       isObject(payload.contact)
   )
+}
+
+function isLikelyZApiInboundPayload(payload: Record<string, unknown>) {
+  const customerId = extractPossibleCustomerIdentifier(payload)
+  if (!customerId) return false
+
+  const messageId = extractTrimmedString(payload.messageId)
+  return Boolean(messageId || hasInboundMessageContent(payload))
 }
 
 function isLikelyZApiStatusPayload(payload: Record<string, unknown>) {
@@ -139,6 +157,15 @@ export function isZApiMessageStatusCallback(payload: unknown): payload is ZApiMe
   }
 
   return isLikelyZApiStatusPayload(payload)
+}
+
+export function isZApiFromMe(value: unknown) {
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value === 1
+  if (typeof value !== "string") return false
+
+  const normalized = value.trim().toLowerCase()
+  return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "sim"
 }
 
 export function verifyZApiWebhookToken(
@@ -282,7 +309,7 @@ export function extractZApiInboundMessage(payload: ZApiReceivedCallbackPayload) 
 }
 
 export function extractZApiCustomer(payload: ZApiReceivedCallbackPayload) {
-  const customerWaId = normalizeWhatsAppIdentifier(extractTrimmedString(payload.phone))
+  const customerWaId = extractPossibleCustomerIdentifier(payload)
   const customerName =
     extractTrimmedString(payload.senderName) ||
     extractTrimmedString(payload.chatName) ||
