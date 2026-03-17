@@ -1,17 +1,20 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Clock3, MessageCircle, RefreshCcw, Send, UserRound } from "lucide-react"
+import { Clock3, MessageCircle, Plus, RefreshCcw, Send, UserRound } from "lucide-react"
 
 import {
   assignWhatsAppConversation,
   closeWhatsAppConversation,
   getWhatsAppConversationMessages,
   listWhatsAppConversations,
+  searchWhatsAppContacts,
   reopenWhatsAppConversation,
   sendWhatsAppTextMessage,
+  startWhatsAppConversationFromContact,
   setWhatsAppConversationBrand,
   type WhatsAppAgent,
+  type WhatsAppContactOption,
   type WhatsAppConversationListItem,
   type WhatsAppMessage,
 } from "@/app/actions/whatsapp"
@@ -27,6 +30,14 @@ import {
 } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { useDebounce } from "@/hooks/use-debounce"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
@@ -100,6 +111,11 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
+  const [contactDialogOpen, setContactDialogOpen] = useState(false)
+  const [contactSearch, setContactSearch] = useState("")
+  const [contactOptions, setContactOptions] = useState<WhatsAppContactOption[]>([])
+  const [loadingContacts, setLoadingContacts] = useState(false)
+  const [startingConversation, setStartingConversation] = useState(false)
 
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
@@ -109,6 +125,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const [draft, setDraft] = useState("")
 
   const debouncedSearch = useDebounce(search, 350)
+  const debouncedContactSearch = useDebounce(contactSearch, 300)
 
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -224,6 +241,53 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
     }
   }, [loadConversations, loadMessages])
 
+  const loadContactOptions = useCallback(
+    async (term: string) => {
+      setLoadingContacts(true)
+      const result = await searchWhatsAppContacts(term)
+      setLoadingContacts(false)
+
+      if (!result.success || !result.data) {
+        showToast({
+          variant: "error",
+          title: "Falha ao buscar contatos",
+          description: result.error || "Não foi possível buscar contatos para nova conversa.",
+        })
+        return
+      }
+
+      setContactOptions(result.data)
+    },
+    [showToast]
+  )
+
+  const handleStartConversation = useCallback(
+    async (contactId: string) => {
+      if (startingConversation) return
+      setStartingConversation(true)
+
+      const result = await startWhatsAppConversationFromContact(contactId)
+      setStartingConversation(false)
+
+      if (!result.success || !result.data) {
+        showToast({
+          variant: "error",
+          title: "Falha ao iniciar conversa",
+          description: result.error || "Não foi possível iniciar conversa para este contato.",
+        })
+        return
+      }
+
+      const conversationId = result.data.conversation_id
+      setContactDialogOpen(false)
+      setContactSearch("")
+      await loadConversations({ preserveSelection: true })
+      setSelectedConversationId(conversationId)
+      await loadMessages(conversationId)
+    },
+    [loadConversations, loadMessages, showToast, startingConversation]
+  )
+
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId
   }, [selectedConversationId])
@@ -231,6 +295,11 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   useEffect(() => {
     void loadConversations({ preserveSelection: true })
   }, [loadConversations])
+
+  useEffect(() => {
+    if (!contactDialogOpen) return
+    void loadContactOptions(debouncedContactSearch)
+  }, [contactDialogOpen, debouncedContactSearch, loadContactOptions])
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -426,16 +495,80 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
           <div className="border-b p-3 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">Conversas</h2>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  void refreshAll()
-                }}
-                disabled={loadingConversations || loadingMessages || actionLoading}
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Dialog
+                  open={contactDialogOpen}
+                  onOpenChange={(open) => {
+                    setContactDialogOpen(open)
+                    if (!open) {
+                      setContactSearch("")
+                    }
+                  }}
+                >
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline">
+                      <Plus className="h-4 w-4" />
+                      Nova
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Nova conversa</DialogTitle>
+                      <DialogDescription>
+                        Selecione um contato com WhatsApp para abrir atendimento.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-3">
+                      <Input
+                        value={contactSearch}
+                        onChange={(event) => setContactSearch(event.target.value)}
+                        placeholder="Buscar contato por nome ou telefone"
+                      />
+
+                      <ScrollArea className="h-[280px] rounded-md border p-2">
+                        <div className="space-y-2">
+                          {contactOptions.map((contact) => (
+                            <button
+                              type="button"
+                              key={contact.id}
+                              className="w-full rounded-md border bg-white p-3 text-left transition-colors hover:bg-slate-50"
+                              onClick={() => {
+                                void handleStartConversation(contact.id)
+                              }}
+                              disabled={startingConversation}
+                            >
+                              <p className="text-sm font-medium">{contact.name}</p>
+                              <p className="text-xs text-muted-foreground">{contact.whatsapp}</p>
+                            </button>
+                          ))}
+
+                          {loadingContacts ? (
+                            <p className="text-sm text-muted-foreground">Buscando contatos...</p>
+                          ) : null}
+
+                          {!loadingContacts && contactOptions.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">
+                              Nenhum contato com WhatsApp encontrado.
+                            </p>
+                          ) : null}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    void refreshAll()
+                  }}
+                  disabled={loadingConversations || loadingMessages || actionLoading}
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             <Input

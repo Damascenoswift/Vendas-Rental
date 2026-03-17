@@ -6,6 +6,7 @@ import { getProfile } from "@/lib/auth"
 import {
   getWhatsAppProvider,
   isWhatsAppInboxEnabled,
+  normalizeWhatsAppIdentifier,
   sendWhatsAppTextMessage as sendWhatsAppCloudTextMessage,
   type SendMessageResult,
   type WhatsAppBrand,
@@ -22,6 +23,7 @@ import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
 const SEND_RATE_LIMIT_PER_MINUTE = 20
 const MESSAGE_PAGE_SIZE_DEFAULT = 100
 const MESSAGE_PAGE_SIZE_MAX = 200
+const WINDOW_DURATION_MS = 24 * 60 * 60 * 1000
 
 export type WhatsAppAgent = {
   id: string
@@ -74,6 +76,12 @@ export type WhatsAppMessage = {
   failed_at: string | null
 }
 
+export type WhatsAppContactOption = {
+  id: string
+  name: string
+  whatsapp: string
+}
+
 type ActionResult<T> = {
   success: boolean
   data?: T
@@ -122,6 +130,13 @@ type MessageRow = {
   delivered_at: string | null
   read_at: string | null
   failed_at: string | null
+}
+
+type ContactSearchRow = {
+  id: string
+  full_name: string | null
+  whatsapp: string | null
+  whatsapp_normalized: string | null
 }
 
 class WhatsAppActionError extends Error {
@@ -611,6 +626,169 @@ export async function getWhatsAppConversationMessages(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao carregar mensagens da conversa.",
+    }
+  }
+}
+
+export async function searchWhatsAppContacts(
+  search = ""
+): Promise<ActionResult<WhatsAppContactOption[]>> {
+  try {
+    await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    const term = sanitizeSearchTerm(search)
+
+    let query = supabaseAdmin
+      .from("contacts")
+      .select("id, full_name, whatsapp, whatsapp_normalized")
+      .order("created_at", { ascending: false })
+      .limit(30)
+
+    if (term) {
+      query = query.or(
+        `full_name.ilike.%${term}%,whatsapp.ilike.%${term}%,whatsapp_normalized.ilike.%${term}%`
+      )
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new WhatsAppActionError(error.message)
+    }
+
+    const contacts = ((data ?? []) as ContactSearchRow[])
+      .map((row) => {
+        const normalized = normalizeWhatsAppIdentifier(row.whatsapp_normalized || row.whatsapp)
+        if (!normalized) return null
+
+        return {
+          id: row.id,
+          name: (row.full_name || `Contato ${normalized}`).trim(),
+          whatsapp: normalized,
+        } satisfies WhatsAppContactOption
+      })
+      .filter((value): value is WhatsAppContactOption => Boolean(value))
+
+    return {
+      success: true,
+      data: contacts,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao buscar contatos do WhatsApp.",
+    }
+  }
+}
+
+export async function startWhatsAppConversationFromContact(
+  contactId: string
+): Promise<ActionResult<{ conversation_id: string }>> {
+  try {
+    await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: contactData, error: contactError } = await supabaseAdmin
+      .from("contacts")
+      .select("id, full_name, whatsapp, whatsapp_normalized")
+      .eq("id", contactId)
+      .maybeSingle()
+
+    if (contactError || !contactData) {
+      throw new WhatsAppActionError(contactError?.message ?? "Contato não encontrado.")
+    }
+
+    const contact = contactData as ContactSearchRow
+    const customerWaId = normalizeWhatsAppIdentifier(contact.whatsapp_normalized || contact.whatsapp)
+
+    if (!customerWaId) {
+      throw new WhatsAppActionError("Contato não possui WhatsApp válido para iniciar conversa.")
+    }
+
+    const provider = getWhatsAppProvider()
+    const { data: accountData, error: accountError } = await supabaseAdmin
+      .from("whatsapp_accounts")
+      .select("id")
+      .eq("provider", provider)
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+
+    if (accountError || !accountData) {
+      throw new WhatsAppActionError(
+        accountError?.message ?? "Nenhuma conta WhatsApp ativa configurada para este provedor."
+      )
+    }
+
+    const accountId = (accountData as { id: string }).id
+
+    const { data: existingConversationData, error: existingConversationError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .select("id")
+      .eq("account_id", accountId)
+      .eq("customer_wa_id", customerWaId)
+      .not("status", "eq", "CLOSED")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existingConversationError) {
+      throw new WhatsAppActionError(existingConversationError.message)
+    }
+
+    if (existingConversationData) {
+      return {
+        success: true,
+        data: {
+          conversation_id: (existingConversationData as { id: string }).id,
+        },
+      }
+    }
+
+    const nowIso = new Date().toISOString()
+    const conversationPayload: Record<string, unknown> = {
+      account_id: accountId,
+      contact_id: contact.id,
+      customer_wa_id: customerWaId,
+      customer_name: contact.full_name || null,
+      status: "PENDING_BRAND",
+      unread_count: 0,
+      last_message_at: nowIso,
+    }
+
+    // With Z-API the conversation is commonly started by outbound messages.
+    if (provider === "z_api") {
+      conversationPayload.window_expires_at = new Date(Date.now() + WINDOW_DURATION_MS).toISOString()
+    }
+
+    const { data: insertedConversationData, error: insertConversationError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .insert(conversationPayload)
+      .select("id")
+      .single()
+
+    if (insertConversationError || !insertedConversationData) {
+      throw new WhatsAppActionError(
+        insertConversationError?.message ?? "Falha ao iniciar conversa com o contato."
+      )
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: {
+        conversation_id: (insertedConversationData as { id: string }).id,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Falha ao iniciar conversa do WhatsApp a partir do contato.",
     }
   }
 }
