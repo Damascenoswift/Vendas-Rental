@@ -68,6 +68,16 @@ export type ZApiMessageStatusCallbackPayload = ZApiEventPayload & {
   isGroup?: boolean
 }
 
+export type ZApiDeliveryCallbackPayload = ZApiEventPayload & {
+  type?: string
+  instanceId?: string
+  connectedPhone?: string
+  phone?: string
+  messageId?: string
+  zaapId?: string
+  momment?: number
+}
+
 export type ZApiWebhookTokenValidationOptions = {
   headerNames?: string[]
   allowQueryToken?: boolean
@@ -141,8 +151,9 @@ export function isZApiReceivedCallback(payload: unknown): payload is ZApiReceive
   const eventType = normalizeEventType(payload.type)
   if (eventType) {
     if (eventType === "receivedcallback") return true
-    if (eventType.includes("status")) return false
+    if (eventType.includes("status") || eventType.includes("delivery")) return false
     if (eventType.includes("received")) return true
+    return false
   }
 
   return isLikelyZApiInboundPayload(payload)
@@ -157,6 +168,17 @@ export function isZApiMessageStatusCallback(payload: unknown): payload is ZApiMe
   }
 
   return isLikelyZApiStatusPayload(payload)
+}
+
+export function isZApiDeliveryCallback(payload: unknown): payload is ZApiDeliveryCallbackPayload {
+  if (!isObject(payload)) return false
+
+  const eventType = normalizeEventType(payload.type)
+  if (eventType) {
+    return eventType === "deliverycallback" || eventType.includes("delivery")
+  }
+
+  return false
 }
 
 export function isZApiFromMe(value: unknown) {

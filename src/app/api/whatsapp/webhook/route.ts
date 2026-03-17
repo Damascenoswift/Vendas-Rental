@@ -14,6 +14,7 @@ import {
 } from "@/lib/integrations/whatsapp"
 import {
   extractZApiCustomer,
+  isZApiDeliveryCallback,
   extractZApiInboundMessage,
   getZApiAccountData,
   getZApiStatusIds,
@@ -24,6 +25,7 @@ import {
   matchesConfiguredZApiInstance,
   toIsoFromZApiMoment,
   verifyZApiWebhookToken,
+  type ZApiDeliveryCallbackPayload,
   type ZApiWebhookTokenValidationOptions,
   type ZApiMessageStatusCallbackPayload,
   type ZApiReceivedCallbackPayload,
@@ -841,6 +843,67 @@ async function processZApiStatusPayload(payload: ZApiMessageStatusCallbackPayloa
   return (updatedRows ?? []).length
 }
 
+async function processZApiDeliveryPayload(payload: ZApiDeliveryCallbackPayload) {
+  if (!matchesConfiguredZApiInstance(payload.instanceId)) {
+    return 0
+  }
+
+  const accountData = getZApiAccountData(payload)
+  if (!accountData) {
+    return 0
+  }
+
+  const customerWaId = normalizeWhatsAppIdentifier(
+    typeof payload.phone === "string" ? payload.phone : null
+  )
+
+  if (!customerWaId) {
+    return 0
+  }
+
+  const accountId = await ensureAccount({
+    provider: "z_api",
+    phoneNumberId: accountData.providerPhoneNumberId,
+    wabaId: accountData.providerAccountId,
+    displayPhoneNumber: accountData.displayPhoneNumber,
+  })
+
+  const contactId = await findOrCreateContact(
+    customerWaId,
+    null,
+    {
+      source: "whatsapp_webhook_zapi_delivery",
+      instance_id: payload.instanceId,
+      customer_wa_id: customerWaId,
+    },
+    "whatsapp_zapi"
+  )
+
+  const conversation = await findOrCreateConversation({
+    accountId,
+    contactId,
+    customerWaId,
+    customerName: null,
+  })
+
+  const waMessageId =
+    (typeof payload.messageId === "string" && payload.messageId.trim()) ||
+    (typeof payload.zaapId === "string" && payload.zaapId.trim()) ||
+    null
+
+  await upsertOutboundMessageFromWebhook({
+    conversation,
+    waMessageId,
+    messageType: mapInboundMessageType(null),
+    bodyText: "[Mensagem enviada no WhatsApp]",
+    rawPayload: payload,
+    createdAt: toIsoFromZApiMoment(payload.momment),
+    rawStatus: "SENT",
+  })
+
+  return 1
+}
+
 async function handleMetaWebhookPost(rawBody: string, request: Request) {
   const signatureHeader =
     request.headers.get("x-hub-signature-256") || request.headers.get("X-Hub-Signature-256")
@@ -1003,6 +1066,24 @@ export async function handleZApiWebhookPost(
       })
     } catch (error) {
       console.error("whatsapp_webhook_zapi_inbound_process_failed", {
+        instance_id: payload.instanceId,
+        message_id: payload.messageId,
+        error: error instanceof Error ? error.message : "unknown",
+      })
+      return NextResponse.json({ ok: true, processed_messages: 0, processed_statuses: 0 })
+    }
+  }
+
+  if (isZApiDeliveryCallback(payload)) {
+    try {
+      const processed = await processZApiDeliveryPayload(payload)
+      return NextResponse.json({
+        ok: true,
+        processed_messages: processed,
+        processed_statuses: 0,
+      })
+    } catch (error) {
+      console.error("whatsapp_webhook_zapi_delivery_process_failed", {
         instance_id: payload.instanceId,
         message_id: payload.messageId,
         error: error instanceof Error ? error.message : "unknown",
