@@ -118,7 +118,7 @@ const MESSAGE_STATUS_LABELS: Record<string, string> = {
 const MEDIA_PICKER_ACCEPT: Record<MediaPickerKind, string> = {
   image: "image/jpeg,image/png,image/webp",
   document: "application/pdf,.pdf",
-  audio: "audio/*,.mp3,.ogg,.wav,.m4a,.aac,.webm",
+  audio: "audio/mpeg,audio/mp3,audio/ogg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,.mp3,.ogg,.wav,.m4a,.aac",
 }
 
 const KANBAN_STATUS_COLUMNS: Array<Exclude<StatusFilter, "all">> = ["PENDING_BRAND", "OPEN", "CLOSED"]
@@ -776,10 +776,10 @@ export function WhatsAppInbox({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const preferredMimeTypes = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/ogg;codecs=opus",
         "audio/mp4",
+        "audio/ogg;codecs=opus",
+        "audio/ogg",
+        "audio/wav",
       ]
 
       const mimeType = preferredMimeTypes.find((item) => {
@@ -791,6 +791,19 @@ export function WhatsAppInbox({
       })
 
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      const recorderMimeType = (recorder.mimeType || mimeType || "").toLowerCase()
+
+      if (recorderMimeType.includes("webm")) {
+        stream.getTracks().forEach((track) => track.stop())
+        showToast({
+          variant: "error",
+          title: "Formato de áudio não suportado",
+          description:
+            "Seu navegador está gravando em WEBM, que pode chegar vazio no WhatsApp. Use envio de arquivo MP3/OGG ou outro navegador.",
+        })
+        return
+      }
+
       mediaRecorderRef.current = recorder
       mediaStreamRef.current = stream
       audioChunksRef.current = []
@@ -802,12 +815,28 @@ export function WhatsAppInbox({
       }
 
       recorder.onstop = () => {
-        const effectiveType = recorder.mimeType || audioChunksRef.current[0]?.type || "audio/webm"
+        const effectiveType = recorder.mimeType || audioChunksRef.current[0]?.type || "audio/ogg"
+
+        if (effectiveType.toLowerCase().includes("webm")) {
+          audioChunksRef.current = []
+          mediaRecorderRef.current = null
+          stopRecordingTracks()
+          showToast({
+            variant: "error",
+            title: "Formato de áudio não suportado",
+            description:
+              "Não foi possível enviar o áudio gravado em WEBM. Tente enviar um arquivo MP3/OGG.",
+          })
+          return
+        }
+
         const extension = effectiveType.includes("ogg")
           ? "ogg"
           : effectiveType.includes("mp4") || effectiveType.includes("m4a")
             ? "m4a"
-            : "webm"
+            : effectiveType.includes("mpeg") || effectiveType.includes("mp3")
+              ? "mp3"
+              : "wav"
 
         const blob = new Blob(audioChunksRef.current, { type: effectiveType })
         audioChunksRef.current = []
@@ -1495,6 +1524,8 @@ export function WhatsAppInbox({
                   {messages.map((message) => {
                     const isOutbound = message.direction === "OUTBOUND"
                     const hasAudioPlayer = message.message_type === "audio" && Boolean(message.media_url)
+                    const hasDocumentLink = message.message_type === "document" && Boolean(message.media_url)
+                    const hasImageLink = message.message_type === "image" && Boolean(message.media_url)
                     const hideBodyText = hasAudioPlayer && isAudioPlaceholderText(message.body_text)
 
                     return (
@@ -1511,12 +1542,48 @@ export function WhatsAppInbox({
                             <p className="whitespace-pre-wrap">{message.body_text || "(sem conteúdo)"}</p>
                           ) : null}
                           {hasAudioPlayer ? (
-                            <audio
-                              controls
-                              preload="none"
-                              src={message.media_url || undefined}
-                              className={hideBodyText ? "" : "mt-2"}
-                            />
+                            <>
+                              <audio
+                                controls
+                                preload="none"
+                                src={message.media_url || undefined}
+                                className={hideBodyText ? "" : "mt-2"}
+                              />
+                              <a
+                                href={message.media_url || "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`mt-2 inline-block text-xs underline ${
+                                  isOutbound ? "text-blue-100" : "text-blue-700"
+                                }`}
+                              >
+                                Abrir áudio em nova guia
+                              </a>
+                            </>
+                          ) : null}
+                          {hasDocumentLink ? (
+                            <a
+                              href={message.media_url || "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`mt-2 inline-block text-xs underline ${
+                                isOutbound ? "text-blue-100" : "text-blue-700"
+                              }`}
+                            >
+                              {message.media_file_name || "Abrir documento"}
+                            </a>
+                          ) : null}
+                          {hasImageLink ? (
+                            <a
+                              href={message.media_url || "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`mt-2 inline-block text-xs underline ${
+                                isOutbound ? "text-blue-100" : "text-blue-700"
+                              }`}
+                            >
+                              Abrir imagem
+                            </a>
                           ) : null}
                           <div
                             className={`mt-2 flex items-center justify-between gap-2 text-xs ${

@@ -18,9 +18,8 @@ const AUDIO_MIME_TYPES = new Set([
   "audio/mp4",
   "audio/x-m4a",
   "audio/aac",
-  "audio/webm",
 ])
-const AUDIO_EXTENSIONS = new Set(["mp3", "ogg", "wav", "m4a", "aac", "webm"])
+const AUDIO_EXTENSIONS = new Set(["mp3", "ogg", "wav", "m4a", "aac"])
 
 function getFileExtension(name: string) {
   const parts = name.split(".")
@@ -101,7 +100,7 @@ export function validateWhatsAppOutboundMediaFile(input: {
   })
 
   if (!mediaType) {
-    return "Formato não suportado. Use foto (JPG/PNG/WEBP), PDF ou áudio (MP3/OGG/WAV/M4A/AAC/WEBM)."
+    return "Formato não suportado. Use foto (JPG/PNG/WEBP), PDF ou áudio (MP3/OGG/WAV/M4A/AAC)."
   }
 
   return null
