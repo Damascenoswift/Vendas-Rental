@@ -652,7 +652,10 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                               isOutbound ? "text-blue-100" : "text-muted-foreground"
                             }`}
                           >
-                            <span>{formatDateTime(message.created_at)}</span>
+                            <span>
+                              {isOutbound ? `Por ${message.sender_user_name || "Atendente"} • ` : ""}
+                              {formatDateTime(message.created_at)}
+                            </span>
                             {isOutbound ? (
                               <span>{MESSAGE_STATUS_LABELS[message.status] || message.status}</span>
                             ) : (

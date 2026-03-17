@@ -154,6 +154,47 @@ function mapSendResultToMessageStatus(sendResult: SendMessageResult): WhatsAppMe
   return "sent"
 }
 
+function buildWhatsAppAgentDisplayName(input: { name?: string; email?: string | null }) {
+  const name = input.name?.trim()
+  if (name) return name
+
+  const email = input.email?.trim().toLowerCase() || ""
+  if (email.includes("@")) {
+    return email.split("@")[0] || "Atendente"
+  }
+
+  return "Atendente"
+}
+
+function hasMessageAgentSignature(text: string) {
+  return /^\*[^*\n]+\*:\s*/.test(text)
+}
+
+async function shouldPrefixAgentSignature(input: { conversationId: string; senderUserId: string }) {
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  const { data, error } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("sender_user_id")
+    .eq("conversation_id", input.conversationId)
+    .eq("direction", "OUTBOUND")
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new WhatsAppActionError(error.message)
+  }
+
+  if (!data) {
+    return true
+  }
+
+  const lastSenderId = (data as { sender_user_id: string | null }).sender_user_id
+  return lastSenderId !== input.senderUserId
+}
+
 async function sendWhatsAppByConfiguredProvider(input: {
   to: string
   text: string
@@ -736,7 +777,7 @@ export async function sendWhatsAppTextMessage(
   text: string
 ): Promise<ActionResult<{ message: WhatsAppMessage; send_result: SendMessageResult }>> {
   try {
-    const { user } = await requireWhatsAppAccess()
+    const { user, profile } = await requireWhatsAppAccess()
 
     const messageText = text.trim()
 
@@ -794,9 +835,24 @@ export async function sendWhatsAppTextMessage(
       throw new WhatsAppActionError("Conta WhatsApp inativa. Verifique a configuração da integração.")
     }
 
+    const shouldAddSignature = await shouldPrefixAgentSignature({
+      conversationId,
+      senderUserId: user.id,
+    })
+
+    const agentDisplayName = buildWhatsAppAgentDisplayName({
+      name: profile?.name,
+      email: user.email,
+    })
+
+    const messageToSend =
+      shouldAddSignature && !hasMessageAgentSignature(messageText)
+        ? `*${agentDisplayName}*: ${messageText}`
+        : messageText
+
     const sendResult = await sendWhatsAppByConfiguredProvider({
       to: conversation.customer_wa_id,
-      text: messageText,
+      text: messageToSend,
       phoneNumberId: (accountData as { phone_number_id: string }).phone_number_id,
     })
 
@@ -813,7 +869,7 @@ export async function sendWhatsAppTextMessage(
         direction: "OUTBOUND",
         wa_message_id: sendResult.messageId ?? null,
         message_type: "text",
-        body_text: messageText,
+        body_text: messageToSend,
         status: mapSendResultToMessageStatus(sendResult),
         sender_user_id: user.id,
         raw_payload: sendResult.raw ?? {},
