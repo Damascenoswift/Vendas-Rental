@@ -94,8 +94,11 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   const [conversations, setConversations] = useState<WhatsAppConversationListItem[]>([])
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<WhatsAppMessage[]>([])
+  const [hasMoreMessages, setHasMoreMessages] = useState(false)
+  const [nextBeforeCursor, setNextBeforeCursor] = useState<string | null>(null)
   const [loadingConversations, setLoadingConversations] = useState(false)
   const [loadingMessages, setLoadingMessages] = useState(false)
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
   const [search, setSearch] = useState("")
@@ -156,21 +159,59 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   )
 
   const loadMessages = useCallback(
-    async (conversationId: string) => {
-      setLoadingMessages(true)
-      const result = await getWhatsAppConversationMessages(conversationId)
-      setLoadingMessages(false)
+    async (
+      conversationId: string,
+      options: { before?: string | null; appendOlder?: boolean } = {}
+    ) => {
+      const isLoadingOlder = Boolean(options.before)
+      if (isLoadingOlder) setLoadingOlderMessages(true)
+      else setLoadingMessages(true)
 
-      if (!result.success || !result.data) {
+      try {
+        const result = await getWhatsAppConversationMessages(conversationId, {
+          before: options.before ?? null,
+        })
+
+        if (!result.success || !result.data) {
+          showToast({
+            variant: "error",
+            title: "Falha ao carregar mensagens",
+            description: result.error || "Não foi possível carregar mensagens da conversa.",
+          })
+          return
+        }
+
+        setHasMoreMessages(result.data.has_more)
+        setNextBeforeCursor(result.data.next_before)
+
+        if (options.appendOlder) {
+          setMessages((current) => {
+            const seen = new Set<string>()
+            const merged = [...result.data.messages, ...current]
+
+            return merged.filter((message) => {
+              if (seen.has(message.id)) {
+                return false
+              }
+
+              seen.add(message.id)
+              return true
+            })
+          })
+          return
+        }
+
+        setMessages(result.data.messages)
+      } catch {
         showToast({
           variant: "error",
           title: "Falha ao carregar mensagens",
-          description: result.error || "Não foi possível carregar mensagens da conversa.",
+          description: "Não foi possível carregar mensagens da conversa.",
         })
-        return
+      } finally {
+        if (isLoadingOlder) setLoadingOlderMessages(false)
+        else setLoadingMessages(false)
       }
-
-      setMessages(result.data.messages)
     },
     [showToast]
   )
@@ -194,6 +235,8 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
   useEffect(() => {
     if (!selectedConversationId) {
       setMessages([])
+      setHasMoreMessages(false)
+      setNextBeforeCursor(null)
       return
     }
 
@@ -333,6 +376,18 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
       await loadMessages(selectedConversation.id)
     })
   }, [draft, loadConversations, loadMessages, selectedConversation, showToast, withAction])
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    const selectedId = selectedConversationIdRef.current
+    if (!selectedId || !nextBeforeCursor || loadingOlderMessages) {
+      return
+    }
+
+    await loadMessages(selectedId, {
+      before: nextBeforeCursor,
+      appendOlder: true,
+    })
+  }, [loadMessages, loadingOlderMessages, nextBeforeCursor])
 
   const canSend = useMemo(() => {
     if (!selectedConversation) {
@@ -563,6 +618,21 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
 
               <ScrollArea className="flex-1 p-4 bg-slate-50/40">
                 <div className="space-y-3">
+                  {hasMoreMessages ? (
+                    <div className="flex justify-center pb-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          void handleLoadOlderMessages()
+                        }}
+                        disabled={loadingMessages || loadingOlderMessages}
+                      >
+                        {loadingOlderMessages ? "Carregando..." : "Carregar mensagens anteriores"}
+                      </Button>
+                    </div>
+                  ) : null}
+
                   {messages.map((message) => {
                     const isOutbound = message.direction === "OUTBOUND"
 

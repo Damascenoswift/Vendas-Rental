@@ -26,6 +26,8 @@ const WHATSAPP_ALLOWED_ROLES = [
 ] as const
 
 const SEND_RATE_LIMIT_PER_MINUTE = 20
+const MESSAGE_PAGE_SIZE_DEFAULT = 100
+const MESSAGE_PAGE_SIZE_MAX = 200
 
 export type WhatsAppAgent = {
   id: string
@@ -82,6 +84,18 @@ type ActionResult<T> = {
   success: boolean
   data?: T
   error?: string
+}
+
+type ConversationMessagesQueryOptions = {
+  before?: string | null
+  limit?: number
+}
+
+type ConversationMessagesResult = {
+  conversation: ConversationRow
+  messages: WhatsAppMessage[]
+  has_more: boolean
+  next_before: string | null
 }
 
 type ConversationRow = {
@@ -416,28 +430,42 @@ export async function listWhatsAppConversations(
 }
 
 export async function getWhatsAppConversationMessages(
-  conversationId: string
-): Promise<ActionResult<{ conversation: ConversationRow; messages: WhatsAppMessage[] }>> {
+  conversationId: string,
+  options: ConversationMessagesQueryOptions = {}
+): Promise<ActionResult<ConversationMessagesResult>> {
   try {
     await requireWhatsAppAccess()
 
     const supabaseAdmin = createSupabaseServiceClient()
     const conversation = await fetchConversationById(conversationId)
+    const requestedLimit = Number.isFinite(options.limit) ? Number(options.limit) : MESSAGE_PAGE_SIZE_DEFAULT
+    const pageLimit = Math.min(MESSAGE_PAGE_SIZE_MAX, Math.max(1, Math.floor(requestedLimit)))
+    const beforeCursor = options.before?.trim() || null
 
-    const { data: messageRowsData, error: messageRowsError } = await supabaseAdmin
+    let messageQuery = supabaseAdmin
       .from("whatsapp_messages")
       .select(
         "id, conversation_id, direction, wa_message_id, message_type, body_text, status, sender_user_id, error_message, created_at, sent_at, delivered_at, read_at, failed_at"
       )
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .limit(500)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(pageLimit + 1)
+
+    if (beforeCursor) {
+      messageQuery = messageQuery.lt("created_at", beforeCursor)
+    }
+
+    const { data: messageRowsData, error: messageRowsError } = await messageQuery
 
     if (messageRowsError) {
       throw new WhatsAppActionError(messageRowsError.message)
     }
 
-    const messageRows = (messageRowsData ?? []) as MessageRow[]
+    const messageRowsDesc = (messageRowsData ?? []) as MessageRow[]
+    const hasMore = messageRowsDesc.length > pageLimit
+    const pageRowsDesc = hasMore ? messageRowsDesc.slice(0, pageLimit) : messageRowsDesc
+    const messageRows = [...pageRowsDesc].reverse()
 
     const senderIds = Array.from(
       new Set(
@@ -483,7 +511,7 @@ export async function getWhatsAppConversationMessages(
       failed_at: row.failed_at,
     }))
 
-    if (conversation.unread_count > 0) {
+    if (!beforeCursor && conversation.unread_count > 0) {
       const { error: unreadResetError } = await supabaseAdmin
         .from("whatsapp_conversations")
         .update({ unread_count: 0 })
@@ -504,6 +532,8 @@ export async function getWhatsAppConversationMessages(
       data: {
         conversation,
         messages,
+        has_more: hasMore,
+        next_before: hasMore ? messageRows[0]?.created_at ?? null : null,
       },
     }
   } catch (error) {

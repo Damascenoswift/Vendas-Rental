@@ -64,6 +64,11 @@ export type ZApiMessageStatusCallbackPayload = ZApiEventPayload & {
   isGroup?: boolean
 }
 
+export type ZApiWebhookTokenValidationOptions = {
+  headerNames?: string[]
+  allowQueryToken?: boolean
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -97,19 +102,33 @@ export function isZApiMessageStatusCallback(payload: unknown): payload is ZApiMe
   return normalizeEventType(payload.type) === "messagestatuscallback"
 }
 
-export function verifyZApiWebhookToken(request: Request) {
+export function verifyZApiWebhookToken(
+  request: Request,
+  options: ZApiWebhookTokenValidationOptions = {}
+) {
   const expectedToken = (process.env.WHATSAPP_ZAPI_WEBHOOK_TOKEN || "").trim()
   if (!expectedToken) return true
 
-  const requestUrl = new URL(request.url)
-  const tokenFromQuery =
-    requestUrl.searchParams.get("zapi_token") || requestUrl.searchParams.get("token") || ""
-  const tokenFromHeader =
-    request.headers.get("x-zapi-webhook-token") ||
-    request.headers.get("X-ZAPI-Webhook-Token") ||
-    ""
+  const headerNames =
+    options.headerNames && options.headerNames.length > 0
+      ? options.headerNames
+      : ["x-webhook-token", "x-zapi-webhook-token"]
 
-  return tokenFromQuery === expectedToken || tokenFromHeader === expectedToken
+  for (const headerName of headerNames) {
+    const tokenFromHeader = request.headers.get(headerName) || ""
+    if (tokenFromHeader === expectedToken) {
+      return true
+    }
+  }
+
+  if (options.allowQueryToken === false) {
+    return false
+  }
+
+  const requestUrl = new URL(request.url)
+  const tokenFromQuery = requestUrl.searchParams.get("zapi_token") || requestUrl.searchParams.get("token") || ""
+
+  return tokenFromQuery === expectedToken
 }
 
 export function matchesConfiguredZApiInstance(rawInstanceId: unknown) {

@@ -8,7 +8,7 @@ Configure the Supabase MCP server with the following settings:
 - **Command**: npx
 - **Args**: ["@supabase/mcp-server"]
 - **Environment Variables**:
-  - `SUPABASE_SECRET`: sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf
+  - `SUPABASE_SECRET`: your_supabase_secret_key
 
 ### Available MCP Tools
 The following Supabase MCP tools will be available:

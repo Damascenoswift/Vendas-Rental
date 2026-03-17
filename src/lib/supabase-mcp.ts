@@ -12,7 +12,7 @@
 
 export const SUPABASE_MCP_CONFIG = {
   server: 'supabase',
-  secret: process.env.SUPABASE_SECRET || 'sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf',
+  secret: process.env.SUPABASE_SECRET || 'SUPABASE_SECRET_NOT_CONFIGURED',
   project_url: 'https://zqilrsijdatoxesdryyt.supabase.co'
 }
 

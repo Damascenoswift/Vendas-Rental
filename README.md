@@ -121,11 +121,11 @@ npm run lint
 ### Variáveis de Ambiente
 ```env
 # Supabase (novo projeto)
-NEXT_PUBLIC_SUPABASE_URL=https://zqilrsijdatoxesdryyt.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpxaWxyc2lqZGF0b3hlc2RyeXl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA1MDAzOTMsImV4cCI6MjA3NjA3NjM5M30.4pVP51u1V2J_IKEm5w_xDaQyraWohb4hwWZ5x_ehDjo
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 # Supabase MCP (para operações avançadas via MCP)
-SUPABASE_SECRET=sb_secret_-BBK0-mRSHBfeqbeTfceBg_gw_ooLRf
+SUPABASE_SECRET=your_supabase_secret_key
 
 # Integrações graduais
 ZAPIER_WEBHOOK_URL=sua_webhook_url
@@ -133,6 +133,38 @@ ZAPIER_WEBHOOK_URL=sua_webhook_url
 # App
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+### Webhook Z-API (seguro)
+
+- Endpoint principal (header): `POST https://app.rentalenergia.com.br/api/webhooks/zapi`
+- Header obrigatório: `x-webhook-token: <WHATSAPP_ZAPI_WEBHOOK_TOKEN>`
+- Endpoint legado (query string, se necessário): `POST https://app.rentalenergia.com.br/api/whatsapp/webhook?zapi_token=<WHATSAPP_ZAPI_WEBHOOK_TOKEN>`
+
+Gerar token forte:
+
+```bash
+openssl rand -hex 32
+```
+
+ou
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Configurar segredo na Vercel:
+
+1. Vercel Dashboard -> Project -> Settings -> Environment Variables
+2. Chave: `WHATSAPP_ZAPI_WEBHOOK_TOKEN`
+3. Valor: token gerado acima
+4. Aplicar em `Production` (e `Preview` se desejar)
+
+Se usar CLI da Vercel, confirme antes de executar qualquer comando de infra.
+
+Configurar no painel Z-API:
+
+1. Defina a URL de webhook para o endpoint escolhido.
+2. Se não conseguir enviar header customizado `x-webhook-token` no painel, use o endpoint legado com query string (incluindo `zapi_token` na URL).
 
 ### Estrutura do Projeto
 ```

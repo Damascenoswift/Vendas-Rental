@@ -23,6 +23,7 @@ import {
   matchesConfiguredZApiInstance,
   toIsoFromZApiMoment,
   verifyZApiWebhookToken,
+  type ZApiWebhookTokenValidationOptions,
   type ZApiMessageStatusCallbackPayload,
   type ZApiReceivedCallbackPayload,
 } from "@/lib/integrations/whatsapp-zapi"
@@ -54,6 +55,20 @@ type ConversationRow = {
   customer_name: string | null
   status: "PENDING_BRAND" | "OPEN" | "CLOSED"
   unread_count: number
+}
+
+type MessageRowForWebhookUpsert = {
+  id: string
+  conversation_id: string
+  wa_message_id: string | null
+  dedupe_hash: string | null
+  message_type: ReturnType<typeof mapInboundMessageType>
+  body_text: string | null
+  status: WhatsAppMessageStatus
+  sent_at: string | null
+  delivered_at: string | null
+  read_at: string | null
+  failed_at: string | null
 }
 
 function getVerifyToken() {
@@ -362,6 +377,209 @@ async function createInboundMessage(input: {
   return true
 }
 
+function mergeMessageStatus(
+  currentStatus: WhatsAppMessageStatus,
+  incomingStatus: WhatsAppMessageStatus | null
+): WhatsAppMessageStatus {
+  if (!incomingStatus) return currentStatus
+
+  if (incomingStatus === "failed") return "failed"
+  if (currentStatus === "failed") return "failed"
+
+  const order: Record<WhatsAppMessageStatus, number> = {
+    received: 0,
+    queued: 1,
+    sent: 2,
+    delivered: 3,
+    read: 4,
+    failed: 5,
+  }
+
+  return order[incomingStatus] > order[currentStatus] ? incomingStatus : currentStatus
+}
+
+function buildStatusTimestamps(status: WhatsAppMessageStatus, timestamp: string) {
+  const updates: Record<string, string> = {}
+
+  if (status === "queued" || status === "sent" || status === "delivered" || status === "read") {
+    updates.sent_at = timestamp
+  }
+
+  if (status === "delivered" || status === "read") {
+    updates.delivered_at = timestamp
+  }
+
+  if (status === "read") {
+    updates.read_at = timestamp
+  }
+
+  if (status === "failed") {
+    updates.failed_at = timestamp
+  }
+
+  return updates
+}
+
+function toZApiOutboundBodyTextFromInbound(bodyText: string) {
+  if (bodyText === "[Imagem recebida no WhatsApp]") return "[Imagem enviada no WhatsApp]"
+  if (bodyText === "[Documento recebido no WhatsApp]") return "[Documento enviado no WhatsApp]"
+  if (bodyText === "[Video recebido no WhatsApp]") return "[Video enviado no WhatsApp]"
+  if (bodyText === "[Audio recebido no WhatsApp]") return "[Audio enviado no WhatsApp]"
+  if (bodyText === "[Sticker recebido no WhatsApp]") return "[Sticker enviado no WhatsApp]"
+  if (bodyText === "[Localizacao recebida no WhatsApp]") return "[Localizacao enviada no WhatsApp]"
+  if (bodyText === "[Mensagem recebida no WhatsApp]") return "[Mensagem enviada no WhatsApp]"
+
+  if (bodyText.startsWith("[Documento recebido:")) {
+    return bodyText.replace("[Documento recebido:", "[Documento enviado:")
+  }
+
+  return bodyText
+}
+
+async function upsertOutboundMessageFromWebhook(input: {
+  conversation: ConversationRow
+  waMessageId: string | null
+  messageType: ReturnType<typeof mapInboundMessageType>
+  bodyText: string
+  rawPayload: unknown
+  createdAt: string | null
+  rawStatus: string | null | undefined
+}) {
+  const supabaseAdmin = createSupabaseServiceClient()
+  const nowIso = input.createdAt || new Date().toISOString()
+  const mappedStatus = mapZApiStatusToMessageStatus(input.rawStatus) ?? "sent"
+  const dedupeHash = input.waMessageId
+    ? null
+    : createHash("sha256")
+        .update(JSON.stringify(input.rawPayload))
+        .digest("hex")
+
+  let existing: MessageRowForWebhookUpsert | null = null
+
+  if (input.waMessageId) {
+    const { data } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select(
+        "id, conversation_id, wa_message_id, dedupe_hash, message_type, body_text, status, sent_at, delivered_at, read_at, failed_at"
+      )
+      .eq("wa_message_id", input.waMessageId)
+      .eq("direction", "OUTBOUND")
+      .limit(1)
+      .maybeSingle()
+
+    existing = (data ?? null) as MessageRowForWebhookUpsert | null
+  } else if (dedupeHash) {
+    const { data } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select(
+        "id, conversation_id, wa_message_id, dedupe_hash, message_type, body_text, status, sent_at, delivered_at, read_at, failed_at"
+      )
+      .eq("dedupe_hash", dedupeHash)
+      .eq("direction", "OUTBOUND")
+      .limit(1)
+      .maybeSingle()
+
+    existing = (data ?? null) as MessageRowForWebhookUpsert | null
+  }
+
+  if (existing) {
+    const nextStatus = mergeMessageStatus(existing.status, mappedStatus)
+    const updates: Record<string, unknown> = {
+      raw_payload: input.rawPayload as Record<string, unknown>,
+    }
+
+    if (input.waMessageId && !existing.wa_message_id) {
+      updates.wa_message_id = input.waMessageId
+    }
+
+    if (dedupeHash && !existing.dedupe_hash) {
+      updates.dedupe_hash = dedupeHash
+    }
+
+    if (existing.message_type !== input.messageType) {
+      updates.message_type = input.messageType
+    }
+
+    if (existing.body_text !== input.bodyText) {
+      updates.body_text = input.bodyText
+    }
+
+    if (nextStatus !== existing.status) {
+      updates.status = nextStatus
+    }
+
+    const statusTimestamps = buildStatusTimestamps(nextStatus, nowIso)
+    if (statusTimestamps.sent_at && !existing.sent_at) updates.sent_at = statusTimestamps.sent_at
+    if (statusTimestamps.delivered_at && !existing.delivered_at) {
+      updates.delivered_at = statusTimestamps.delivered_at
+    }
+    if (statusTimestamps.read_at && !existing.read_at) updates.read_at = statusTimestamps.read_at
+    if (statusTimestamps.failed_at && !existing.failed_at) updates.failed_at = statusTimestamps.failed_at
+
+    if (nextStatus === "failed") {
+      updates.error_message = "Falha no envio"
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .update(updates)
+      .eq("id", existing.id)
+
+    if (updateError) {
+      throw new Error(updateError.message)
+    }
+
+    return true
+  }
+
+  const timestamps = buildStatusTimestamps(mappedStatus, nowIso)
+
+  const { error: insertError } = await supabaseAdmin.from("whatsapp_messages").insert({
+    conversation_id: input.conversation.id,
+    direction: "OUTBOUND",
+    wa_message_id: input.waMessageId,
+    dedupe_hash: dedupeHash,
+    message_type: input.messageType,
+    body_text: input.bodyText,
+    status: mappedStatus,
+    raw_payload: input.rawPayload as Record<string, unknown>,
+    created_at: nowIso,
+    sent_at: timestamps.sent_at ?? null,
+    delivered_at: timestamps.delivered_at ?? null,
+    read_at: timestamps.read_at ?? null,
+    failed_at: timestamps.failed_at ?? null,
+    error_message: mappedStatus === "failed" ? "Falha no envio" : null,
+  })
+
+  let inserted = true
+  if (insertError) {
+    if ((insertError as { code?: string }).code !== "23505") {
+      throw new Error(insertError.message)
+    }
+
+    inserted = false
+  }
+
+  if (inserted) {
+    const { error: conversationUpdateError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update({
+        status: "OPEN",
+        last_message_at: nowIso,
+      })
+      .eq("id", input.conversation.id)
+
+    if (conversationUpdateError) {
+      console.error("whatsapp_webhook_outbound_conversation_update_failed", {
+        conversation_id: input.conversation.id,
+        error: conversationUpdateError.message,
+      })
+    }
+  }
+
+  return true
+}
+
 async function processInboundMessage(params: {
   accountId: string
   customerWaId: string
@@ -469,7 +687,7 @@ async function processStatusUpdate(status: NonNullable<
 }
 
 async function processZApiInboundPayload(payload: ZApiReceivedCallbackPayload) {
-  if (payload.fromMe || payload.isGroup || payload.isNewsletter) {
+  if (payload.isGroup || payload.isNewsletter) {
     return false
   }
 
@@ -532,6 +750,19 @@ async function processZApiInboundPayload(payload: ZApiReceivedCallbackPayload) {
   })
 
   const inboundMessage = extractZApiInboundMessage(payload)
+
+  if (payload.fromMe) {
+    await upsertOutboundMessageFromWebhook({
+      conversation,
+      waMessageId: inboundMessage.waMessageId,
+      messageType: inboundMessage.messageType,
+      bodyText: toZApiOutboundBodyTextFromInbound(inboundMessage.bodyText),
+      rawPayload: payload,
+      createdAt: toIsoFromZApiMoment(payload.momment),
+      rawStatus: payload.status,
+    })
+    return true
+  }
 
   await createInboundMessage({
     conversation,
@@ -724,8 +955,12 @@ async function handleMetaWebhookPost(rawBody: string, request: Request) {
   })
 }
 
-async function handleZApiWebhookPost(rawBody: string, request: Request) {
-  if (!verifyZApiWebhookToken(request)) {
+export async function handleZApiWebhookPost(
+  rawBody: string,
+  request: Request,
+  tokenValidationOptions: ZApiWebhookTokenValidationOptions = {}
+) {
+  if (!verifyZApiWebhookToken(request, tokenValidationOptions)) {
     return NextResponse.json({ error: "invalid_webhook_token" }, { status: 401 })
   }
 
@@ -736,6 +971,15 @@ async function handleZApiWebhookPost(rawBody: string, request: Request) {
   } catch {
     return NextResponse.json({ error: "invalid_payload" }, { status: 400 })
   }
+
+  const eventType =
+    typeof (payload as { type?: unknown })?.type === "string"
+      ? String((payload as { type: string }).type)
+      : "unknown"
+
+  console.info("whatsapp_webhook_zapi_event", {
+    event_type: eventType,
+  })
 
   if (isZApiReceivedCallback(payload)) {
     try {
