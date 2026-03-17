@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
-import { getWorkCardById, getWorkCards, type WorkCardStatus } from "@/services/work-cards-service"
+import { getWorkCardById, getWorkCards } from "@/services/work-cards-service"
 import { WorkFilters } from "@/components/admin/works/work-filters"
 import { WorkBoard } from "@/components/admin/works/work-board"
 import { hasWorksOnlyScope } from "@/lib/department-access"
-import { normalizeWorkStatusFilter } from "@/lib/work-status-filter"
+import { normalizeWorkStatusFilter, resolveWorkStatusQuery } from "@/lib/work-status-filter"
 
 export const dynamic = "force-dynamic"
 
@@ -40,13 +40,15 @@ export default async function AdminWorksPage({
         redirect("/dashboard")
     }
 
-    const status: WorkCardStatus = normalizeWorkStatusFilter(params?.status)
+    const statusFilter = normalizeWorkStatusFilter(params?.status)
+    const statusQuery = resolveWorkStatusQuery(statusFilter)
     const search = params?.q?.trim() || undefined
     const initialOpenWorkId = params?.openWork?.trim() || null
 
     let cards = await getWorkCards({
         brand: "dorata",
-        status,
+        status: statusQuery.status,
+        completion: statusQuery.completion,
         search,
     })
 

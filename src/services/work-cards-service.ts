@@ -14,6 +14,7 @@ import { createTask, type TaskStatus } from "@/services/task-service"
 import { addBusinessDays } from "@/lib/business-days"
 import { hasWorksOnlyScope } from "@/lib/department-access"
 import { getManualContractProductionEstimate } from "@/lib/proposal-contract-estimate"
+import type { WorkCompletionFilter } from "@/lib/work-status-filter"
 
 export type WorkCardStatus = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
 export type WorkPhase = "PROJETO" | "EXECUCAO"
@@ -1720,6 +1721,7 @@ export async function backfillWorkCardsFromAcceptedProposals() {
 
 export async function getWorkCards(filters?: {
     status?: WorkCardStatus
+    completion?: WorkCompletionFilter
     search?: string
     brand?: "dorata" | "rental"
 }) {
@@ -1775,6 +1777,12 @@ export async function getWorkCards(filters?: {
 
     if (filters?.status) {
         query = query.eq("status", filters.status)
+    }
+
+    if (filters?.completion === "only_completed") {
+        query = query.not("completed_at", "is", null)
+    } else if (filters?.completion === "only_not_completed") {
+        query = query.is("completed_at", null)
     }
 
     const sanitizedSearch = sanitizeSearchTerm(filters?.search)
