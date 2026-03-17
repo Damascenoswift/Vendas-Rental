@@ -24,7 +24,10 @@ import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -717,8 +720,22 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none">Sem marca</SelectItem>
-                      <SelectItem value="rental">Rental</SelectItem>
-                      <SelectItem value="dorata">Dorata</SelectItem>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Marcas</SelectLabel>
+                        <SelectItem value="dorata">Dorata</SelectItem>
+                        <SelectItem value="rental">Rental</SelectItem>
+                      </SelectGroup>
+                      <SelectSeparator />
+                      <SelectGroup>
+                        <SelectLabel>Outros</SelectLabel>
+                        <SelectItem value="__employee" disabled>
+                          Funcionario
+                        </SelectItem>
+                        <SelectItem value="__misc" disabled>
+                          Diversos
+                        </SelectItem>
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
 
