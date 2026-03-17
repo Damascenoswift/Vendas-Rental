@@ -2070,13 +2070,6 @@ export function WhatsAppInbox({
           )}
           </div>
 
-          {conversationViewMode === "kanban" && !selectedConversation ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-              <div className="rounded-xl border bg-white/90 px-5 py-3 text-sm text-muted-foreground shadow-md backdrop-blur">
-                Selecione uma conversa no Kanban para abrir o painel flutuante.
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
     </div>
