@@ -1,23 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import {
-    DndContext,
-    DragOverlay,
-    closestCorners,
-    KeyboardSensor,
-    PointerSensor,
-    useSensor,
-    useSensors,
-    DragStartEvent,
-    DragOverEvent,
-    DragCancelEvent,
-    DragEndEvent,
-} from "@dnd-kit/core"
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { Task, TaskStatus, updateTaskStatus } from "@/services/task-service"
 import { TaskColumn } from "./task-column"
-import { TaskCard } from "./task-card"
 import { TaskDetailsDialog } from "./task-details-dialog"
 import { useToast } from "@/hooks/use-toast"
 
@@ -35,8 +20,6 @@ const COLUMNS: { id: TaskStatus; title: string }[] = [
 
 export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProps) {
     const [tasks, setTasks] = useState<Task[]>(initialTasks)
-    const [activeId, setActiveId] = useState<string | null>(null)
-    const [activeOriginalStatus, setActiveOriginalStatus] = useState<TaskStatus | null>(null)
     const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
     const [autoOpenConsumed, setAutoOpenConsumed] = useState(false)
     const { showToast } = useToast()
@@ -55,11 +38,6 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
         setSelectedTaskId(initialOpenTaskId)
         setAutoOpenConsumed(true)
     }, [autoOpenConsumed, initialOpenTaskId, tasks])
-
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 3 } }), // Easier drag start on cards
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-    )
 
     const persistTaskStatusChange = useCallback(
         async (taskId: string, previousStatus: TaskStatus, newStatus: TaskStatus) => {
@@ -84,80 +62,6 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
         [showToast]
     )
 
-    const handleDragStart = (event: DragStartEvent) => {
-        const draggedId = event.active.id as string
-        const activeTask = tasks.find((task) => task.id === draggedId)
-        setActiveId(draggedId)
-        setActiveOriginalStatus(activeTask?.status ?? null)
-    }
-
-    const handleDragOver = (event: DragOverEvent) => {
-        const { active, over } = event
-        if (!over) return
-
-        const activeTask = tasks.find((task) => task.id === active.id)
-        if (!activeTask) return
-
-        const overId = over.id as string
-        if (COLUMNS.some((col) => col.id === overId) && activeTask.status !== overId) {
-            setTasks((prev) =>
-                prev.map((task) => (task.id === activeTask.id ? { ...task, status: overId as TaskStatus } : task))
-            )
-        }
-    }
-
-    const handleDragCancel = (_event: DragCancelEvent) => {
-        if (!activeId || !activeOriginalStatus) {
-            setActiveId(null)
-            setActiveOriginalStatus(null)
-            return
-        }
-
-        setTasks((prev) =>
-            prev.map((task) => (task.id === activeId ? { ...task, status: activeOriginalStatus } : task))
-        )
-        setActiveId(null)
-        setActiveOriginalStatus(null)
-    }
-
-    const handleDragEnd = async (event: DragEndEvent) => {
-        const { active, over } = event
-
-        const activeTaskId = active.id as string
-        const originalStatus = activeOriginalStatus
-        setActiveId(null)
-        setActiveOriginalStatus(null)
-
-        if (!originalStatus) return
-
-        if (!over) {
-            setTasks((prev) =>
-                prev.map((task) => (task.id === activeTaskId ? { ...task, status: originalStatus } : task))
-            )
-            return
-        }
-
-        const activeTask = tasks.find(t => t.id === activeTaskId)
-        if (!activeTask) return
-
-        let newStatus = activeTask.status
-
-        // Drop on a Column
-        if (COLUMNS.some(col => col.id === over.id)) {
-            newStatus = over.id as TaskStatus
-        } else {
-            // Drop on another card
-            const overTask = tasks.find(t => t.id === over.id)
-            if (overTask) {
-                newStatus = overTask.status
-            }
-        }
-
-        await persistTaskStatusChange(activeTaskId, originalStatus, newStatus)
-    }
-
-    // Just to find the Active Task for the Overlay
-    const activeTask = tasks.find(t => t.id === activeId)
     const selectedTask = tasks.find(t => t.id === selectedTaskId) ?? null
 
     const handleChecklistSummaryChange = useCallback((taskId: string, total: number, done: number) => {
@@ -172,14 +76,7 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
     }, [])
 
     return (
-        <DndContext
-            sensors={sensors}
-            collisionDetection={closestCorners}
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragCancel={handleDragCancel}
-            onDragEnd={handleDragEnd}
-        >
+        <>
             <div className="flex h-full min-h-0 gap-4 overflow-x-auto overflow-y-hidden pb-4">
                 {COLUMNS.map(col => (
                     <TaskColumn
@@ -197,10 +94,6 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
                 ))}
             </div>
 
-            <DragOverlay>
-                {activeTask ? <TaskCard task={activeTask} /> : null}
-            </DragOverlay>
-
             <TaskDetailsDialog
                 task={selectedTask}
                 open={Boolean(selectedTaskId)}
@@ -213,6 +106,6 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
                     setTasks(prev => prev.map(task => task.id === taskId ? { ...task, ...updates } : task))
                 }}
             />
-        </DndContext>
+        </>
     )
 }

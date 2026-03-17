@@ -1,8 +1,6 @@
 "use client"
 
 import { useMemo } from "react"
-import { useDroppable } from "@dnd-kit/core"
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { Task, TaskStatus } from "@/services/task-service"
 import { TaskCard } from "./task-card"
 
@@ -22,7 +20,6 @@ const PRIORITY_ORDER: Record<Task["priority"], number> = {
 }
 
 export function TaskColumn({ id, title, tasks, onTaskClick, onTaskStatusChange }: TaskColumnProps) {
-    const { setNodeRef } = useDroppable({ id })
     const sortedTasks = useMemo(() => {
         return tasks
             .map((task, index) => ({ task, index }))
@@ -47,20 +44,17 @@ export function TaskColumn({ id, title, tasks, onTaskClick, onTaskStatusChange }
             </div>
 
             <div
-                ref={setNodeRef}
                 className="flex-1 min-h-[160px] overflow-y-auto bg-gray-50/50 rounded-lg p-2 space-y-2 border border-transparent hover:border-gray-200 transition-colors"
                 data-column-id={id}
             >
-                <SortableContext items={sortedTasks.map((task) => task.id)} strategy={verticalListSortingStrategy}>
-                    {sortedTasks.map(task => (
-                        <TaskCard
-                            key={task.id}
-                            task={task}
-                            onClick={() => onTaskClick?.(task.id)}
-                            onStatusChange={(status) => onTaskStatusChange?.(task.id, status)}
-                        />
-                    ))}
-                </SortableContext>
+                {sortedTasks.map(task => (
+                    <TaskCard
+                        key={task.id}
+                        task={task}
+                        onClick={() => onTaskClick?.(task.id)}
+                        onStatusChange={(status) => onTaskStatusChange?.(task.id, status)}
+                    />
+                ))}
             </div>
         </div>
     )
