@@ -277,6 +277,15 @@ function sanitizeSearchTerm(value: string) {
   return value.replace(/[,%()]/g, " ").trim()
 }
 
+function normalizeContactFullName(value: string) {
+  return value.trim().replace(/\s+/g, " ")
+}
+
+function extractFirstName(fullName: string) {
+  const [firstName] = fullName.split(" ")
+  return firstName || fullName
+}
+
 function ensureValidBrand(value: string): value is WhatsAppBrand {
   return (
     value === "rental" ||
@@ -1239,6 +1248,129 @@ export async function startWhatsAppConversationFromContact(
         error instanceof Error
           ? error.message
           : "Falha ao iniciar conversa do WhatsApp a partir do contato.",
+    }
+  }
+}
+
+export async function updateWhatsAppConversationContactName(
+  conversationId: string,
+  rawName: string
+): Promise<
+  ActionResult<{
+    conversation_id: string
+    contact_id: string | null
+    customer_name: string
+  }>
+> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    const conversation = await fetchConversationById(conversationId, accessContext)
+    const fullName = normalizeContactFullName(rawName)
+
+    if (!fullName) {
+      throw new WhatsAppActionError("Informe um nome válido para o contato.")
+    }
+
+    let nextContactId = conversation.contact_id
+    const normalizedCustomerWa = normalizeWhatsAppIdentifier(conversation.customer_wa_id)
+
+    if (nextContactId) {
+      const { data: existingContactData, error: existingContactError } = await supabaseAdmin
+        .from("contacts")
+        .select("id")
+        .eq("id", nextContactId)
+        .maybeSingle()
+
+      if (existingContactError) {
+        throw new WhatsAppActionError(existingContactError.message)
+      }
+
+      if (!existingContactData) {
+        nextContactId = null
+      }
+    }
+
+    if (!nextContactId && normalizedCustomerWa) {
+      const { data: matchedContactsData, error: matchedContactsError } = await supabaseAdmin
+        .from("contacts")
+        .select("id")
+        .eq("whatsapp_normalized", normalizedCustomerWa)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+
+      if (matchedContactsError) {
+        throw new WhatsAppActionError(matchedContactsError.message)
+      }
+
+      nextContactId = (matchedContactsData?.[0] as { id: string } | undefined)?.id ?? null
+    }
+
+    if (nextContactId) {
+      const { error: updateContactError } = await supabaseAdmin
+        .from("contacts")
+        .update({
+          full_name: fullName,
+          first_name: extractFirstName(fullName),
+        })
+        .eq("id", nextContactId)
+
+      if (updateContactError) {
+        throw new WhatsAppActionError(updateContactError.message)
+      }
+    } else {
+      const whatsappValue = normalizedCustomerWa || conversation.customer_wa_id.trim() || null
+      const contactPayload: Record<string, unknown> = {
+        source: "whatsapp_inbox",
+        full_name: fullName,
+        first_name: extractFirstName(fullName),
+      }
+
+      if (whatsappValue) {
+        contactPayload.whatsapp = whatsappValue
+      }
+
+      const { data: insertedContactData, error: insertContactError } = await supabaseAdmin
+        .from("contacts")
+        .insert(contactPayload)
+        .select("id")
+        .single()
+
+      if (insertContactError || !insertedContactData) {
+        throw new WhatsAppActionError(
+          insertContactError?.message ?? "Não foi possível criar o contato para esta conversa."
+        )
+      }
+
+      nextContactId = (insertedContactData as { id: string }).id
+    }
+
+    const { error: updateConversationError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update({
+        customer_name: fullName,
+        contact_id: nextContactId,
+      })
+      .eq("id", conversationId)
+
+    if (updateConversationError) {
+      throw new WhatsAppActionError(updateConversationError.message)
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: {
+        conversation_id: conversationId,
+        contact_id: nextContactId,
+        customer_name: fullName,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao editar contato da conversa.",
     }
   }
 }

@@ -11,6 +11,7 @@ import {
   Lock,
   MessageCircle,
   Paperclip,
+  PencilLine,
   Plus,
   RefreshCcw,
   Send,
@@ -32,6 +33,7 @@ import {
   setWhatsAppConversationRestriction,
   startWhatsAppConversationFromContact,
   setWhatsAppConversationBrand,
+  updateWhatsAppConversationContactName,
   type WhatsAppAgent,
   type WhatsAppContactOption,
   type WhatsAppConversationListItem,
@@ -198,6 +200,9 @@ export function WhatsAppInbox({
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [startingConversation, setStartingConversation] = useState(false)
   const [conversationViewMode, setConversationViewMode] = useState<ConversationViewMode>("kanban")
+  const [editContactDialogOpen, setEditContactDialogOpen] = useState(false)
+  const [contactNameDraft, setContactNameDraft] = useState("")
+  const [savingContactName, setSavingContactName] = useState(false)
   const [restrictionDialogOpen, setRestrictionDialogOpen] = useState(false)
   const [loadingRestrictionSettings, setLoadingRestrictionSettings] = useState(false)
   const [savingRestrictionSettings, setSavingRestrictionSettings] = useState(false)
@@ -432,6 +437,18 @@ export function WhatsAppInbox({
   }, [ensureConversationPanelInView, selectedConversationId])
 
   useEffect(() => {
+    if (!selectedConversation) {
+      setEditContactDialogOpen(false)
+      setContactNameDraft("")
+      return
+    }
+
+    if (!editContactDialogOpen) {
+      setContactNameDraft(conversationDisplayName(selectedConversation))
+    }
+  }, [editContactDialogOpen, selectedConversation])
+
+  useEffect(() => {
     if (typeof window === "undefined") return
     const savedMode = window.localStorage.getItem("whatsapp_inbox_view_mode")
     if (savedMode === "kanban" || savedMode === "list") {
@@ -597,6 +614,41 @@ export function WhatsAppInbox({
     },
     [loadConversations, selectedConversation, showToast, withAction]
   )
+
+  const handleSaveContactName = useCallback(async () => {
+    if (!selectedConversation || savingContactName) return
+
+    const normalizedName = contactNameDraft.trim().replace(/\s+/g, " ")
+    if (!normalizedName) {
+      showToast({
+        variant: "error",
+        title: "Nome inválido",
+        description: "Informe um nome para salvar no contato.",
+      })
+      return
+    }
+
+    setSavingContactName(true)
+    const result = await updateWhatsAppConversationContactName(selectedConversation.id, normalizedName)
+    setSavingContactName(false)
+
+    if (!result.success) {
+      showToast({
+        variant: "error",
+        title: "Falha ao atualizar contato",
+        description: result.error || "Não foi possível salvar o nome do contato.",
+      })
+      return
+    }
+
+    setEditContactDialogOpen(false)
+    await loadConversations({ preserveSelection: true })
+    showToast({
+      variant: "success",
+      title: "Contato atualizado",
+      description: "O nome foi salvo com sucesso na agenda.",
+    })
+  }, [contactNameDraft, loadConversations, savingContactName, selectedConversation, showToast])
 
   const handleCloseOrReopen = useCallback(async () => {
     if (!selectedConversation) return
@@ -1443,6 +1495,62 @@ export function WhatsAppInbox({
                         Fechar painel
                       </Button>
                     ) : null}
+
+                    <Dialog
+                      open={editContactDialogOpen}
+                      onOpenChange={(open) => {
+                        setEditContactDialogOpen(open)
+                        if (open && selectedConversation) {
+                          setContactNameDraft(conversationDisplayName(selectedConversation))
+                        }
+                      }}
+                    >
+                      <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" disabled={actionLoading || savingContactName}>
+                          <PencilLine className="h-4 w-4" />
+                          Editar contato
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Editar contato</DialogTitle>
+                          <DialogDescription>
+                            Atualize o nome exibido nesta conversa e salve no cadastro de contatos.
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <Input
+                          value={contactNameDraft}
+                          onChange={(event) => setContactNameDraft(event.target.value)}
+                          placeholder="Nome do contato"
+                          disabled={savingContactName}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault()
+                              void handleSaveContactName()
+                            }
+                          }}
+                        />
+
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setEditContactDialogOpen(false)}
+                            disabled={savingContactName}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              void handleSaveContactName()
+                            }}
+                            disabled={savingContactName}
+                          >
+                            {savingContactName ? "Salvando..." : "Salvar contato"}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
 
                     {canManageConversationRestrictions ? (
                       <Button
