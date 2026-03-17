@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 
 import { getProfile } from "@/lib/auth"
 import {
+  getWhatsAppProvider,
   isWhatsAppInboxEnabled,
   sendWhatsAppTextMessage as sendWhatsAppCloudTextMessage,
   type SendMessageResult,
@@ -13,6 +14,7 @@ import {
   type WhatsAppMessageStatus,
   type WhatsAppMessageType,
 } from "@/lib/integrations/whatsapp"
+import { sendZApiTextMessage } from "@/lib/integrations/whatsapp-zapi"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 
@@ -136,6 +138,27 @@ function ensureValidStatus(value: string): value is WhatsAppConversationStatus {
 function mapSendResultToMessageStatus(sendResult: SendMessageResult): WhatsAppMessageStatus {
   if (!sendResult.success) return "failed"
   return "sent"
+}
+
+async function sendWhatsAppByConfiguredProvider(input: {
+  to: string
+  text: string
+  phoneNumberId: string
+}): Promise<SendMessageResult> {
+  const provider = getWhatsAppProvider()
+
+  if (provider === "z_api") {
+    return sendZApiTextMessage({
+      to: input.to,
+      text: input.text,
+    })
+  }
+
+  return sendWhatsAppCloudTextMessage({
+    to: input.to,
+    text: input.text,
+    phoneNumberId: input.phoneNumberId,
+  })
 }
 
 async function requireWhatsAppAccess() {
@@ -741,7 +764,7 @@ export async function sendWhatsAppTextMessage(
       throw new WhatsAppActionError("Conta WhatsApp inativa. Verifique a configuração da integração.")
     }
 
-    const sendResult = await sendWhatsAppCloudTextMessage({
+    const sendResult = await sendWhatsAppByConfiguredProvider({
       to: conversation.customer_wa_id,
       text: messageText,
       phoneNumberId: (accountData as { phone_number_id: string }).phone_number_id,

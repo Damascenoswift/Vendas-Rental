@@ -362,7 +362,7 @@ export function WhatsAppInbox({ currentUserId, initialAgents }: WhatsAppInboxPro
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold">Inbox WhatsApp</h1>
         <p className="text-muted-foreground">
-          Atendimento 1:1 oficial via WhatsApp Cloud API (fase inicial sem templates automáticos).
+          Atendimento 1:1 via provedor configurado (Meta Cloud API ou Z-API).
         </p>
       </div>
 

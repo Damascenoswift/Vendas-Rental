@@ -9,6 +9,7 @@
 
 export * from './clicksign'
 export * from './whatsapp'
+export * from './whatsapp-zapi'
 export * from './cogni'
 // Tipos comuns para todas as integrações
 export interface ApiResponse<T> {

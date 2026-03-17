@@ -38,6 +38,8 @@ export type SendWhatsAppTextInput = {
   phoneNumberId?: string
 }
 
+export type WhatsAppProvider = "meta_cloud_api" | "z_api"
+
 type WhatsAppCloudSendResponse = {
   messages?: Array<{ id?: string }>
   error?: {
@@ -141,6 +143,7 @@ export type WhatsAppWebhookMessage = {
 }
 
 const DEFAULT_GRAPH_API_VERSION = "v21.0"
+const DEFAULT_WHATSAPP_PROVIDER: WhatsAppProvider = "meta_cloud_api"
 
 function isEnabledFlag(value?: string | null) {
   if (!value) return false
@@ -150,6 +153,16 @@ function isEnabledFlag(value?: string | null) {
 
 function getGraphVersion() {
   return process.env.WHATSAPP_GRAPH_API_VERSION || DEFAULT_GRAPH_API_VERSION
+}
+
+function isSupportedProvider(value: string): value is WhatsAppProvider {
+  return value === "meta_cloud_api" || value === "z_api"
+}
+
+export function getWhatsAppProvider(): WhatsAppProvider {
+  const provider = (process.env.WHATSAPP_PROVIDER || DEFAULT_WHATSAPP_PROVIDER).trim().toLowerCase()
+  if (!provider) return DEFAULT_WHATSAPP_PROVIDER
+  return isSupportedProvider(provider) ? provider : DEFAULT_WHATSAPP_PROVIDER
 }
 
 function getCloudApiToken() {
