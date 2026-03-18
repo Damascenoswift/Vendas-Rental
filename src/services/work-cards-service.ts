@@ -886,11 +886,14 @@ function buildTechnicalSnapshotFromProposal(input: {
     const calculation = (input.proposal.calculation ?? null) as Record<string, any> | null
     const manualContractEstimate = getManualContractProductionEstimate(calculation)
     const stakeholders = getProposalStakeholderContacts(calculation)
-    const stakeholderSnapshot =
+    const hasStakeholderData =
         stakeholders.owner.name ||
-            stakeholders.owner.whatsapp ||
-            stakeholders.billing.name ||
-            stakeholders.billing.whatsapp
+        stakeholders.owner.whatsapp ||
+        stakeholders.billing.name ||
+        stakeholders.billing.whatsapp ||
+        stakeholders.billingSource !== "linked_contact"
+    const stakeholderSnapshot =
+        hasStakeholderData
             ? {
                 owner:
                     stakeholders.owner.name || stakeholders.owner.whatsapp
@@ -906,6 +909,7 @@ function buildTechnicalSnapshotFromProposal(input: {
                             whatsapp: stakeholders.billing.whatsapp || null,
                         }
                         : null,
+                billing_source: stakeholders.billingSource,
             }
             : null
     const calculationInputDimensioning = getCalculationInputDimensioning(input.proposal.calculation ?? null)

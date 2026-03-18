@@ -159,6 +159,7 @@ export type ProposalCalculation = {
             name?: string | null
             whatsapp?: string | null
         } | null
+        billing_source?: "custom" | "owner" | "linked_contact" | null
     }
     bundle?: {
         enabled: boolean

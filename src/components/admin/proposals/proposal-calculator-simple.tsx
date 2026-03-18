@@ -26,6 +26,7 @@ import {
 import {
     getProposalStakeholderContacts,
     withProposalStakeholderContacts,
+    type ProposalStakeholderBillingSource,
 } from "@/lib/proposal-stakeholders"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -313,6 +314,11 @@ export function ProposalCalculatorSimple({
     const [manualContractEstimate, setManualContractEstimate] = useState(initialManualContractEstimate)
     const [workOwnerName, setWorkOwnerName] = useState(initialStakeholders.owner.name)
     const [workOwnerWhatsapp, setWorkOwnerWhatsapp] = useState(initialStakeholders.owner.whatsapp)
+    const [workBillingContactSource, setWorkBillingContactSource] = useState<ProposalStakeholderBillingSource>(
+        initialStakeholders.billingSource
+    )
+    const [workBillingName, setWorkBillingName] = useState(initialStakeholders.billing.name)
+    const [workBillingWhatsapp, setWorkBillingWhatsapp] = useState(initialStakeholders.billing.whatsapp)
 
     const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">(
         normalizeStatusForForm(initialProposal?.status)
@@ -910,6 +916,18 @@ export function ProposalCalculatorSimple({
                 calculationWithCommissionSplit,
                 manualContractEstimate,
             )
+            const billingContactData =
+                workBillingContactSource === "owner"
+                    ? {
+                        name: workOwnerName,
+                        whatsapp: workOwnerWhatsapp,
+                    }
+                    : workBillingContactSource === "custom"
+                        ? {
+                            name: workBillingName,
+                            whatsapp: workBillingWhatsapp,
+                        }
+                        : null
             const calculationWithStakeholders = withProposalStakeholderContacts(
                 calculationForSave,
                 {
@@ -917,6 +935,8 @@ export function ProposalCalculatorSimple({
                         name: workOwnerName,
                         whatsapp: workOwnerWhatsapp,
                     },
+                    billing: billingContactData,
+                    billingSource: workBillingContactSource,
                 }
             )
 
@@ -1382,7 +1402,7 @@ export function ProposalCalculatorSimple({
                                 />
                             </div>
                             <div className="space-y-3 rounded-md border border-sky-200 bg-sky-50/70 p-3 md:col-span-2">
-                                <Label className="font-bold text-sky-900">Dono da obra</Label>
+                                <Label className="font-bold text-sky-900">Contatos da obra</Label>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="space-y-2">
                                         <Label>Nome do dono</Label>
@@ -1401,6 +1421,49 @@ export function ProposalCalculatorSimple({
                                         />
                                     </div>
                                 </div>
+                                <div className="space-y-2">
+                                    <Label>Contato financeiro</Label>
+                                    <Select
+                                        value={workBillingContactSource}
+                                        onValueChange={(value) =>
+                                            setWorkBillingContactSource(value as ProposalStakeholderBillingSource)
+                                        }
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="owner">Mesmo do dono da obra</SelectItem>
+                                            <SelectItem value="linked_contact">Usar contato vinculado do orçamento</SelectItem>
+                                            <SelectItem value="custom">Informar financeiro manualmente</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                {workBillingContactSource === "custom" ? (
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <div className="space-y-2">
+                                            <Label>Nome do financeiro</Label>
+                                            <Input
+                                                placeholder="Ex: Maria Financeiro"
+                                                value={workBillingName}
+                                                onChange={(event) => setWorkBillingName(event.target.value)}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>WhatsApp do financeiro</Label>
+                                            <Input
+                                                placeholder="Ex: +55 (66) 99999-9999"
+                                                value={workBillingWhatsapp}
+                                                onChange={(event) => setWorkBillingWhatsapp(event.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                ) : null}
+                                {workBillingContactSource === "linked_contact" ? (
+                                    <p className="text-xs text-muted-foreground">
+                                        O botão de WhatsApp Financeiro em Obras vai usar o contato vinculado neste orçamento.
+                                    </p>
+                                ) : null}
                             </div>
                             <div className="space-y-2">
                                 <Label>Potência total calculada</Label>

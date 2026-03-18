@@ -816,7 +816,8 @@ export function WorkDetailsDialog({
     )
     const ownerName = stakeholderContacts.owner.name
     const ownerWhatsapp = stakeholderContacts.owner.whatsapp
-    const financialContactName = useMemo(() => {
+    const billingSource = stakeholderContacts.billingSource
+    const linkedFinancialContactName = useMemo(() => {
         const fullName = work?.contact?.full_name?.trim()
         if (fullName) return fullName
 
@@ -824,10 +825,42 @@ export function WorkDetailsDialog({
         const lastName = work?.contact?.last_name?.trim() || ""
         return [firstName, lastName].filter(Boolean).join(" ").trim()
     }, [work?.contact?.first_name, work?.contact?.full_name, work?.contact?.last_name])
-    const financialWhatsapp = useMemo(
+    const linkedFinancialWhatsapp = useMemo(
         () => normalizeLikelyWhatsAppPhone(work?.contact?.whatsapp || work?.contact?.phone || work?.contact?.mobile),
         [work?.contact?.mobile, work?.contact?.phone, work?.contact?.whatsapp]
     )
+    const financialContactName = useMemo(() => {
+        if (billingSource === "owner") {
+            return ownerName
+        }
+
+        if (billingSource === "custom") {
+            return stakeholderContacts.billing.name || linkedFinancialContactName
+        }
+
+        return linkedFinancialContactName
+    }, [billingSource, linkedFinancialContactName, ownerName, stakeholderContacts.billing.name])
+    const financialWhatsapp = useMemo(() => {
+        if (billingSource === "owner") {
+            return ownerWhatsapp
+        }
+
+        if (billingSource === "custom") {
+            return stakeholderContacts.billing.whatsapp || linkedFinancialWhatsapp
+        }
+
+        return linkedFinancialWhatsapp
+    }, [
+        billingSource,
+        linkedFinancialWhatsapp,
+        ownerWhatsapp,
+        stakeholderContacts.billing.whatsapp,
+    ])
+    const financialSourceLabel = useMemo(() => {
+        if (billingSource === "owner") return "Mesmo do dono da obra"
+        if (billingSource === "custom") return "Contato financeiro manual"
+        return "Contato vinculado do orçamento"
+    }, [billingSource])
     const ownerWhatsAppHref = useMemo(
         () => buildWhatsAppStartPath({ phone: ownerWhatsapp, name: ownerName }),
         [ownerName, ownerWhatsapp]
@@ -1607,6 +1640,12 @@ export function WorkDetailsDialog({
                                     </p>
                                 </div>
                                 <div className="space-y-1">
+                                    <p className="text-sm font-semibold">Origem do financeiro</p>
+                                    <p className="text-sm text-foreground">
+                                        {financialSourceLabel}
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
                                     <p className="text-sm font-semibold">Contato financeiro</p>
                                     <p className="text-sm text-foreground">
                                         {financialContactName || "Usando contato vinculado"}
@@ -1662,19 +1701,19 @@ export function WorkDetailsDialog({
                                                     <div className="grid gap-2 sm:grid-cols-2">
                                                         <div className="rounded-md border bg-white p-2 text-xs">
                                                             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Placa selecionada</p>
-                                                            {section.module?.product_id ? (
+                                                            {section.module && section.module.product_id ? (
                                                                 <button
                                                                     type="button"
                                                                     className="mt-1 w-full rounded-md border border-dashed px-2 py-1 text-left text-sm font-medium text-foreground hover:bg-slate-50"
                                                                     onClick={() =>
                                                                         handleOpenTechnicalProduct({
-                                                                            product_id: section.module.product_id!,
-                                                                            title: section.module.model || section.module.name || "Placa",
-                                                                            subtitle: formatModuleSelectionLabel(section.module),
+                                                                            product_id: section.module!.product_id!,
+                                                                            title: section.module!.model || section.module!.name || "Placa",
+                                                                            subtitle: formatModuleSelectionLabel(section.module!),
                                                                         })
                                                                     }
                                                                 >
-                                                                    {formatModuleSelectionLabel(section.module)}
+                                                                    {formatModuleSelectionLabel(section.module!)}
                                                                 </button>
                                                             ) : (
                                                                 <p className="mt-1 text-sm font-medium text-foreground">-</p>

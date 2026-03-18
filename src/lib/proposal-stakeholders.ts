@@ -5,14 +5,19 @@ export type ProposalStakeholderContact = {
   whatsapp: string
 }
 
+export type ProposalStakeholderBillingSource = "custom" | "owner" | "linked_contact"
+
 export type ProposalStakeholderContacts = {
   owner: ProposalStakeholderContact
   billing: ProposalStakeholderContact
+  billingSource: ProposalStakeholderBillingSource
 }
 
-export type ProposalStakeholderUpdates = Partial<
-  Record<"owner" | "billing", Partial<ProposalStakeholderContact> | null | undefined>
->
+export type ProposalStakeholderUpdates = {
+  owner?: Partial<ProposalStakeholderContact> | null | undefined
+  billing?: Partial<ProposalStakeholderContact> | null | undefined
+  billingSource?: ProposalStakeholderBillingSource | null | undefined
+}
 
 function asRecord(value: unknown): UnknownRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -42,6 +47,14 @@ function normalizeStakeholderContact(input: Partial<ProposalStakeholderContact> 
   } satisfies ProposalStakeholderContact
 }
 
+function isBillingSource(value: unknown): value is ProposalStakeholderBillingSource {
+  return value === "custom" || value === "owner" || value === "linked_contact"
+}
+
+function normalizeBillingSource(value: unknown): ProposalStakeholderBillingSource {
+  return isBillingSource(value) ? value : "linked_contact"
+}
+
 function readStakeholderContact(params: {
   stakeholders: UnknownRecord | null
   role: "owner" | "billing"
@@ -49,20 +62,31 @@ function readStakeholderContact(params: {
   const roleRecord = asRecord(params.stakeholders?.[params.role])
   const legacyNameKey = params.role === "owner" ? "owner_name" : "billing_name"
   const legacyWhatsappKey = params.role === "owner" ? "owner_whatsapp" : "billing_whatsapp"
+  const rawName = roleRecord?.name ?? params.stakeholders?.[legacyNameKey]
+  const rawWhatsapp = roleRecord?.whatsapp ?? params.stakeholders?.[legacyWhatsappKey]
 
-  return normalizeStakeholderContact({
-    name: roleRecord?.name ?? params.stakeholders?.[legacyNameKey],
-    whatsapp: roleRecord?.whatsapp ?? params.stakeholders?.[legacyWhatsappKey],
-  })
+  return {
+    name: normalizeText(rawName),
+    whatsapp: normalizeProposalStakeholderWhatsapp(rawWhatsapp),
+  } satisfies ProposalStakeholderContact
 }
 
 export function getProposalStakeholderContacts(calculation: unknown): ProposalStakeholderContacts {
   const calculationRecord = asRecord(calculation)
   const stakeholdersRecord = asRecord(calculationRecord?.stakeholders)
+  const owner = readStakeholderContact({ stakeholders: stakeholdersRecord, role: "owner" })
+  const billing = readStakeholderContact({ stakeholders: stakeholdersRecord, role: "billing" })
+  const explicitSource = stakeholdersRecord?.billing_source
+  const billingSource = isBillingSource(explicitSource)
+    ? explicitSource
+    : billing.name || billing.whatsapp
+      ? "custom"
+      : "linked_contact"
 
   return {
-    owner: readStakeholderContact({ stakeholders: stakeholdersRecord, role: "owner" }),
-    billing: readStakeholderContact({ stakeholders: stakeholdersRecord, role: "billing" }),
+    owner,
+    billing,
+    billingSource,
   }
 }
 
@@ -77,7 +101,13 @@ export function withProposalStakeholderContacts(
   const billing = normalizeStakeholderContact(
     updates.billing === undefined ? existing.billing : updates.billing
   )
+  const billingSource = normalizeBillingSource(
+    updates.billingSource === undefined ? existing.billingSource : updates.billingSource
+  )
 
+  const hasOwner = Boolean(owner.name || owner.whatsapp)
+  const hasBilling = Boolean(billing.name || billing.whatsapp)
+  const shouldPersistStakeholders = hasOwner || hasBilling || billingSource !== "linked_contact"
   const stakeholders: UnknownRecord = {}
   if (owner.name || owner.whatsapp) {
     stakeholders.owner = {
@@ -96,9 +126,11 @@ export function withProposalStakeholderContacts(
   const rest = { ...calculationRecord }
   delete rest.stakeholders
 
-  if (Object.keys(stakeholders).length === 0) {
+  if (!shouldPersistStakeholders) {
     return rest
   }
+
+  stakeholders.billing_source = billingSource
 
   return {
     ...rest,
