@@ -739,8 +739,17 @@ async function processZApiInboundPayload(payload: ZApiReceivedCallbackPayload) {
     return false
   }
 
-  const { customerWaId, customerName } = extractZApiCustomer(payload)
+  const { customerWaId, customerName } = extractZApiCustomer(payload, {
+    selfWaId: accountData.displayPhoneNumber,
+  })
   if (!customerWaId) {
+    console.info("whatsapp_webhook_zapi_inbound_skipped_invalid_customer", {
+      instance_id: payload.instanceId,
+      from_me: isZApiFromMe(payload.fromMe),
+      has_phone: Boolean(payload.phone),
+      has_chat_id: Boolean(payload.chatId),
+      has_remote_jid: Boolean(payload.remoteJid),
+    })
     return false
   }
 
@@ -873,11 +882,17 @@ async function processZApiDeliveryPayload(payload: ZApiDeliveryCallbackPayload) 
     return 0
   }
 
-  const customerWaId = normalizeWhatsAppIdentifier(
-    typeof payload.phone === "string" ? payload.phone : null
-  )
+  const { customerWaId } = extractZApiCustomer(payload, {
+    selfWaId: accountData.displayPhoneNumber,
+  })
 
   if (!customerWaId) {
+    console.info("whatsapp_webhook_zapi_delivery_skipped_invalid_customer", {
+      instance_id: payload.instanceId,
+      has_phone: Boolean(payload.phone),
+      has_chat_id: Boolean(payload.chatId),
+      has_remote_jid: Boolean(payload.remoteJid),
+    })
     return 0
   }
 

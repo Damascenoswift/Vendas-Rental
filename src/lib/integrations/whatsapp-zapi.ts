@@ -73,6 +73,11 @@ export type ZApiDeliveryCallbackPayload = ZApiEventPayload & {
   instanceId?: string
   connectedPhone?: string
   phone?: string
+  from?: string
+  chatId?: string
+  remoteJid?: string
+  senderPhone?: string
+  fromMe?: boolean | string | number
   messageId?: string
   zaapId?: string
   momment?: number
@@ -82,6 +87,12 @@ export type ZApiWebhookTokenValidationOptions = {
   headerNames?: string[]
   allowQueryToken?: boolean
 }
+
+export type ZApiCustomerExtractionOptions = {
+  selfWaId?: string | null
+}
+
+type ZApiIdentifierSource = "phone" | "from" | "chatId" | "remoteJid" | "senderPhone"
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -106,14 +117,78 @@ function extractTrimmedString(value: unknown): string | null {
   return trimmed || null
 }
 
-function extractPossibleCustomerIdentifier(payload: Record<string, unknown>) {
-  return normalizeWhatsAppIdentifier(
-    extractTrimmedString(payload.phone) ||
-      extractTrimmedString(payload.from) ||
-      extractTrimmedString(payload.chatId) ||
-      extractTrimmedString(payload.remoteJid) ||
-      extractTrimmedString(payload.senderPhone)
-  )
+function normalizeZApiIdentifierCandidate(value: unknown, source: ZApiIdentifierSource) {
+  const trimmed = extractTrimmedString(value)
+  if (!trimmed) return ""
+
+  let candidate = trimmed
+
+  const atIndex = candidate.indexOf("@")
+  if (atIndex > -1) {
+    const domain = candidate.slice(atIndex + 1).toLowerCase()
+    if (source === "chatId" || source === "remoteJid") {
+      const isNumberChatDomain = domain === "c.us" || domain === "s.whatsapp.net"
+      if (!isNumberChatDomain) {
+        return ""
+      }
+    }
+    candidate = candidate.slice(0, atIndex)
+  }
+
+  if (candidate.includes("-")) {
+    return ""
+  }
+
+  const colonIndex = candidate.indexOf(":")
+  if (colonIndex > -1) {
+    candidate = candidate.slice(0, colonIndex)
+  }
+
+  const normalized = normalizeWhatsAppIdentifier(candidate)
+  if (!normalized) return ""
+  if (normalized.length < 10 || normalized.length > 15) return ""
+
+  return normalized
+}
+
+function extractPossibleCustomerIdentifier(
+  payload: Record<string, unknown>,
+  options: ZApiCustomerExtractionOptions = {}
+) {
+  const selfWaId = normalizeWhatsAppIdentifier(options.selfWaId || "")
+  const fromMe = isZApiFromMe(payload.fromMe)
+
+  const candidates = [
+    { source: "phone", value: normalizeZApiIdentifierCandidate(payload.phone, "phone") },
+    { source: "from", value: normalizeZApiIdentifierCandidate(payload.from, "from") },
+    { source: "chatId", value: normalizeZApiIdentifierCandidate(payload.chatId, "chatId") },
+    { source: "remoteJid", value: normalizeZApiIdentifierCandidate(payload.remoteJid, "remoteJid") },
+    { source: "senderPhone", value: normalizeZApiIdentifierCandidate(payload.senderPhone, "senderPhone") },
+  ].filter((candidate) => Boolean(candidate.value))
+
+  const seen = new Set<string>()
+  const orderedCandidates = candidates.filter((candidate) => {
+    if (seen.has(candidate.value)) return false
+    seen.add(candidate.value)
+    return true
+  })
+
+  const isSelfCandidate = (value: string) => Boolean(selfWaId && value === selfWaId)
+
+  if (fromMe) {
+    const preferredRemoteCandidate = orderedCandidates.find(
+      (candidate) =>
+        (candidate.source === "chatId" || candidate.source === "remoteJid") &&
+        !isSelfCandidate(candidate.value)
+    )
+
+    if (preferredRemoteCandidate) {
+      return preferredRemoteCandidate.value
+    }
+  }
+
+  const firstNonSelfCandidate = orderedCandidates.find((candidate) => !isSelfCandidate(candidate.value))
+  return firstNonSelfCandidate?.value || ""
 }
 
 function hasInboundMessageContent(payload: Record<string, unknown>) {
@@ -330,8 +405,11 @@ export function extractZApiInboundMessage(payload: ZApiReceivedCallbackPayload) 
   }
 }
 
-export function extractZApiCustomer(payload: ZApiReceivedCallbackPayload) {
-  const customerWaId = extractPossibleCustomerIdentifier(payload)
+export function extractZApiCustomer(
+  payload: ZApiReceivedCallbackPayload,
+  options: ZApiCustomerExtractionOptions = {}
+) {
+  const customerWaId = extractPossibleCustomerIdentifier(payload, options)
   const customerName =
     extractTrimmedString(payload.senderName) ||
     extractTrimmedString(payload.chatName) ||
