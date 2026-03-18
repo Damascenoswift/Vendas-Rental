@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { getContactDuplicateOverview } from "@/app/actions/contacts"
 import { ContactDedupeSyncButton } from "@/components/admin/contacts/contact-dedupe-sync-button"
+import { DeleteContactButton } from "@/components/admin/contacts/delete-contact-button"
 import { Badge } from "@/components/ui/badge"
 import {
     Table,
@@ -56,6 +57,7 @@ export default async function AdminContactsPage({
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
+    const canDeleteContacts = role === "adm_mestre" || role === "adm_dorata"
 
     if (!role || !allowedRoles.includes(role)) {
         return (
@@ -264,9 +266,18 @@ export default async function AdminContactsPage({
                                     <TableCell>{formattedDate}</TableCell>
                                     <TableCell>{contact.external_id || "-"}</TableCell>
                                     <TableCell className="text-right">
-                                        <Button asChild variant="outline" size="sm">
-                                            <Link href={`/admin/contatos/${contact.id}`}>Ver 360</Link>
-                                        </Button>
+                                        <div className="inline-flex items-center gap-2">
+                                            <Button asChild variant="outline" size="sm">
+                                                <Link href={`/admin/contatos/${contact.id}`}>Ver 360</Link>
+                                            </Button>
+                                            {canDeleteContacts ? (
+                                                <DeleteContactButton
+                                                    contactId={contact.id}
+                                                    contactName={name}
+                                                    compact
+                                                />
+                                            ) : null}
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             )

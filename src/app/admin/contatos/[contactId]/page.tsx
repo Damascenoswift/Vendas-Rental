@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { DeleteContactButton } from "@/components/admin/contacts/delete-contact-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     Table,
@@ -155,6 +156,7 @@ export default async function ContactDetailsPage({
 
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
+    const canDeleteContacts = role === "adm_mestre" || role === "adm_dorata"
 
     if (!role || !allowedRoles.includes(role)) {
         return (
@@ -527,6 +529,9 @@ export default async function ContactDetailsPage({
                     <Button asChild>
                         <Link href="/admin/tarefas">Abrir tarefas</Link>
                     </Button>
+                    {canDeleteContacts ? (
+                        <DeleteContactButton contactId={contact.id} contactName={contactName} />
+                    ) : null}
                 </div>
             </div>
 

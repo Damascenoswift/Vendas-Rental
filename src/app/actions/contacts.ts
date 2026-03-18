@@ -24,6 +24,7 @@ const CONTACT_VIEW_ALLOWED_ROLES = new Set([
 ])
 
 const CONTACT_SYNC_ALLOWED_ROLES = new Set(["adm_mestre", "adm_dorata"])
+const CONTACT_DELETE_ALLOWED_ROLES = new Set(["adm_mestre", "adm_dorata"])
 const CONTACT_FETCH_BATCH_SIZE = 1000
 
 type ContactForeignKeyTable = "proposals" | "tasks" | "obra_cards" | "whatsapp_conversations"
@@ -69,6 +70,12 @@ export type SyncDuplicateContactsResult = {
   error?: string
   message?: string
   data?: SyncDuplicateContactsSummary
+}
+
+export type DeleteContactResult = {
+  success: boolean
+  error?: string
+  message?: string
 }
 
 function isAllowedRole(role: string | null | undefined, allowed: Set<string>) {
@@ -340,6 +347,81 @@ export async function syncDuplicateContactsByPhoneAction(): Promise<SyncDuplicat
     return {
       success: false,
       error: message,
+    }
+  }
+}
+
+export async function deleteContactAction(contactId: string): Promise<DeleteContactResult> {
+  try {
+    const accessResult = await getContactAccessContext()
+    if (!accessResult.success) {
+      return { success: false, error: accessResult.error }
+    }
+
+    if (!isAllowedRole(accessResult.data.role, CONTACT_DELETE_ALLOWED_ROLES)) {
+      return {
+        success: false,
+        error: "Você não tem permissão para excluir contatos.",
+      }
+    }
+
+    const normalizedContactId = contactId.trim()
+    if (!normalizedContactId) {
+      return {
+        success: false,
+        error: "Contato inválido para exclusão.",
+      }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: contactData, error: contactError } = await supabaseAdmin
+      .from("contacts")
+      .select("id")
+      .eq("id", normalizedContactId)
+      .maybeSingle()
+
+    if (contactError) {
+      return {
+        success: false,
+        error: contactError.message,
+      }
+    }
+
+    if (!contactData) {
+      return {
+        success: false,
+        error: "Contato não encontrado.",
+      }
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from("contacts")
+      .delete()
+      .eq("id", normalizedContactId)
+
+    if (deleteError) {
+      return {
+        success: false,
+        error: deleteError.message,
+      }
+    }
+
+    revalidatePath("/admin/contatos")
+    revalidatePath("/admin/contatos/[contactId]", "page")
+    revalidatePath("/admin/whatsapp")
+    revalidatePath("/admin/tarefas")
+    revalidatePath("/admin/obras")
+    revalidatePath("/admin/orcamentos")
+
+    return {
+      success: true,
+      message: "Contato excluído com sucesso.",
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao excluir contato.",
     }
   }
 }
