@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { getProfile, hasRestrictedFinancialAccess } from '@/lib/auth'
+import { buildOptionalClosingItems, parseFinancialDecimal } from '@/lib/financial/closing-adjustments'
 import { hasSalesAccess } from '@/lib/sales-access'
 
 const transactionSchema = z.object({
@@ -322,22 +323,6 @@ function normalizeDate(value?: string | null) {
     return fallback
 }
 
-function parseDecimalFormValue(value: FormDataEntryValue | null | undefined) {
-    if (typeof value === 'number') {
-        return Number.isFinite(value) ? value : Number.NaN
-    }
-
-    const raw = String(value ?? '').trim()
-    if (!raw) return Number.NaN
-
-    const normalized = raw.includes(',')
-        ? raw.replace(/\./g, '').replace(',', '.')
-        : raw
-
-    const parsed = Number(normalized)
-    return Number.isFinite(parsed) ? parsed : Number.NaN
-}
-
 function buildFinancialRedirect(params: {
     tab: 'previsoes' | 'liberado' | 'historico'
     seller?: string | null
@@ -509,7 +494,8 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         .map((item) => String(item ?? '').trim())
         .filter(Boolean)
 
-    if (rawSelected.length === 0) {
+    const applyFixedPayment = formData.get('apply_fixed_payment')?.toString() === '1'
+    if (rawSelected.length === 0 && !applyFixedPayment) {
         redirect(buildFinancialRedirect({ tab: 'liberado', seller, brand, error: 'no-items' }))
     }
 
@@ -527,36 +513,23 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         }
     }
 
-    const expenseBeneficiary = formData.get('expense_beneficiary_user_id')?.toString().trim() ?? ''
-    const expenseBrand = formData.get('expense_brand')?.toString().trim() ?? ''
-    const expenseDescription = formData.get('expense_description')?.toString().trim() ?? ''
-    const applyExpense = formData.get('apply_expense')?.toString() === '1'
+    const optionalItemsResult = buildOptionalClosingItems({
+        applyExpense: formData.get('apply_expense')?.toString() === '1',
+        expenseBeneficiary: formData.get('expense_beneficiary_user_id')?.toString().trim() ?? '',
+        expenseBrand: formData.get('expense_brand')?.toString().trim() ?? '',
+        expenseDescription: formData.get('expense_description')?.toString().trim() ?? '',
+        expenseAmount: formData.get('expense_amount'),
+        applyFixedPayment,
+        fixedBeneficiary: formData.get('fixed_beneficiary_user_id')?.toString().trim() ?? '',
+        fixedBrand: formData.get('fixed_brand')?.toString().trim() ?? '',
+        fixedDescription: formData.get('fixed_description')?.toString().trim() ?? '',
+        fixedAmount: formData.get('fixed_amount'),
+    })
 
-    if (applyExpense) {
-        const expenseAmount = parseDecimalFormValue(formData.get('expense_amount'))
-        if (
-            !expenseBeneficiary ||
-            !expenseDescription ||
-            !expenseBrand ||
-            !Number.isFinite(expenseAmount) ||
-            expenseAmount <= 0
-        ) {
-            redirect(buildFinancialRedirect({ tab: 'liberado', seller, brand, error: 'invalid-expense' }))
-        }
-
-        const normalizedBrand = expenseBrand === 'dorata' ? 'dorata' : 'rental'
-        decodedItems.push({
-            source_kind: normalizedBrand === 'dorata' ? 'dorata_sistema' : 'rental_sistema',
-            source_ref_id: `manual_expense:${crypto.randomUUID()}`,
-            brand: normalizedBrand,
-            beneficiary_user_id: expenseBeneficiary,
-            transaction_type: 'despesa',
-            amount: Number(expenseAmount.toFixed(2)),
-            description: `Despesa fechamento - ${expenseDescription}`,
-            origin_lead_id: null,
-            client_name: 'Despesa financeira',
-        })
+    if (!optionalItemsResult.ok) {
+        redirect(buildFinancialRedirect({ tab: 'liberado', seller, brand, error: optionalItemsResult.error }))
     }
+    decodedItems.push(...optionalItemsResult.items)
 
     const competencia = normalizeCompetenciaDate(formData.get('competencia')?.toString() ?? null)
     const paymentDate = normalizeDate(formData.get('payment_date')?.toString() ?? null)
@@ -772,7 +745,7 @@ export async function createManualElyakimItemFromForm(formData: FormData): Promi
         brand: formData.get('brand') ?? 'rental',
         transaction_type: formData.get('transaction_type') ?? 'comissao_venda',
         client_name: formData.get('client_name'),
-        amount: parseDecimalFormValue(formData.get('amount')),
+        amount: parseFinancialDecimal(formData.get('amount')),
         origin_lead_id: formData.get('origin_lead_id'),
         external_ref: formData.get('external_ref'),
         observacao: formData.get('observacao'),

@@ -828,6 +828,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         "no-items": { tone: "error", text: "Selecione ao menos um item antes de fechar o pagamento." },
         "invalid-selection": { tone: "error", text: "A seleção do fechamento ficou inválida. Atualize a página e tente novamente." },
         "invalid-expense": { tone: "error", text: "Se for aplicar despesa, preencha beneficiário, descrição e valor válidos." },
+        "invalid-fixed": { tone: "error", text: "Se for aplicar pagamento fixo, preencha beneficiário, marca e valor válidos." },
         "negative-total": { tone: "error", text: "O fechamento não pode gerar total líquido negativo." },
         "invalid-beneficiary": { tone: "error", text: "O beneficiário escolhido não está habilitado para esse pagamento." },
         "closing-create-failed": { tone: "error", text: "Não foi possível criar o fechamento financeiro." },
@@ -1737,6 +1738,82 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                         type="number"
                                         step="0.01"
                                         min="0.01"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="rounded-md border border-dashed p-4 space-y-3">
+                            <div>
+                                <p className="text-sm font-medium">Pagamento fixo (opcional)</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Use para adicionar um valor fixo no fechamento do beneficiário, sem depender de item liberado da tabela.
+                                </p>
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    name="apply_fixed_payment"
+                                    value="1"
+                                    className="h-4 w-4 rounded border-gray-300 text-primary"
+                                />
+                                Aplicar pagamento fixo neste fechamento
+                            </label>
+                            <div className="grid gap-3 md:grid-cols-4">
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="fixed_beneficiary_user_id" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Beneficiário
+                                    </label>
+                                    <select
+                                        id="fixed_beneficiary_user_id"
+                                        name="fixed_beneficiary_user_id"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    >
+                                        <option value="">Sem fixo</option>
+                                        {payableSellerOptions.map((seller) => (
+                                            <option key={`fixed-user-${seller.id}`} value={seller.id}>
+                                                {seller.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="fixed_brand" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Marca
+                                    </label>
+                                    <select
+                                        id="fixed_brand"
+                                        name="fixed_brand"
+                                        defaultValue="rental"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    >
+                                        <option value="rental">Rental</option>
+                                        <option value="dorata">Dorata</option>
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="fixed_amount" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Valor fixo (R$)
+                                    </label>
+                                    <input
+                                        id="fixed_amount"
+                                        name="fixed_amount"
+                                        type="number"
+                                        step="0.01"
+                                        min="0.01"
+                                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <label htmlFor="fixed_description" className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Descrição (opcional)
+                                    </label>
+                                    <input
+                                        id="fixed_description"
+                                        name="fixed_description"
+                                        type="text"
+                                        placeholder="Ex: Fixo mensal"
                                         className="h-9 rounded-md border border-input bg-background px-3 text-sm"
                                     />
                                 </div>
