@@ -31,6 +31,7 @@ import {
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
+import { dispatchNotificationEvent } from "@/services/notification-service"
 
 const SEND_RATE_LIMIT_PER_MINUTE = 20
 const MESSAGE_PAGE_SIZE_DEFAULT = 100
@@ -713,6 +714,52 @@ async function insertConversationEvent(input: {
   }
 }
 
+async function notifyWhatsAppConversationTransfer(input: {
+  conversationId: string
+  customerWaId: string
+  customerName: string | null
+  actorUserId: string
+  actorName: string
+  previousAssignedUserId: string | null
+  nextAssignedUserId: string
+}) {
+  if (input.previousAssignedUserId === input.nextAssignedUserId) {
+    return
+  }
+
+  const contactLabel = input.customerName?.trim() || input.customerWaId
+  const message = `${input.actorName} transferiu o contato ${contactLabel} para o seu atendimento no WhatsApp.`
+
+  await dispatchNotificationEvent({
+    domain: "SYSTEM",
+    eventKey: "SYSTEM_GENERIC",
+    actorUserId: input.actorUserId,
+    entityType: "CHAT_CONVERSATION",
+    entityId: input.conversationId,
+    title: "Conversa WhatsApp transferida para você",
+    message,
+    metadata: {
+      conversation_id: input.conversationId,
+      customer_wa_id: input.customerWaId,
+      customer_name: input.customerName,
+      previous_assigned_user_id: input.previousAssignedUserId,
+      next_assigned_user_id: input.nextAssignedUserId,
+      target_path: "/admin/whatsapp",
+    },
+    recipients: [
+      {
+        userId: input.nextAssignedUserId,
+        responsibilityKind: "DIRECT",
+        isMandatory: true,
+      },
+    ],
+    dedupeKey: `whatsapp_transfer:${input.conversationId}:${input.previousAssignedUserId ?? "none"}:${input.nextAssignedUserId}`,
+    isMandatory: true,
+    targetPath: "/admin/whatsapp",
+    revalidatePaths: ["/admin/whatsapp"],
+  })
+}
+
 export async function listWhatsAppAgents(): Promise<ActionResult<WhatsAppAgent[]>> {
   try {
     await requireWhatsAppAccess()
@@ -1184,10 +1231,9 @@ export async function startWhatsAppConversationFromContact(
 
     const { data: existingConversationData, error: existingConversationError } = await supabaseAdmin
       .from("whatsapp_conversations")
-      .select("id")
+      .select("id, contact_id, customer_name, brand, status")
       .eq("account_id", accountId)
       .eq("customer_wa_id", customerWaId)
-      .not("status", "eq", "CLOSED")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -1197,10 +1243,48 @@ export async function startWhatsAppConversationFromContact(
     }
 
     if (existingConversationData) {
+      const existingConversation = existingConversationData as {
+        id: string
+        contact_id: string | null
+        customer_name: string | null
+        brand: WhatsAppBrand | null
+        status: WhatsAppConversationStatus
+      }
+
+      const updates: Record<string, unknown> = {}
+
+      if (!existingConversation.contact_id || existingConversation.contact_id !== contact.id) {
+        updates.contact_id = contact.id
+      }
+
+      if (contact.full_name && existingConversation.customer_name !== contact.full_name) {
+        updates.customer_name = contact.full_name
+      }
+
+      if (existingConversation.status === "CLOSED") {
+        updates.status = existingConversation.brand ? "OPEN" : "PENDING_BRAND"
+        if (provider === "z_api") {
+          updates.window_expires_at = new Date(Date.now() + WINDOW_DURATION_MS).toISOString()
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        const { error: updateExistingError } = await supabaseAdmin
+          .from("whatsapp_conversations")
+          .update(updates)
+          .eq("id", existingConversation.id)
+
+        if (updateExistingError) {
+          throw new WhatsAppActionError(updateExistingError.message)
+        }
+      }
+
+      revalidatePath("/admin/whatsapp")
+
       return {
         success: true,
         data: {
-          conversation_id: (existingConversationData as { id: string }).id,
+          conversation_id: existingConversation.id,
         },
       }
     }
@@ -1226,6 +1310,31 @@ export async function startWhatsAppConversationFromContact(
       .insert(conversationPayload)
       .select("id")
       .single()
+
+    if (insertConversationError && (insertConversationError as { code?: string }).code === "23505") {
+      const { data: conflictConversationData, error: conflictConversationError } = await supabaseAdmin
+        .from("whatsapp_conversations")
+        .select("id")
+        .eq("account_id", accountId)
+        .eq("customer_wa_id", customerWaId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (conflictConversationError) {
+        throw new WhatsAppActionError(conflictConversationError.message)
+      }
+
+      if (conflictConversationData) {
+        revalidatePath("/admin/whatsapp")
+        return {
+          success: true,
+          data: {
+            conversation_id: (conflictConversationData as { id: string }).id,
+          },
+        }
+      }
+    }
 
     if (insertConversationError || !insertedConversationData) {
       throw new WhatsAppActionError(
@@ -1385,6 +1494,13 @@ export async function assignWhatsAppConversation(
     const supabaseAdmin = createSupabaseServiceClient()
     const conversation = await fetchConversationById(conversationId, accessContext)
 
+    if (conversation.assigned_user_id === userId) {
+      return {
+        success: true,
+        data: { id: conversationId, assigned_user_id: userId },
+      }
+    }
+
     if (userId) {
       const { data: assigneeData, error: assigneeError } = await supabaseAdmin
         .from("users")
@@ -1415,6 +1531,33 @@ export async function assignWhatsAppConversation(
         next_assigned_user_id: userId,
       },
     })
+
+    if (userId) {
+      const actorName = buildWhatsAppAgentDisplayName({
+        name: accessContext.profile?.name,
+        email: user.email,
+      })
+
+      try {
+        await notifyWhatsAppConversationTransfer({
+          conversationId,
+          customerWaId: conversation.customer_wa_id,
+          customerName: conversation.customer_name,
+          actorUserId: user.id,
+          actorName,
+          previousAssignedUserId: conversation.assigned_user_id,
+          nextAssignedUserId: userId,
+        })
+      } catch (notificationError) {
+        console.error("whatsapp_assignment_transfer_notification_failed", {
+          conversation_id: conversationId,
+          previous_assigned_user_id: conversation.assigned_user_id,
+          next_assigned_user_id: userId,
+          error:
+            notificationError instanceof Error ? notificationError.message : "Erro desconhecido",
+        })
+      }
+    }
 
     revalidatePath("/admin/whatsapp")
 

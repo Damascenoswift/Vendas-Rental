@@ -56,6 +56,7 @@ type ConversationRow = {
   contact_id: string | null
   customer_wa_id: string
   customer_name: string | null
+  brand: string | null
   status: "PENDING_BRAND" | "OPEN" | "CLOSED"
   unread_count: number
 }
@@ -228,24 +229,28 @@ async function findOrCreateConversation(input: {
 }) {
   const supabaseAdmin = createSupabaseServiceClient()
 
-  const { data: existingData, error: existingError } = await supabaseAdmin
-    .from("whatsapp_conversations")
-    .select("id, account_id, contact_id, customer_wa_id, customer_name, status, unread_count")
-    .eq("account_id", input.accountId)
-    .eq("customer_wa_id", input.customerWaId)
-    .not("status", "eq", "CLOSED")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const loadExistingConversation = async () => {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .select("id, account_id, contact_id, customer_wa_id, customer_name, brand, status, unread_count")
+      .eq("account_id", input.accountId)
+      .eq("customer_wa_id", input.customerWaId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-  if (existingError) {
-    throw new Error(existingError.message)
+    if (error) {
+      throw new Error(error.message)
+    }
+
+    return (data ?? null) as ConversationRow | null
   }
 
-  const existing = (existingData ?? null) as ConversationRow | null
+  const existing = await loadExistingConversation()
 
   if (existing) {
     const updates: Record<string, unknown> = {}
+    let nextStatus = existing.status
 
     if (!existing.contact_id || existing.contact_id !== input.contactId) {
       updates.contact_id = input.contactId
@@ -255,15 +260,23 @@ async function findOrCreateConversation(input: {
       updates.customer_name = input.customerName
     }
 
-    if (Object.keys(updates).length > 0) {
-      await supabaseAdmin
-        .from("whatsapp_conversations")
-        .update(updates)
-        .eq("id", existing.id)
+    if (existing.status === "CLOSED") {
+      nextStatus = existing.brand ? "OPEN" : "PENDING_BRAND"
+      updates.status = nextStatus
     }
 
-    return existing
+    if (Object.keys(updates).length > 0) {
+      await supabaseAdmin.from("whatsapp_conversations").update(updates).eq("id", existing.id)
+    }
+
+    return {
+      ...existing,
+      ...updates,
+      status: nextStatus,
+    } as ConversationRow
   }
+
+  const nowIso = new Date().toISOString()
 
   const { data: insertedData, error: insertError } = await supabaseAdmin
     .from("whatsapp_conversations")
@@ -274,11 +287,18 @@ async function findOrCreateConversation(input: {
       customer_name: input.customerName,
       status: "PENDING_BRAND",
       unread_count: 0,
-      last_message_at: new Date().toISOString(),
+      last_message_at: nowIso,
       window_expires_at: new Date(Date.now() + WINDOW_DURATION_MS).toISOString(),
     })
-    .select("id, account_id, contact_id, customer_wa_id, customer_name, status, unread_count")
+    .select("id, account_id, contact_id, customer_wa_id, customer_name, brand, status, unread_count")
     .single()
+
+  if (insertError && (insertError as { code?: string }).code === "23505") {
+    const conflictConversation = await loadExistingConversation()
+    if (conflictConversation) {
+      return conflictConversation
+    }
+  }
 
   if (insertError || !insertedData) {
     throw new Error(insertError?.message ?? "Falha ao criar conversa WhatsApp")
