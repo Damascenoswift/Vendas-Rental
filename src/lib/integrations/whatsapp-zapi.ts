@@ -8,11 +8,19 @@ import {
 
 type ZApiEventPayload = Record<string, unknown>
 
+type ZApiChatSummary = {
+  phone?: string | null
+  lid?: string | null
+}
+
 export type ZApiReceivedCallbackPayload = ZApiEventPayload & {
   type?: string
   instanceId?: string
   connectedPhone?: string
   phone?: string
+  lid?: string
+  chatLid?: string
+  participantLid?: string | null
   from?: string
   chatId?: string
   remoteJid?: string
@@ -68,6 +76,9 @@ export type ZApiMessageStatusCallbackPayload = ZApiEventPayload & {
   zaapId?: string
   momment?: number
   phone?: string
+  lid?: string
+  chatLid?: string
+  participantLid?: string | null
   from?: string
   chatId?: string
   remoteJid?: string
@@ -86,6 +97,9 @@ export type ZApiDeliveryCallbackPayload = ZApiEventPayload & {
   instanceId?: string
   connectedPhone?: string
   phone?: string
+  lid?: string
+  chatLid?: string
+  participantLid?: string | null
   from?: string
   chatId?: string
   remoteJid?: string
@@ -119,6 +133,12 @@ function getRequiredEnv(name: string) {
   return value
 }
 
+function getOptionalEnv(name: string) {
+  const value = process.env[name]
+  if (!value) return ""
+  return value.trim()
+}
+
 function normalizeEventType(value: unknown) {
   if (typeof value !== "string") return ""
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "")
@@ -128,6 +148,22 @@ function extractTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null
   const trimmed = value.trim()
   return trimmed || null
+}
+
+function normalizeLikelyPhone(value: string | null | undefined) {
+  const normalized = normalizeWhatsAppIdentifier(value || "")
+  if (!normalized) return ""
+  if (normalized.length < 10 || normalized.length > 13) return ""
+  if (normalized.startsWith("0")) return ""
+  return normalized
+}
+
+function normalizeLidCandidate(value: string | null | undefined) {
+  const trimmed = (value || "").trim().toLowerCase()
+  if (!trimmed) return ""
+
+  const withDomain = trimmed.includes("@") ? trimmed : `${trimmed}@lid`
+  return withDomain.endsWith("@lid") ? withDomain : ""
 }
 
 function normalizeZApiIdentifierCandidate(value: unknown, source: ZApiIdentifierSource) {
@@ -466,6 +502,45 @@ export function getZApiStatusIds(payload: ZApiMessageStatusCallbackPayload) {
   ].filter((id): id is string => Boolean(id))
 
   return Array.from(new Set([...idsFromList, ...idsFromSingle]))
+}
+
+export async function resolveZApiPhoneByLid(rawLid: string | null | undefined): Promise<string | null> {
+  const normalizedLid = normalizeLidCandidate(rawLid)
+  if (!normalizedLid) return null
+
+  const instanceId = getOptionalEnv("WHATSAPP_ZAPI_INSTANCE_ID")
+  const instanceToken = getOptionalEnv("WHATSAPP_ZAPI_INSTANCE_TOKEN")
+  const clientToken = getOptionalEnv("WHATSAPP_ZAPI_CLIENT_TOKEN")
+
+  if (!instanceId || !instanceToken || !clientToken) {
+    return null
+  }
+
+  const url = `https://api.z-api.io/instances/${instanceId}/token/${instanceToken}/chats?count=2000`
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Client-Token": clientToken,
+      },
+      cache: "no-store",
+    })
+
+    if (!response.ok) return null
+
+    const json = (await response.json().catch(() => [])) as unknown
+    if (!Array.isArray(json)) return null
+
+    const chats = json as ZApiChatSummary[]
+    const matchedChat = chats.find((chat) => normalizeLidCandidate(chat.lid) === normalizedLid)
+    if (!matchedChat) return null
+
+    const phone = normalizeLikelyPhone(matchedChat.phone)
+    return phone || null
+  } catch {
+    return null
+  }
 }
 
 export async function sendZApiTextMessage(input: {

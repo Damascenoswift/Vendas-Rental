@@ -23,6 +23,7 @@ import {
   isZApiReceivedCallback,
   mapZApiStatusToMessageStatus,
   matchesConfiguredZApiInstance,
+  resolveZApiPhoneByLid,
   toIsoFromZApiMoment,
   verifyZApiWebhookToken,
   type ZApiDeliveryCallbackPayload,
@@ -93,6 +94,25 @@ function toIsoTimestamp(raw: string | null | undefined) {
   const value = Number(raw)
   if (Number.isNaN(value) || value <= 0) return null
   return new Date(value * 1000).toISOString()
+}
+
+function extractZApiLidCandidate(payload: {
+  chatLid?: unknown
+  lid?: unknown
+  chatId?: unknown
+  remoteJid?: unknown
+}) {
+  const candidates = [payload.chatLid, payload.lid, payload.chatId, payload.remoteJid]
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue
+    const trimmed = candidate.trim()
+    if (!trimmed) continue
+    if (trimmed.toLowerCase().includes("@lid")) {
+      return trimmed
+    }
+  }
+
+  return null
 }
 
 function statusToMessageStatus(status: string | null | undefined): WhatsAppMessageStatus | null {
@@ -739,14 +759,28 @@ async function processZApiInboundPayload(payload: ZApiReceivedCallbackPayload) {
     return false
   }
 
-  const { customerWaId, customerName } = extractZApiCustomer(payload, {
+  const extractedCustomer = extractZApiCustomer(payload, {
     selfWaId: accountData.displayPhoneNumber,
   })
+  let customerWaId = extractedCustomer.customerWaId
+  const customerName = extractedCustomer.customerName
+
+  if (!customerWaId) {
+    const lidCandidate = extractZApiLidCandidate(payload)
+    if (lidCandidate) {
+      const resolvedByLid = await resolveZApiPhoneByLid(lidCandidate)
+      if (resolvedByLid) {
+        customerWaId = resolvedByLid
+      }
+    }
+  }
+
   if (!customerWaId) {
     console.info("whatsapp_webhook_zapi_inbound_skipped_invalid_customer", {
       instance_id: payload.instanceId,
       from_me: isZApiFromMe(payload.fromMe),
       has_phone: Boolean(payload.phone),
+      has_lid: Boolean(payload.chatLid || payload.lid),
       has_chat_id: Boolean(payload.chatId),
       has_remote_jid: Boolean(payload.remoteJid),
     })
@@ -886,14 +920,27 @@ async function processZApiStatusPayload(payload: ZApiMessageStatusCallbackPayloa
   }
 
   const asReceivedPayload = payload as unknown as ZApiReceivedCallbackPayload
-  const { customerWaId, customerName } = extractZApiCustomer(asReceivedPayload, {
+  const extractedCustomer = extractZApiCustomer(asReceivedPayload, {
     selfWaId: accountData.displayPhoneNumber,
   })
+  let customerWaId = extractedCustomer.customerWaId
+  const customerName = extractedCustomer.customerName
+
+  if (!customerWaId) {
+    const lidCandidate = extractZApiLidCandidate(asReceivedPayload)
+    if (lidCandidate) {
+      const resolvedByLid = await resolveZApiPhoneByLid(lidCandidate)
+      if (resolvedByLid) {
+        customerWaId = resolvedByLid
+      }
+    }
+  }
 
   if (!customerWaId) {
     console.info("whatsapp_webhook_zapi_status_skipped_invalid_customer", {
       instance_id: payload.instanceId,
       has_phone: Boolean(payload.phone),
+      has_lid: Boolean((payload as { chatLid?: unknown; lid?: unknown }).chatLid || (payload as { lid?: unknown }).lid),
       has_chat_id: Boolean((payload as { chatId?: unknown }).chatId),
       has_remote_jid: Boolean((payload as { remoteJid?: unknown }).remoteJid),
       ids_count: waMessageIds.length,
@@ -955,14 +1002,26 @@ async function processZApiDeliveryPayload(payload: ZApiDeliveryCallbackPayload) 
     return 0
   }
 
-  const { customerWaId } = extractZApiCustomer(payload, {
+  const extractedCustomer = extractZApiCustomer(payload, {
     selfWaId: accountData.displayPhoneNumber,
   })
+  let customerWaId = extractedCustomer.customerWaId
+
+  if (!customerWaId) {
+    const lidCandidate = extractZApiLidCandidate(payload)
+    if (lidCandidate) {
+      const resolvedByLid = await resolveZApiPhoneByLid(lidCandidate)
+      if (resolvedByLid) {
+        customerWaId = resolvedByLid
+      }
+    }
+  }
 
   if (!customerWaId) {
     console.info("whatsapp_webhook_zapi_delivery_skipped_invalid_customer", {
       instance_id: payload.instanceId,
       has_phone: Boolean(payload.phone),
+      has_lid: Boolean(payload.chatLid || payload.lid),
       has_chat_id: Boolean(payload.chatId),
       has_remote_jid: Boolean(payload.remoteJid),
     })
