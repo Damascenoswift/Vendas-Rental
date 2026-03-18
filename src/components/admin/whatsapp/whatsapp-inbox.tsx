@@ -23,6 +23,8 @@ import {
 import {
   assignWhatsAppConversation,
   closeWhatsAppConversation,
+  deleteWhatsAppConversation,
+  ensureWhatsAppConversationContact,
   getWhatsAppConversationRestrictionSettings,
   getWhatsAppConversationMessages,
   listWhatsAppConversations,
@@ -31,6 +33,7 @@ import {
   sendWhatsAppMediaMessage,
   sendWhatsAppTextMessage,
   setWhatsAppConversationRestriction,
+  syncWhatsAppConversationContacts,
   startWhatsAppConversationFromContact,
   setWhatsAppConversationBrand,
   updateWhatsAppConversationContactName,
@@ -167,6 +170,27 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
+function formatWhatsAppNumber(value: string | null | undefined) {
+  const digits = (value || "").replace(/\D/g, "")
+  if (!digits) return "-"
+  if (digits.length <= 4) return digits
+  if (digits.length <= 10) return `+${digits}`
+
+  const ddi = digits.slice(0, 2)
+  const ddd = digits.slice(2, 4)
+  const number = digits.slice(4)
+
+  if (number.length === 9) {
+    return `+${ddi} (${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`
+  }
+
+  if (number.length === 8) {
+    return `+${ddi} (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`
+  }
+
+  return `+${digits}`
+}
+
 function isWindowOpen(windowExpiresAt: string | null) {
   if (!windowExpiresAt) return false
   const expiresAt = new Date(windowExpiresAt).getTime()
@@ -239,10 +263,12 @@ export function WhatsAppInbox({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [brandFilter, setBrandFilter] = useState<BrandFilter>("all")
   const [unassignedOnly, setUnassignedOnly] = useState(false)
+  const [missingContactOnly, setMissingContactOnly] = useState(false)
 
   const [draft, setDraft] = useState("")
   const [pendingMedia, setPendingMedia] = useState<PendingOutgoingMedia | null>(null)
   const [uploadingMedia, setUploadingMedia] = useState(false)
+  const [syncingConversationContacts, setSyncingConversationContacts] = useState(false)
   const [recordingAudio, setRecordingAudio] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
 
@@ -326,6 +352,7 @@ export function WhatsAppInbox({
         status: statusFilter,
         brand: brandFilter,
         unassignedOnly,
+        missingContactOnly,
       })
 
       setLoadingConversations(false)
@@ -357,7 +384,7 @@ export function WhatsAppInbox({
         setSelectedConversationId(result.data[0]?.id ?? null)
       }
     },
-    [brandFilter, debouncedSearch, showToast, statusFilter, unassignedOnly]
+    [brandFilter, debouncedSearch, missingContactOnly, showToast, statusFilter, unassignedOnly]
   )
 
   const loadMessages = useCallback(
@@ -725,6 +752,89 @@ export function WhatsAppInbox({
       await loadConversations({ preserveSelection: true })
     })
   }, [loadConversations, selectedConversation, showToast, withAction])
+
+  const handleOpenContactDetails = useCallback(async () => {
+    if (!selectedConversation) return
+
+    const openContactPage = (contactId: string) => {
+      if (typeof window === "undefined") return
+      window.location.assign(`/admin/contatos/${contactId}`)
+    }
+
+    if (selectedConversation.contact_id) {
+      openContactPage(selectedConversation.contact_id)
+      return
+    }
+
+    await withAction(async () => {
+      const result = await ensureWhatsAppConversationContact(selectedConversation.id)
+
+      if (!result.success || !result.data) {
+        showToast({
+          variant: "error",
+          title: "Falha ao vincular contato",
+          description: result.error || "Não foi possível vincular esta conversa a um contato.",
+        })
+        return
+      }
+
+      await loadConversations({ preserveSelection: true })
+      openContactPage(result.data.contact_id)
+    })
+  }, [loadConversations, selectedConversation, showToast, withAction])
+
+  const handleDeleteConversation = useCallback(async () => {
+    if (!selectedConversation) return
+
+    await withAction(async () => {
+      const result = await deleteWhatsAppConversation(selectedConversation.id)
+
+      if (!result.success) {
+        showToast({
+          variant: "error",
+          title: "Falha ao excluir conversa",
+          description: result.error || "Não foi possível excluir a conversa.",
+        })
+        return
+      }
+
+      await loadConversations({ preserveSelection: true })
+      showToast({
+        variant: "success",
+        title: "Conversa excluída",
+        description: "A conversa e o histórico vinculado foram removidos.",
+      })
+    })
+  }, [loadConversations, selectedConversation, showToast, withAction])
+
+  const handleSyncConversationContacts = useCallback(async () => {
+    if (syncingConversationContacts) return
+    setSyncingConversationContacts(true)
+
+    const result = await syncWhatsAppConversationContacts({
+      onlyMissing: true,
+      limit: 400,
+    })
+
+    setSyncingConversationContacts(false)
+
+    if (!result.success || !result.data) {
+      showToast({
+        variant: "error",
+        title: "Falha ao sincronizar contatos",
+        description: result.error || "Não foi possível sincronizar os contatos das conversas.",
+      })
+      return
+    }
+
+    await loadConversations({ preserveSelection: true })
+
+    showToast({
+      variant: result.data.failed > 0 ? "warning" : "success",
+      title: "Sincronização concluída",
+      description: `${result.data.linked} conversa(s) vinculada(s), ${result.data.failed} falha(s).`,
+    })
+  }, [loadConversations, showToast, syncingConversationContacts])
 
   const loadRestrictionSettings = useCallback(
     async (conversationId: string) => {
@@ -1274,7 +1384,12 @@ export function WhatsAppInbox({
                   onClick={() => {
                     void refreshAll()
                   }}
-                  disabled={loadingConversations || loadingMessages || actionLoading}
+                  disabled={
+                    loadingConversations ||
+                    loadingMessages ||
+                    actionLoading ||
+                    syncingConversationContacts
+                  }
                 >
                   <RefreshCcw
                     className={`h-4 w-4 ${
@@ -1282,6 +1397,18 @@ export function WhatsAppInbox({
                     }`}
                   />
                   Sincronizar
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    void handleSyncConversationContacts()
+                  }}
+                  disabled={syncingConversationContacts || actionLoading}
+                >
+                  <UserRound className="h-4 w-4" />
+                  {syncingConversationContacts ? "Vinculando..." : "Vincular contatos"}
                 </Button>
               </div>
             </div>
@@ -1330,14 +1457,24 @@ export function WhatsAppInbox({
               </Select>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={unassignedOnly}
-                onChange={(event) => setUnassignedOnly(event.target.checked)}
-              />
-              Somente não atribuídas
-            </label>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={unassignedOnly}
+                  onChange={(event) => setUnassignedOnly(event.target.checked)}
+                />
+                Somente não atribuídas
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={missingContactOnly}
+                  onChange={(event) => setMissingContactOnly(event.target.checked)}
+                />
+                Somente sem contato vinculado
+              </label>
+            </div>
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">Visualização</span>
@@ -1558,6 +1695,18 @@ export function WhatsAppInbox({
                       </Button>
                     ) : null}
 
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={actionLoading}
+                      onClick={() => {
+                        void handleOpenContactDetails()
+                      }}
+                    >
+                      <UserRound className="h-4 w-4" />
+                      {selectedConversation.contact_id ? "Ver contato" : "Vincular contato"}
+                    </Button>
+
                     <Dialog
                       open={editContactDialogOpen}
                       onOpenChange={(open) => {
@@ -1687,6 +1836,53 @@ export function WhatsAppInbox({
                         </AlertDialogContent>
                       </AlertDialog>
                     )}
+
+                    {canManageConversationRestrictions ? (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="destructive" size="sm" disabled={actionLoading}>
+                            Excluir
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Tem certeza que deseja excluir esta conversa?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Esta ação remove permanentemente mensagens, eventos e vínculos da
+                              conversa. Não será possível desfazer.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => {
+                                void handleDeleteConversation()
+                              }}
+                              disabled={actionLoading}
+                            >
+                              Excluir conversa
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="grid gap-2 rounded-md border bg-slate-50 p-3 text-xs text-muted-foreground md:grid-cols-3">
+                  <div className="space-y-0.5">
+                    <p className="font-medium text-foreground">Número da conversa</p>
+                    <p>{formatWhatsAppNumber(selectedConversation.customer_wa_id)}</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="font-medium text-foreground">Contato vinculado</p>
+                    <p>{selectedConversation.contact_name || "Sem contato vinculado"}</p>
+                  </div>
+                  <div className="space-y-0.5">
+                    <p className="font-medium text-foreground">WhatsApp no contato</p>
+                    <p>{formatWhatsAppNumber(selectedConversation.contact_whatsapp)}</p>
                   </div>
                 </div>
 

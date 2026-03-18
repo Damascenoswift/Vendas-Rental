@@ -52,6 +52,7 @@ export type WhatsAppConversationListFilters = {
   brand?: WhatsAppBrand | "all"
   status?: WhatsAppConversationStatus | "all"
   unassignedOnly?: boolean
+  missingContactOnly?: boolean
 }
 
 export type WhatsAppConversationListItem = {
@@ -60,6 +61,7 @@ export type WhatsAppConversationListItem = {
   account_phone_number_id: string
   account_display_phone_number: string | null
   contact_id: string | null
+  has_contact_link: boolean
   contact_name: string | null
   contact_whatsapp: string | null
   customer_wa_id: string
@@ -164,6 +166,12 @@ type ResolvedMessageMedia = {
   fileName: string | null
 }
 
+type EnsuredConversationContact = {
+  contactId: string
+  contactName: string
+  contactWhatsapp: string | null
+}
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   return value as Record<string, unknown>
@@ -249,6 +257,17 @@ async function resolveMessageMedia(
   }
 
   return extractDirectMediaFromRawPayload(rawPayload, row.message_type)
+}
+
+function chunkArray<T>(items: T[], chunkSize: number) {
+  if (chunkSize <= 0) return [items]
+  const chunks: T[][] = []
+
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize))
+  }
+
+  return chunks
 }
 
 type ContactSearchRow = {
@@ -694,6 +713,189 @@ async function fetchConversationById(
   return conversation
 }
 
+async function ensureConversationContactLink(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  conversation: ConversationRow
+  preferredName?: string | null
+}) {
+  const { supabaseAdmin, conversation } = params
+  const normalizedCustomerWa = normalizeWhatsAppIdentifier(conversation.customer_wa_id)
+  const fallbackWhatsapp = normalizedCustomerWa || conversation.customer_wa_id.trim() || null
+  const preferredName = params.preferredName ? normalizeContactFullName(params.preferredName) : null
+
+  let contactRow: {
+    id: string
+    full_name: string | null
+    whatsapp: string | null
+    whatsapp_normalized: string | null
+  } | null = null
+
+  if (conversation.contact_id) {
+    const { data: existingContactData, error: existingContactError } = await supabaseAdmin
+      .from("contacts")
+      .select("id, full_name, whatsapp, whatsapp_normalized")
+      .eq("id", conversation.contact_id)
+      .maybeSingle()
+
+    if (existingContactError) {
+      throw new WhatsAppActionError(existingContactError.message)
+    }
+
+    contactRow = (existingContactData as typeof contactRow) ?? null
+  }
+
+  if (!contactRow && normalizedCustomerWa) {
+    const { data: matchedContactsData, error: matchedContactsError } = await supabaseAdmin
+      .from("contacts")
+      .select("id, full_name, whatsapp, whatsapp_normalized")
+      .or(`whatsapp_normalized.eq.${normalizedCustomerWa},whatsapp.eq.${normalizedCustomerWa}`)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+
+    if (matchedContactsError) {
+      throw new WhatsAppActionError(matchedContactsError.message)
+    }
+
+    contactRow = ((matchedContactsData ?? [])[0] as typeof contactRow) ?? null
+  }
+
+  const nextContactName =
+    preferredName ||
+    contactRow?.full_name?.trim() ||
+    conversation.customer_name?.trim() ||
+    `Contato ${fallbackWhatsapp || "WhatsApp"}`
+
+  if (contactRow) {
+    const updates: Record<string, unknown> = {}
+
+    if (nextContactName && contactRow.full_name !== nextContactName) {
+      updates.full_name = nextContactName
+      updates.first_name = extractFirstName(nextContactName)
+    }
+
+    if (fallbackWhatsapp && !contactRow.whatsapp) {
+      updates.whatsapp = fallbackWhatsapp
+    }
+
+    if (normalizedCustomerWa && contactRow.whatsapp_normalized !== normalizedCustomerWa) {
+      updates.whatsapp_normalized = normalizedCustomerWa
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error: updateContactError } = await supabaseAdmin
+        .from("contacts")
+        .update(updates)
+        .eq("id", contactRow.id)
+
+      if (updateContactError) {
+        throw new WhatsAppActionError(updateContactError.message)
+      }
+    }
+  } else {
+    const contactPayload: Record<string, unknown> = {
+      source: "whatsapp_inbox",
+      full_name: nextContactName,
+      first_name: extractFirstName(nextContactName),
+    }
+
+    if (fallbackWhatsapp) {
+      contactPayload.whatsapp = fallbackWhatsapp
+    }
+
+    if (normalizedCustomerWa) {
+      contactPayload.whatsapp_normalized = normalizedCustomerWa
+    }
+
+    const { data: insertedContactData, error: insertContactError } = await supabaseAdmin
+      .from("contacts")
+      .insert(contactPayload)
+      .select("id, full_name, whatsapp, whatsapp_normalized")
+      .single()
+
+    if (insertContactError || !insertedContactData) {
+      throw new WhatsAppActionError(
+        insertContactError?.message ?? "Não foi possível criar o contato para esta conversa."
+      )
+    }
+
+    contactRow = insertedContactData as typeof contactRow
+  }
+
+  const conversationUpdates: Record<string, unknown> = {}
+  if (conversation.contact_id !== contactRow.id) {
+    conversationUpdates.contact_id = contactRow.id
+  }
+
+  if (preferredName && conversation.customer_name !== preferredName) {
+    conversationUpdates.customer_name = preferredName
+  } else if (!conversation.customer_name && nextContactName) {
+    conversationUpdates.customer_name = nextContactName
+  }
+
+  if (Object.keys(conversationUpdates).length > 0) {
+    const { error: updateConversationError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update(conversationUpdates)
+      .eq("id", conversation.id)
+
+    if (updateConversationError) {
+      throw new WhatsAppActionError(updateConversationError.message)
+    }
+  }
+
+  return {
+    contactId: contactRow.id,
+    contactName: nextContactName,
+    contactWhatsapp: contactRow.whatsapp || contactRow.whatsapp_normalized || fallbackWhatsapp,
+  } satisfies EnsuredConversationContact
+}
+
+async function removeConversationOutboundMedia(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  conversationId: string
+}) {
+  const { supabaseAdmin, conversationId } = params
+  const { data: messagesData, error: messagesError } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("id, raw_payload")
+    .eq("conversation_id", conversationId)
+    .eq("direction", "OUTBOUND")
+    .in("message_type", ["image", "document", "audio"])
+
+  if (messagesError) {
+    throw new WhatsAppActionError(messagesError.message)
+  }
+
+  const pathsByBucket = new Map<string, Set<string>>()
+
+  for (const row of (messagesData ?? []) as Array<{ raw_payload?: Record<string, unknown> | null }>) {
+    const rawPayload = toRecord(row.raw_payload)
+    const storedMedia = extractOutboundStoredMedia(rawPayload)
+    if (!storedMedia?.path) continue
+
+    const bucket = storedMedia.bucket || WHATSAPP_OUTBOUND_MEDIA_BUCKET
+    const bucketPaths = pathsByBucket.get(bucket) ?? new Set<string>()
+    bucketPaths.add(storedMedia.path)
+    pathsByBucket.set(bucket, bucketPaths)
+  }
+
+  for (const [bucket, pathsSet] of pathsByBucket.entries()) {
+    const paths = Array.from(pathsSet)
+    for (const chunk of chunkArray(paths, 100)) {
+      const { error } = await supabaseAdmin.storage.from(bucket).remove(chunk)
+
+      if (error) {
+        console.error("whatsapp_conversation_media_cleanup_failed", {
+          conversation_id: conversationId,
+          bucket,
+          total_paths: chunk.length,
+          error: error.message,
+        })
+      }
+    }
+  }
+}
+
 async function insertConversationEvent(input: {
   conversationId: string
   actorUserId: string
@@ -979,6 +1181,7 @@ export async function listWhatsAppConversations(
     const items = conversations.map((conversation) => {
       const contact = conversation.contact_id ? contactsById.get(conversation.contact_id) : null
       const account = accountsById.get(conversation.account_id)
+      const hasContactLink = Boolean(conversation.contact_id && contact)
 
       return {
         id: conversation.id,
@@ -986,6 +1189,7 @@ export async function listWhatsAppConversations(
         account_phone_number_id: account?.phone_number_id ?? "",
         account_display_phone_number: account?.display_phone_number ?? null,
         contact_id: conversation.contact_id,
+        has_contact_link: hasContactLink,
         contact_name: contact?.full_name ?? null,
         contact_whatsapp: contact?.whatsapp ?? null,
         customer_wa_id: conversation.customer_wa_id,
@@ -1004,7 +1208,11 @@ export async function listWhatsAppConversations(
       } satisfies WhatsAppConversationListItem
     })
 
-    return { success: true, data: items }
+    const filteredItems = filters.missingContactOnly
+      ? items.filter((item) => !item.has_contact_link)
+      : items
+
+    return { success: true, data: filteredItems }
   } catch (error) {
     return {
       success: false,
@@ -1381,90 +1589,11 @@ export async function updateWhatsAppConversationContactName(
       throw new WhatsAppActionError("Informe um nome válido para o contato.")
     }
 
-    let nextContactId = conversation.contact_id
-    const normalizedCustomerWa = normalizeWhatsAppIdentifier(conversation.customer_wa_id)
-
-    if (nextContactId) {
-      const { data: existingContactData, error: existingContactError } = await supabaseAdmin
-        .from("contacts")
-        .select("id")
-        .eq("id", nextContactId)
-        .maybeSingle()
-
-      if (existingContactError) {
-        throw new WhatsAppActionError(existingContactError.message)
-      }
-
-      if (!existingContactData) {
-        nextContactId = null
-      }
-    }
-
-    if (!nextContactId && normalizedCustomerWa) {
-      const { data: matchedContactsData, error: matchedContactsError } = await supabaseAdmin
-        .from("contacts")
-        .select("id")
-        .eq("whatsapp_normalized", normalizedCustomerWa)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-
-      if (matchedContactsError) {
-        throw new WhatsAppActionError(matchedContactsError.message)
-      }
-
-      nextContactId = (matchedContactsData?.[0] as { id: string } | undefined)?.id ?? null
-    }
-
-    if (nextContactId) {
-      const { error: updateContactError } = await supabaseAdmin
-        .from("contacts")
-        .update({
-          full_name: fullName,
-          first_name: extractFirstName(fullName),
-        })
-        .eq("id", nextContactId)
-
-      if (updateContactError) {
-        throw new WhatsAppActionError(updateContactError.message)
-      }
-    } else {
-      const whatsappValue = normalizedCustomerWa || conversation.customer_wa_id.trim() || null
-      const contactPayload: Record<string, unknown> = {
-        source: "whatsapp_inbox",
-        full_name: fullName,
-        first_name: extractFirstName(fullName),
-      }
-
-      if (whatsappValue) {
-        contactPayload.whatsapp = whatsappValue
-      }
-
-      const { data: insertedContactData, error: insertContactError } = await supabaseAdmin
-        .from("contacts")
-        .insert(contactPayload)
-        .select("id")
-        .single()
-
-      if (insertContactError || !insertedContactData) {
-        throw new WhatsAppActionError(
-          insertContactError?.message ?? "Não foi possível criar o contato para esta conversa."
-        )
-      }
-
-      nextContactId = (insertedContactData as { id: string }).id
-    }
-
-    const { error: updateConversationError } = await supabaseAdmin
-      .from("whatsapp_conversations")
-      .update({
-        customer_name: fullName,
-        contact_id: nextContactId,
-      })
-      .eq("id", conversationId)
-
-    if (updateConversationError) {
-      throw new WhatsAppActionError(updateConversationError.message)
-    }
+    const ensuredContact = await ensureConversationContactLink({
+      supabaseAdmin,
+      conversation,
+      preferredName: fullName,
+    })
 
     revalidatePath("/admin/whatsapp")
 
@@ -1472,7 +1601,7 @@ export async function updateWhatsAppConversationContactName(
       success: true,
       data: {
         conversation_id: conversationId,
-        contact_id: nextContactId,
+        contact_id: ensuredContact.contactId,
         customer_name: fullName,
       },
     }
@@ -1480,6 +1609,141 @@ export async function updateWhatsAppConversationContactName(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao editar contato da conversa.",
+    }
+  }
+}
+
+export async function ensureWhatsAppConversationContact(
+  conversationId: string
+): Promise<
+  ActionResult<{
+    conversation_id: string
+    contact_id: string
+    contact_name: string
+    contact_whatsapp: string | null
+  }>
+> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    const conversation = await fetchConversationById(conversationId, accessContext)
+
+    const ensuredContact = await ensureConversationContactLink({
+      supabaseAdmin,
+      conversation,
+    })
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: {
+        conversation_id: conversationId,
+        contact_id: ensuredContact.contactId,
+        contact_name: ensuredContact.contactName,
+        contact_whatsapp: ensuredContact.contactWhatsapp,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao vincular contato da conversa.",
+    }
+  }
+}
+
+export async function syncWhatsAppConversationContacts(
+  input: {
+    onlyMissing?: boolean
+    limit?: number
+  } = {}
+): Promise<
+  ActionResult<{
+    processed: number
+    linked: number
+    failed: number
+  }>
+> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    const onlyMissing = input.onlyMissing !== false
+    const requestedLimit = Number.isFinite(input.limit) ? Number(input.limit) : 250
+    const queryLimit = Math.min(500, Math.max(1, Math.floor(requestedLimit)))
+
+    const buildConversationQuery = (includeRestrictedColumn: boolean) => {
+      let query = supabaseAdmin
+        .from("whatsapp_conversations")
+        .select(
+          includeRestrictedColumn
+            ? "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at, is_restricted"
+            : "id, account_id, contact_id, customer_wa_id, customer_name, brand, assigned_user_id, status, window_expires_at, unread_count, last_message_at, updated_at"
+        )
+        .order("last_message_at", { ascending: false })
+        .limit(queryLimit)
+
+      if (onlyMissing) {
+        query = query.is("contact_id", null)
+      }
+
+      return query
+    }
+
+    let { data, error } = await buildConversationQuery(true)
+
+    if (error && isMissingColumnError(error, "is_restricted")) {
+      const fallback = await buildConversationQuery(false)
+      data = fallback.data as typeof data
+      error = fallback.error as typeof error
+    }
+
+    if (error) {
+      throw new WhatsAppActionError(error.message)
+    }
+
+    const conversationRows = (data ?? []).map((row) => toConversationRow(row as Record<string, unknown>))
+    const visibleConversations = await filterConversationsByVisibility({
+      supabaseAdmin,
+      conversations: conversationRows,
+      accessContext,
+    })
+
+    let processed = 0
+    let linked = 0
+    let failed = 0
+
+    for (const conversation of visibleConversations) {
+      processed += 1
+
+      try {
+        await ensureConversationContactLink({
+          supabaseAdmin,
+          conversation,
+        })
+        linked += 1
+      } catch (error) {
+        failed += 1
+        console.error("whatsapp_conversation_contact_sync_failed", {
+          conversation_id: conversation.id,
+          error: error instanceof Error ? error.message : "unknown",
+        })
+      }
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: {
+        processed,
+        linked,
+        failed,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao sincronizar contatos das conversas.",
     }
   }
 }
@@ -1663,6 +1927,61 @@ export async function closeWhatsAppConversation(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao fechar conversa.",
+    }
+  }
+}
+
+export async function deleteWhatsAppConversation(
+  conversationId: string
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+
+    if (!accessContext.isRestrictionAdmin) {
+      throw new WhatsAppActionError(
+        "Somente adm_mestre e adm_dorata podem excluir conversas do WhatsApp."
+      )
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    await fetchConversationById(conversationId, accessContext)
+
+    await removeConversationOutboundMedia({
+      supabaseAdmin,
+      conversationId,
+    })
+
+    const { error: deleteAccessError } = await supabaseAdmin
+      .from("whatsapp_conversation_access")
+      .delete()
+      .eq("conversation_id", conversationId)
+
+    if (
+      deleteAccessError &&
+      !isMissingRelationError(deleteAccessError, "whatsapp_conversation_access")
+    ) {
+      throw new WhatsAppActionError(deleteAccessError.message)
+    }
+
+    const { error: deleteConversationError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .delete()
+      .eq("id", conversationId)
+
+    if (deleteConversationError) {
+      throw new WhatsAppActionError(deleteConversationError.message)
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: { id: conversationId },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao excluir conversa.",
     }
   }
 }
