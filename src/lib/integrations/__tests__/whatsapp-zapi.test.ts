@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 
-import { extractZApiCustomer } from "../whatsapp-zapi"
+import {
+  extractZApiCustomer,
+  getZApiStatusIds,
+  isZApiMessageStatusCallback,
+  isZApiReceivedCallback,
+} from "../whatsapp-zapi"
 
 describe("whatsapp-zapi customer extraction", () => {
   it("prioriza chat remoto para mensagens fromMe", () => {
@@ -66,5 +71,34 @@ describe("whatsapp-zapi customer extraction", () => {
     )
 
     expect(result.customerWaId).toBe("")
+  })
+
+  it("aceita callback inbound com tipo não padrão quando payload tem conteúdo válido", () => {
+    const result = isZApiReceivedCallback({
+      type: "MESSAGE_CALLBACK",
+      phone: "5566988887777",
+      text: {
+        message: "teste",
+      },
+      messageId: "ABC123",
+    })
+
+    expect(result).toBe(true)
+  })
+
+  it("reconhece status callback com messageId único", () => {
+    const result = isZApiMessageStatusCallback({
+      type: "message-status-callback",
+      status: "SENT",
+      messageId: "XYZ999",
+    })
+
+    expect(result).toBe(true)
+    expect(
+      getZApiStatusIds({
+        status: "SENT",
+        messageId: "XYZ999",
+      })
+    ).toEqual(["XYZ999"])
   })
 })

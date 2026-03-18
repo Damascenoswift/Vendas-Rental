@@ -822,6 +822,10 @@ async function processZApiStatusPayload(payload: ZApiMessageStatusCallbackPayloa
     return 0
   }
 
+  if (payload.isGroup) {
+    return 0
+  }
+
   const mappedStatus = mapZApiStatusToMessageStatus(payload.status)
   const waMessageIds = getZApiStatusIds(payload)
 
@@ -869,7 +873,76 @@ async function processZApiStatusPayload(payload: ZApiMessageStatusCallbackPayloa
     return 0
   }
 
-  return (updatedRows ?? []).length
+  const updatedCount = (updatedRows ?? []).length
+  if (updatedCount > 0) {
+    return updatedCount
+  }
+
+  // Fallback para mensagens enviadas fora do app (celular/WhatsApp Web) quando
+  // a Z-API envia apenas callback de status e não há linha prévia para atualizar.
+  const accountData = getZApiAccountData(payload)
+  if (!accountData) {
+    return 0
+  }
+
+  const asReceivedPayload = payload as unknown as ZApiReceivedCallbackPayload
+  const { customerWaId, customerName } = extractZApiCustomer(asReceivedPayload, {
+    selfWaId: accountData.displayPhoneNumber,
+  })
+
+  if (!customerWaId) {
+    console.info("whatsapp_webhook_zapi_status_skipped_invalid_customer", {
+      instance_id: payload.instanceId,
+      has_phone: Boolean(payload.phone),
+      has_chat_id: Boolean((payload as { chatId?: unknown }).chatId),
+      has_remote_jid: Boolean((payload as { remoteJid?: unknown }).remoteJid),
+      ids_count: waMessageIds.length,
+    })
+    return 0
+  }
+
+  const accountId = await ensureAccount({
+    provider: "z_api",
+    phoneNumberId: accountData.providerPhoneNumberId,
+    wabaId: accountData.providerAccountId,
+    displayPhoneNumber: accountData.displayPhoneNumber,
+  })
+
+  const contactId = await findOrCreateContact(
+    customerWaId,
+    customerName,
+    {
+      source: "whatsapp_webhook_zapi_status",
+      instance_id: payload.instanceId,
+      customer_wa_id: customerWaId,
+      customer_name: customerName,
+    },
+    "whatsapp_zapi"
+  )
+
+  const conversation = await findOrCreateConversation({
+    accountId,
+    contactId,
+    customerWaId,
+    customerName,
+  })
+
+  const fallbackMessage = extractZApiInboundMessage(asReceivedPayload)
+  const fallbackBody = toZApiOutboundBodyTextFromInbound(fallbackMessage.bodyText)
+
+  for (const waMessageId of waMessageIds) {
+    await upsertOutboundMessageFromWebhook({
+      conversation,
+      waMessageId,
+      messageType: fallbackMessage.messageType,
+      bodyText: fallbackBody,
+      rawPayload: payload,
+      createdAt: statusTimestamp,
+      rawStatus: payload.status,
+    })
+  }
+
+  return waMessageIds.length
 }
 
 async function processZApiDeliveryPayload(payload: ZApiDeliveryCallbackPayload) {

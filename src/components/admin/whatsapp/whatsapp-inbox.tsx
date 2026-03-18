@@ -1697,14 +1697,14 @@ export function WhatsAppInbox({
           >
             {selectedConversation ? (
             <>
-              <div className="border-b p-4 space-y-2.5">
-                <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="border-b px-3 py-2 space-y-2">
+                <div className="flex flex-wrap items-start justify-between gap-1.5">
                   <div className="min-w-0">
-                    <p className="text-lg font-semibold leading-tight">
+                    <p className="text-base font-semibold leading-tight">
                       {conversationDisplayName(selectedConversation)}
                     </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <p className="text-sm text-muted-foreground">
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                      <p className="text-xs text-muted-foreground">
                         {conversationWhatsappNumber(selectedConversation)
                           ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
                           : "Sem número WhatsApp válido"}
@@ -1722,7 +1722,7 @@ export function WhatsAppInbox({
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-8 px-2 text-xs"
+                      className="h-7 px-2 text-[11px]"
                       onClick={() => setConversationInfoOpen((current) => !current)}
                       disabled={actionLoading}
                     >
@@ -1739,7 +1739,7 @@ export function WhatsAppInbox({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 shrink-0 px-2 text-xs"
+                        className="h-7 shrink-0 px-2 text-[11px]"
                         onClick={() => setSelectedConversationId(null)}
                         disabled={actionLoading}
                       >
@@ -1750,7 +1750,7 @@ export function WhatsAppInbox({
                   </div>
                 </div>
 
-                <div className="grid gap-2 md:grid-cols-[220px_220px_minmax(0,1fr)]">
+                <div className="grid gap-1.5 md:grid-cols-[200px_220px_minmax(0,1fr)]">
                   <Select
                     value={selectedConversation.brand || "__none"}
                     onValueChange={(value) => {
@@ -1759,7 +1759,7 @@ export function WhatsAppInbox({
                     }}
                     disabled={actionLoading}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="h-9 text-sm">
                       <SelectValue placeholder="Marca da conversa" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1786,7 +1786,7 @@ export function WhatsAppInbox({
                     }}
                     disabled={actionLoading}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="h-9 text-sm">
                       <SelectValue placeholder="Responsável" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1799,8 +1799,8 @@ export function WhatsAppInbox({
                     </SelectContent>
                   </Select>
 
-                  <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground flex items-center gap-2">
-                    <Clock3 className="h-4 w-4" />
+                  <div className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground flex min-h-9 items-center gap-1.5">
+                    <Clock3 className="h-3.5 w-3.5" />
                     <span>Janela até: {formatDateTime(selectedConversation.window_expires_at)}</span>
                   </div>
                 </div>

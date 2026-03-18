@@ -63,8 +63,21 @@ export type ZApiMessageStatusCallbackPayload = ZApiEventPayload & {
   connectedPhone?: string
   status?: string
   ids?: string[]
+  id?: string
+  messageId?: string
+  zaapId?: string
   momment?: number
   phone?: string
+  from?: string
+  chatId?: string
+  remoteJid?: string
+  senderPhone?: string
+  fromMe?: boolean | string | number
+  senderName?: string | null
+  chatName?: string | null
+  text?: {
+    message?: string
+  }
   isGroup?: boolean
 }
 
@@ -217,9 +230,17 @@ function isLikelyZApiInboundPayload(payload: Record<string, unknown>) {
 function isLikelyZApiStatusPayload(payload: Record<string, unknown>) {
   const status = extractTrimmedString(payload.status)
   if (!status) return false
-  if (!Array.isArray(payload.ids)) return false
 
-  return payload.ids.some((id) => typeof id === "string" && id.trim().length > 0)
+  if (Array.isArray(payload.ids)) {
+    const hasStatusIds = payload.ids.some((id) => typeof id === "string" && id.trim().length > 0)
+    if (hasStatusIds) return true
+  }
+
+  return (
+    extractTrimmedString(payload.messageId) !== null ||
+    extractTrimmedString(payload.zaapId) !== null ||
+    extractTrimmedString(payload.id) !== null
+  )
 }
 
 export function isZApiReceivedCallback(payload: unknown): payload is ZApiReceivedCallbackPayload {
@@ -230,7 +251,7 @@ export function isZApiReceivedCallback(payload: unknown): payload is ZApiReceive
     if (eventType === "receivedcallback") return true
     if (eventType.includes("status") || eventType.includes("delivery")) return false
     if (eventType.includes("received")) return true
-    return false
+    return isLikelyZApiInboundPayload(payload)
   }
 
   return isLikelyZApiInboundPayload(payload)
@@ -432,10 +453,19 @@ export function toIsoFromZApiMoment(rawMoment: unknown) {
 }
 
 export function getZApiStatusIds(payload: ZApiMessageStatusCallbackPayload) {
-  if (!Array.isArray(payload.ids)) return []
-  return payload.ids
-    .map((id) => (typeof id === "string" ? id.trim() : ""))
-    .filter((id) => id.length > 0)
+  const idsFromList = Array.isArray(payload.ids)
+    ? payload.ids
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter((id) => id.length > 0)
+    : []
+
+  const idsFromSingle = [
+    extractTrimmedString(payload.messageId),
+    extractTrimmedString(payload.zaapId),
+    extractTrimmedString(payload.id),
+  ].filter((id): id is string => Boolean(id))
+
+  return Array.from(new Set([...idsFromList, ...idsFromSingle]))
 }
 
 export async function sendZApiTextMessage(input: {
