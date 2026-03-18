@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
-import { Loader2, Paperclip, Trash2 } from "lucide-react"
+import { Loader2, MessageCircle, Paperclip, Trash2 } from "lucide-react"
 import {
     addWorkComment,
     addWorkExpense,
@@ -70,6 +70,7 @@ import {
 } from "@/components/ui/select"
 import { getProductRealtimeInfo, type ProductRealtimeInfo } from "@/services/product-service"
 import { formatManualContractProductionEstimateInput } from "@/lib/proposal-contract-estimate"
+import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
 
 function statusLabel(status: WorkCard["status"]) {
     if (status === "FECHADA") return "Obra Concluída"
@@ -96,6 +97,60 @@ function formatDateTime(value?: string | null) {
         hour: "2-digit",
         minute: "2-digit",
     }).format(parsed)
+}
+
+function normalizeLikelyWhatsAppPhone(value: string | null | undefined) {
+    const digits = (value || "").replace(/\D/g, "")
+    if (!digits) return ""
+    if (digits.length < 10 || digits.length > 13) return ""
+    if (digits.startsWith("0")) return ""
+    return digits
+}
+
+function formatWhatsAppNumber(value: string | null | undefined) {
+    const digits = normalizeLikelyWhatsAppPhone(value)
+    if (!digits) return "-"
+    if (digits.length <= 4) return digits
+    if (digits.length <= 10) return `+${digits}`
+
+    const ddi = digits.slice(0, 2)
+    const ddd = digits.slice(2, 4)
+    const number = digits.slice(4)
+
+    if (number.length === 9) {
+        return `+${ddi} (${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`
+    }
+
+    if (number.length === 8) {
+        return `+${ddi} (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`
+    }
+
+    return `+${digits}`
+}
+
+function buildWhatsAppStartPath(params: {
+    contactId?: string | null
+    phone?: string | null
+    name?: string | null
+}) {
+    const query = new URLSearchParams()
+
+    const normalizedPhone = normalizeLikelyWhatsAppPhone(params.phone)
+    const normalizedName = (params.name || "").trim()
+    const normalizedContactId = (params.contactId || "").trim()
+
+    if (normalizedPhone) {
+        query.set("startPhone", normalizedPhone)
+    } else if (normalizedContactId) {
+        query.set("startContact", normalizedContactId)
+    }
+
+    if (normalizedName) {
+        query.set("startName", normalizedName)
+    }
+
+    const queryString = query.toString()
+    return queryString ? `/admin/whatsapp?${queryString}` : null
 }
 
 function formatAttachmentSize(size: number | null | undefined) {
@@ -754,6 +809,37 @@ export function WorkDetailsDialog({
     const executionItems = useMemo(
         () => processItems.filter((item) => item.phase === "EXECUCAO"),
         [processItems]
+    )
+    const stakeholderContacts = useMemo(
+        () => getProposalStakeholderContacts(work?.technical_snapshot ?? null),
+        [work?.technical_snapshot]
+    )
+    const ownerName = stakeholderContacts.owner.name
+    const ownerWhatsapp = stakeholderContacts.owner.whatsapp
+    const financialContactName = useMemo(() => {
+        const fullName = work?.contact?.full_name?.trim()
+        if (fullName) return fullName
+
+        const firstName = work?.contact?.first_name?.trim() || ""
+        const lastName = work?.contact?.last_name?.trim() || ""
+        return [firstName, lastName].filter(Boolean).join(" ").trim()
+    }, [work?.contact?.first_name, work?.contact?.full_name, work?.contact?.last_name])
+    const financialWhatsapp = useMemo(
+        () => normalizeLikelyWhatsAppPhone(work?.contact?.whatsapp || work?.contact?.phone || work?.contact?.mobile),
+        [work?.contact?.mobile, work?.contact?.phone, work?.contact?.whatsapp]
+    )
+    const ownerWhatsAppHref = useMemo(
+        () => buildWhatsAppStartPath({ phone: ownerWhatsapp, name: ownerName }),
+        [ownerName, ownerWhatsapp]
+    )
+    const financialWhatsAppHref = useMemo(
+        () =>
+            buildWhatsAppStartPath({
+                phone: financialWhatsapp || null,
+                contactId: financialWhatsapp ? null : work?.contact_id,
+                name: financialContactName,
+            }),
+        [financialContactName, financialWhatsapp, work?.contact_id]
     )
 
     const canReleaseProject = useMemo(() => {
@@ -1445,6 +1531,32 @@ export function WorkDetailsDialog({
                                     <Link href={`/admin/contatos/${work.contact_id}`}>Abrir Contato 360</Link>
                                 </Button>
                             ) : null}
+                            {ownerWhatsAppHref ? (
+                                <Button asChild variant="outline" size="sm">
+                                    <Link href={ownerWhatsAppHref}>
+                                        <MessageCircle className="mr-2 h-4 w-4" />
+                                        WhatsApp Dono
+                                    </Link>
+                                </Button>
+                            ) : (
+                                <Button variant="outline" size="sm" disabled>
+                                    <MessageCircle className="mr-2 h-4 w-4" />
+                                    WhatsApp Dono
+                                </Button>
+                            )}
+                            {financialWhatsAppHref ? (
+                                <Button asChild variant="outline" size="sm">
+                                    <Link href={financialWhatsAppHref}>
+                                        <MessageCircle className="mr-2 h-4 w-4" />
+                                        WhatsApp Financeiro
+                                    </Link>
+                                </Button>
+                            ) : (
+                                <Button variant="outline" size="sm" disabled>
+                                    <MessageCircle className="mr-2 h-4 w-4" />
+                                    WhatsApp Financeiro
+                                </Button>
+                            )}
                             {work.projeto_liberado_at ? (
                                 <span className="text-xs text-muted-foreground">
                                     Projeto liberado em {formatDateTime(work.projeto_liberado_at)}
@@ -1477,6 +1589,35 @@ export function WorkDetailsDialog({
                                 >
                                     Salvar endereço
                                 </Button>
+                            </div>
+                        </div>
+
+                        <div className="rounded-md border border-sky-200 bg-sky-50/60 p-4">
+                            <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold">Dono da obra</p>
+                                    <p className="text-sm text-foreground">
+                                        {ownerName || "Não informado no orçamento"}
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold">WhatsApp do dono</p>
+                                    <p className="text-sm text-foreground">
+                                        {ownerWhatsapp ? formatWhatsAppNumber(ownerWhatsapp) : "Não informado no orçamento"}
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold">Contato financeiro</p>
+                                    <p className="text-sm text-foreground">
+                                        {financialContactName || "Usando contato vinculado"}
+                                    </p>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold">WhatsApp financeiro</p>
+                                    <p className="text-sm text-foreground">
+                                        {financialWhatsapp ? formatWhatsAppNumber(financialWhatsapp) : "Não informado no contato"}
+                                    </p>
+                                </div>
                             </div>
                         </div>
 

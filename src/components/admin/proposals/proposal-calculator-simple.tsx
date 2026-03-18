@@ -23,6 +23,10 @@ import {
     getManualContractProductionEstimate,
     withManualContractProductionEstimate,
 } from "@/lib/proposal-contract-estimate"
+import {
+    getProposalStakeholderContacts,
+    withProposalStakeholderContacts,
+} from "@/lib/proposal-stakeholders"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -267,6 +271,7 @@ export function ProposalCalculatorSimple({
     const initialManualContractEstimate = formatManualContractProductionEstimateInput(
         getManualContractProductionEstimate(initialProposal?.calculation ?? null) ?? ""
     )
+    const initialStakeholders = getProposalStakeholderContacts(initialProposal?.calculation ?? null)
     const isEditMode = intent === "edit" && Boolean(initialProposal?.id)
     const initialProductionSplitsConfig = buildInitialProductionIndexSplits({
         initialInput,
@@ -306,6 +311,8 @@ export function ProposalCalculatorSimple({
             "",
     }))
     const [manualContractEstimate, setManualContractEstimate] = useState(initialManualContractEstimate)
+    const [workOwnerName, setWorkOwnerName] = useState(initialStakeholders.owner.name)
+    const [workOwnerWhatsapp, setWorkOwnerWhatsapp] = useState(initialStakeholders.owner.whatsapp)
 
     const [proposalStatus, setProposalStatus] = useState<"draft" | "sent">(
         normalizeStatusForForm(initialProposal?.status)
@@ -903,6 +910,15 @@ export function ProposalCalculatorSimple({
                 calculationWithCommissionSplit,
                 manualContractEstimate,
             )
+            const calculationWithStakeholders = withProposalStakeholderContacts(
+                calculationForSave,
+                {
+                    owner: {
+                        name: workOwnerName,
+                        whatsapp: workOwnerWhatsapp,
+                    },
+                }
+            )
 
             const proposalData: ProposalInsert & { source_mode: "simple" } = {
                 status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
@@ -911,7 +927,7 @@ export function ProposalCalculatorSimple({
                 additional_cost: calculated.output.extras.extras_total,
                 profit_margin: calculated.output.margin.margem_valor,
                 total_power: unifiedTotalPower,
-                calculation: calculationForSave as ProposalInsert["calculation"],
+                calculation: calculationWithStakeholders as ProposalInsert["calculation"],
                 source_mode: "simple",
                 ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
@@ -1364,6 +1380,27 @@ export function ProposalCalculatorSimple({
                                         )
                                     }
                                 />
+                            </div>
+                            <div className="space-y-3 rounded-md border border-sky-200 bg-sky-50/70 p-3 md:col-span-2">
+                                <Label className="font-bold text-sky-900">Dono da obra</Label>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label>Nome do dono</Label>
+                                        <Input
+                                            placeholder="Ex: João da Silva"
+                                            value={workOwnerName}
+                                            onChange={(event) => setWorkOwnerName(event.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>WhatsApp do dono</Label>
+                                        <Input
+                                            placeholder="Ex: +55 (66) 99999-9999"
+                                            value={workOwnerWhatsapp}
+                                            onChange={(event) => setWorkOwnerWhatsapp(event.target.value)}
+                                        />
+                                    </div>
+                                </div>
                             </div>
                             <div className="space-y-2">
                                 <Label>Potência total calculada</Label>

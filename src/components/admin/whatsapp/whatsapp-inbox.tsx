@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
+import { useSearchParams } from "next/navigation"
 import {
   AudioLines,
   ChevronDown,
@@ -34,6 +35,7 @@ import {
   searchWhatsAppContacts,
   reopenWhatsAppConversation,
   sendWhatsAppMediaMessage,
+  startWhatsAppConversationFromPhone,
   sendWhatsAppTextMessage,
   setWhatsAppConversationRestriction,
   syncWhatsAppConversationContacts,
@@ -244,7 +246,9 @@ export function WhatsAppInbox({
   canManageConversationRestrictions,
 }: WhatsAppInboxProps) {
   const { showToast } = useToast()
+  const searchParams = useSearchParams()
   const selectedConversationIdRef = useRef<string | null>(null)
+  const autoStartRequestKeyRef = useRef<string | null>(null)
   const conversationPanelRef = useRef<HTMLDivElement | null>(null)
   const messagesScrollAreaRef = useRef<HTMLDivElement | null>(null)
   const shouldScrollMessagesToBottomRef = useRef(false)
@@ -299,6 +303,31 @@ export function WhatsAppInbox({
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
   )
+  const autoStartRequest = useMemo(() => {
+    const contactId = (searchParams.get("startContact") || "").trim()
+    const phone = normalizeLikelyWhatsAppPhone(searchParams.get("startPhone") || "")
+    const name = (searchParams.get("startName") || "").trim()
+
+    if (contactId) {
+      return {
+        key: `contact:${contactId}`,
+        type: "contact" as const,
+        contactId,
+        name,
+      }
+    }
+
+    if (phone) {
+      return {
+        key: `phone:${phone}`,
+        type: "phone" as const,
+        phone,
+        name,
+      }
+    }
+
+    return null
+  }, [searchParams])
 
   const getMessagesViewportElement = useCallback(() => {
     if (!messagesScrollAreaRef.current) return null
@@ -520,6 +549,32 @@ export function WhatsAppInbox({
     [loadConversations, loadMessages, showToast, startingConversation]
   )
 
+  const handleStartConversationByPhone = useCallback(
+    async (phone: string, name?: string | null) => {
+      if (startingConversation) return null
+      setStartingConversation(true)
+
+      const result = await startWhatsAppConversationFromPhone(phone, name || null)
+      setStartingConversation(false)
+
+      if (!result.success || !result.data) {
+        showToast({
+          variant: "error",
+          title: "Falha ao iniciar conversa",
+          description: result.error || "Não foi possível iniciar conversa para este número.",
+        })
+        return null
+      }
+
+      const conversationId = result.data.conversation_id
+      await loadConversations({ preserveSelection: true })
+      setSelectedConversationId(conversationId)
+      await loadMessages(conversationId)
+      return conversationId
+    },
+    [loadConversations, loadMessages, showToast, startingConversation]
+  )
+
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId
   }, [selectedConversationId])
@@ -600,6 +655,51 @@ export function WhatsAppInbox({
   useEffect(() => {
     void loadConversations({ preserveSelection: true })
   }, [loadConversations])
+
+  useEffect(() => {
+    if (!autoStartRequest || loadingConversations) return
+    if (autoStartRequestKeyRef.current === autoStartRequest.key) return
+
+    let cancelled = false
+
+    const runAutoStart = async () => {
+      autoStartRequestKeyRef.current = autoStartRequest.key
+
+      if (autoStartRequest.type === "contact") {
+        if (cancelled) return
+        await handleStartConversation(autoStartRequest.contactId)
+        return
+      }
+
+      const existingConversation = conversations.find((conversation) => {
+        const conversationPhone = conversationWhatsappNumber(conversation)
+        return Boolean(conversationPhone) && conversationPhone === autoStartRequest.phone
+      })
+
+      if (existingConversation) {
+        if (cancelled) return
+        setSelectedConversationId(existingConversation.id)
+        await loadMessages(existingConversation.id)
+        return
+      }
+
+      if (cancelled) return
+      await handleStartConversationByPhone(autoStartRequest.phone, autoStartRequest.name)
+    }
+
+    void runAutoStart()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    autoStartRequest,
+    conversations,
+    handleStartConversation,
+    handleStartConversationByPhone,
+    loadMessages,
+    loadingConversations,
+  ])
 
   useEffect(() => {
     if (!contactDialogOpen) return

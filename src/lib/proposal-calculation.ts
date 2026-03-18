@@ -150,6 +150,16 @@ export type ProposalCalculation = {
     contract?: {
         manual_production_estimate?: string | null
     }
+    stakeholders?: {
+        owner?: {
+            name?: string | null
+            whatsapp?: string | null
+        } | null
+        billing?: {
+            name?: string | null
+            whatsapp?: string | null
+        } | null
+    }
     bundle?: {
         enabled: boolean
         secondary_proposal_ids: string[]

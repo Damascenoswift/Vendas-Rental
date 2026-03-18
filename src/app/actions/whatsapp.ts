@@ -314,6 +314,83 @@ function normalizeLikelyWhatsAppPhone(raw: string | null | undefined) {
   return digits
 }
 
+async function findOrCreateContactByWhatsapp(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  whatsapp: string
+  preferredName?: string | null
+}) {
+  const normalizedWhatsapp = normalizeLikelyWhatsAppPhone(params.whatsapp)
+  if (!normalizedWhatsapp) {
+    throw new WhatsAppActionError("Número de WhatsApp inválido para iniciar conversa.")
+  }
+
+  const preferredName = params.preferredName ? normalizeContactFullName(params.preferredName) : ""
+
+  const { data: existingContactData, error: existingContactError } = await params.supabaseAdmin
+    .from("contacts")
+    .select("id, full_name, whatsapp, whatsapp_normalized")
+    .or(`whatsapp_normalized.eq.${normalizedWhatsapp},whatsapp.eq.${normalizedWhatsapp}`)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (existingContactError) {
+    throw new WhatsAppActionError(existingContactError.message)
+  }
+
+  if (existingContactData) {
+    const existing = existingContactData as ContactSearchRow
+    const updates: Record<string, unknown> = {}
+
+    if (!existing.whatsapp) {
+      updates.whatsapp = normalizedWhatsapp
+    }
+
+    if (existing.whatsapp_normalized !== normalizedWhatsapp) {
+      updates.whatsapp_normalized = normalizedWhatsapp
+    }
+
+    if (preferredName && existing.full_name !== preferredName) {
+      updates.full_name = preferredName
+      updates.first_name = extractFirstName(preferredName)
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error: updateContactError } = await params.supabaseAdmin
+        .from("contacts")
+        .update(updates)
+        .eq("id", existing.id)
+
+      if (updateContactError) {
+        throw new WhatsAppActionError(updateContactError.message)
+      }
+    }
+
+    return existing.id
+  }
+
+  const contactName = preferredName || `Contato ${normalizedWhatsapp}`
+  const { data: insertedContactData, error: insertedContactError } = await params.supabaseAdmin
+    .from("contacts")
+    .insert({
+      source: "whatsapp_inbox",
+      full_name: contactName,
+      first_name: extractFirstName(contactName),
+      whatsapp: normalizedWhatsapp,
+      whatsapp_normalized: normalizedWhatsapp,
+    })
+    .select("id")
+    .single()
+
+  if (insertedContactError || !insertedContactData?.id) {
+    throw new WhatsAppActionError(
+      insertedContactError?.message || "Não foi possível criar contato para abrir conversa."
+    )
+  }
+
+  return insertedContactData.id as string
+}
+
 function ensureValidBrand(value: string): value is WhatsAppBrand {
   return (
     value === "rental" ||
@@ -1400,6 +1477,31 @@ export async function searchWhatsAppContacts(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao buscar contatos do WhatsApp.",
+    }
+  }
+}
+
+export async function startWhatsAppConversationFromPhone(
+  rawPhone: string,
+  rawName?: string | null
+): Promise<ActionResult<{ conversation_id: string }>> {
+  try {
+    await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    const contactId = await findOrCreateContactByWhatsapp({
+      supabaseAdmin,
+      whatsapp: rawPhone,
+      preferredName: rawName || null,
+    })
+
+    return startWhatsAppConversationFromContact(contactId)
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Falha ao iniciar conversa do WhatsApp a partir do número informado.",
     }
   }
 }

@@ -14,6 +14,7 @@ import { createTask, type TaskStatus } from "@/services/task-service"
 import { addBusinessDays } from "@/lib/business-days"
 import { hasWorksOnlyScope } from "@/lib/department-access"
 import { getManualContractProductionEstimate } from "@/lib/proposal-contract-estimate"
+import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
 import type { WorkCompletionFilter } from "@/lib/work-status-filter"
 
 export type WorkCardStatus = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
@@ -884,6 +885,29 @@ function buildTechnicalSnapshotFromProposal(input: {
 }) {
     const calculation = (input.proposal.calculation ?? null) as Record<string, any> | null
     const manualContractEstimate = getManualContractProductionEstimate(calculation)
+    const stakeholders = getProposalStakeholderContacts(calculation)
+    const stakeholderSnapshot =
+        stakeholders.owner.name ||
+            stakeholders.owner.whatsapp ||
+            stakeholders.billing.name ||
+            stakeholders.billing.whatsapp
+            ? {
+                owner:
+                    stakeholders.owner.name || stakeholders.owner.whatsapp
+                        ? {
+                            name: stakeholders.owner.name || null,
+                            whatsapp: stakeholders.owner.whatsapp || null,
+                        }
+                        : null,
+                billing:
+                    stakeholders.billing.name || stakeholders.billing.whatsapp
+                        ? {
+                            name: stakeholders.billing.name || null,
+                            whatsapp: stakeholders.billing.whatsapp || null,
+                        }
+                        : null,
+            }
+            : null
     const calculationInputDimensioning = getCalculationInputDimensioning(input.proposal.calculation ?? null)
     const technicalPowerKwp = getTechnicalPowerFromDimensioningInput(calculationInputDimensioning)
     const rawOutputDimensioning = calculation?.output?.dimensioning
@@ -928,6 +952,7 @@ function buildTechnicalSnapshotFromProposal(input: {
         contract: {
             manual_production_estimate: manualContractEstimate,
         },
+        stakeholders: stakeholderSnapshot,
         equipment: hasEquipment
             ? {
                 module: input.equipment?.module ?? null,
