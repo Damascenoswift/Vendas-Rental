@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react"
 import {
   AudioLines,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   FileImage,
   FileText,
+  Info,
   LayoutGrid,
   List,
   Lock,
@@ -266,6 +269,7 @@ export function WhatsAppInbox({
   const [loadingContacts, setLoadingContacts] = useState(false)
   const [startingConversation, setStartingConversation] = useState(false)
   const [conversationViewMode, setConversationViewMode] = useState<ConversationViewMode>("kanban")
+  const [conversationInfoOpen, setConversationInfoOpen] = useState(false)
   const [editContactDialogOpen, setEditContactDialogOpen] = useState(false)
   const [contactNameDraft, setContactNameDraft] = useState("")
   const [savingContactName, setSavingContactName] = useState(false)
@@ -518,6 +522,10 @@ export function WhatsAppInbox({
 
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId
+  }, [selectedConversationId])
+
+  useEffect(() => {
+    setConversationInfoOpen(false)
   }, [selectedConversationId])
 
   useEffect(() => {
@@ -1689,237 +1697,56 @@ export function WhatsAppInbox({
           >
             {selectedConversation ? (
             <>
-              <div className="border-b p-4 space-y-3">
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-lg font-semibold leading-tight">
-                        {conversationDisplayName(selectedConversation)}
+              <div className="border-b p-4 space-y-2.5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-lg font-semibold leading-tight">
+                      {conversationDisplayName(selectedConversation)}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        {conversationWhatsappNumber(selectedConversation)
+                          ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
+                          : "Sem número WhatsApp válido"}
                       </p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <p className="text-sm text-muted-foreground">
-                          {conversationWhatsappNumber(selectedConversation)
-                            ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
-                            : "Sem número WhatsApp válido"}
-                        </p>
-                        {selectedConversation.is_restricted ? (
-                          <Badge variant="destructive">
-                            <Lock className="mr-1 h-3 w-3" />
-                            Conversa restrita
-                          </Badge>
-                        ) : null}
-                      </div>
+                      {selectedConversation.is_restricted ? (
+                        <Badge variant="destructive">
+                          <Lock className="mr-1 h-3 w-3" />
+                          Conversa restrita
+                        </Badge>
+                      ) : null}
                     </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2 text-xs"
+                      onClick={() => setConversationInfoOpen((current) => !current)}
+                      disabled={actionLoading}
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                      Informações
+                      {conversationInfoOpen ? (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
 
                     {conversationViewMode === "kanban" ? (
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="shrink-0"
+                        className="h-8 shrink-0 px-2 text-xs"
                         onClick={() => setSelectedConversationId(null)}
                         disabled={actionLoading}
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-3.5 w-3.5" />
                         Fechar painel
                       </Button>
                     ) : null}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {selectedConversation.status === "CLOSED" ? (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled={actionLoading}
-                        onClick={() => {
-                          void handleCloseOrReopen()
-                        }}
-                      >
-                        Reabrir conversa
-                      </Button>
-                    ) : (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" disabled={actionLoading}>
-                            Fechar conversa
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Tem certeza que deseja fechar essa conversa?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Você poderá reabrir a conversa depois, se precisar.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => {
-                                void handleCloseOrReopen()
-                              }}
-                              disabled={actionLoading}
-                            >
-                              Fechar conversa
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive" size="sm" disabled={actionLoading}>
-                          Excluir
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Tem certeza que deseja excluir esta conversa?
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Esta ação remove permanentemente mensagens, eventos e vínculos da
-                            conversa. Não será possível desfazer.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => {
-                              void handleDeleteConversation()
-                            }}
-                            disabled={actionLoading}
-                          >
-                            Excluir conversa
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={actionLoading}
-                      onClick={() => {
-                        void handleAssign(
-                          selectedConversation.assigned_user_id === currentUserId ? null : currentUserId
-                        )
-                      }}
-                    >
-                      <UserRound className="h-4 w-4" />
-                      {selectedConversation.assigned_user_id === currentUserId ? "Liberar" : "Assumir"}
-                    </Button>
-
-                    {canManageConversationRestrictions ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={actionLoading || savingRestrictionSettings}
-                        onClick={() => {
-                          void handleOpenRestrictionDialog()
-                        }}
-                      >
-                        {selectedConversation.is_restricted ? (
-                          <Lock className="h-4 w-4" />
-                        ) : (
-                          <Unlock className="h-4 w-4" />
-                        )}
-                        {selectedConversation.is_restricted ? "Gerenciar restrição" : "Restringir"}
-                      </Button>
-                    ) : null}
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={actionLoading}
-                      onClick={() => {
-                        void handleOpenContactDetails()
-                      }}
-                    >
-                      <UserRound className="h-4 w-4" />
-                      {selectedConversation.contact_id ? "Ver contato" : "Vincular contato"}
-                    </Button>
-
-                    <Dialog
-                      open={editContactDialogOpen}
-                      onOpenChange={(open) => {
-                        setEditContactDialogOpen(open)
-                        if (open && selectedConversation) {
-                          setContactNameDraft(conversationDisplayName(selectedConversation))
-                        }
-                      }}
-                    >
-                      <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" disabled={actionLoading || savingContactName}>
-                          <PencilLine className="h-4 w-4" />
-                          Editar contato
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                          <DialogTitle>Editar contato</DialogTitle>
-                          <DialogDescription>
-                            Atualize o nome exibido nesta conversa e salve no cadastro de contatos.
-                          </DialogDescription>
-                        </DialogHeader>
-
-                        <Input
-                          value={contactNameDraft}
-                          onChange={(event) => setContactNameDraft(event.target.value)}
-                          placeholder="Nome do contato"
-                          disabled={savingContactName}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault()
-                              void handleSaveContactName()
-                            }
-                          }}
-                        />
-
-                        <DialogFooter>
-                          <Button
-                            variant="outline"
-                            onClick={() => setEditContactDialogOpen(false)}
-                            disabled={savingContactName}
-                          >
-                            Cancelar
-                          </Button>
-                          <Button
-                            onClick={() => {
-                              void handleSaveContactName()
-                            }}
-                            disabled={savingContactName}
-                          >
-                            {savingContactName ? "Salvando..." : "Salvar contato"}
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 rounded-md border bg-slate-50 p-3 text-xs text-muted-foreground md:grid-cols-3">
-                  <div className="space-y-0.5">
-                    <p className="font-medium text-foreground">Número da conversa</p>
-                    <p>
-                      {conversationWhatsappNumber(selectedConversation)
-                        ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
-                        : "Sem número WhatsApp válido"}
-                    </p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="font-medium text-foreground">Contato vinculado</p>
-                    <p>{selectedConversation.contact_name || "Sem contato vinculado"}</p>
-                  </div>
-                  <div className="space-y-0.5">
-                    <p className="font-medium text-foreground">WhatsApp no contato</p>
-                    <p>
-                      {normalizeLikelyWhatsAppPhone(selectedConversation.contact_whatsapp)
-                        ? formatWhatsAppNumber(selectedConversation.contact_whatsapp)
-                        : "Sem WhatsApp no contato"}
-                    </p>
                   </div>
                 </div>
 
@@ -1977,6 +1804,232 @@ export function WhatsAppInbox({
                     <span>Janela até: {formatDateTime(selectedConversation.window_expires_at)}</span>
                   </div>
                 </div>
+
+                {conversationInfoOpen ? (
+                  <div className="space-y-2 rounded-md border bg-slate-50/80 p-2.5">
+                    <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-3">
+                      <div className="space-y-0.5">
+                        <p className="font-medium text-foreground">Número da conversa</p>
+                        <p>
+                          {conversationWhatsappNumber(selectedConversation)
+                            ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
+                            : "Sem número WhatsApp válido"}
+                        </p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="font-medium text-foreground">Contato vinculado</p>
+                        <p>{selectedConversation.contact_name || "Sem contato vinculado"}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <p className="font-medium text-foreground">WhatsApp no contato</p>
+                        <p>
+                          {normalizeLikelyWhatsAppPhone(selectedConversation.contact_whatsapp)
+                            ? formatWhatsAppNumber(selectedConversation.contact_whatsapp)
+                            : "Sem WhatsApp no contato"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {selectedConversation.status === "CLOSED" ? (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          disabled={actionLoading}
+                          onClick={() => {
+                            void handleCloseOrReopen()
+                          }}
+                        >
+                          Reabrir conversa
+                        </Button>
+                      ) : (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2 text-xs"
+                              disabled={actionLoading}
+                            >
+                              Fechar conversa
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Tem certeza que deseja fechar essa conversa?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Você poderá reabrir a conversa depois, se precisar.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => {
+                                  void handleCloseOrReopen()
+                                }}
+                                disabled={actionLoading}
+                              >
+                                Fechar conversa
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            disabled={actionLoading}
+                          >
+                            Excluir
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Tem certeza que deseja excluir esta conversa?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Esta ação remove permanentemente mensagens, eventos e vínculos da
+                              conversa. Não será possível desfazer.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => {
+                                void handleDeleteConversation()
+                              }}
+                              disabled={actionLoading}
+                            >
+                              Excluir conversa
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        disabled={actionLoading}
+                        onClick={() => {
+                          void handleAssign(
+                            selectedConversation.assigned_user_id === currentUserId
+                              ? null
+                              : currentUserId
+                          )
+                        }}
+                      >
+                        <UserRound className="h-3.5 w-3.5" />
+                        {selectedConversation.assigned_user_id === currentUserId
+                          ? "Liberar"
+                          : "Assumir"}
+                      </Button>
+
+                      {canManageConversationRestrictions ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2 text-xs"
+                          disabled={actionLoading || savingRestrictionSettings}
+                          onClick={() => {
+                            void handleOpenRestrictionDialog()
+                          }}
+                        >
+                          {selectedConversation.is_restricted ? (
+                            <Lock className="h-3.5 w-3.5" />
+                          ) : (
+                            <Unlock className="h-3.5 w-3.5" />
+                          )}
+                          {selectedConversation.is_restricted
+                            ? "Gerenciar restrição"
+                            : "Restringir"}
+                        </Button>
+                      ) : null}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        disabled={actionLoading}
+                        onClick={() => {
+                          void handleOpenContactDetails()
+                        }}
+                      >
+                        <UserRound className="h-3.5 w-3.5" />
+                        {selectedConversation.contact_id ? "Ver contato" : "Vincular contato"}
+                      </Button>
+
+                      <Dialog
+                        open={editContactDialogOpen}
+                        onOpenChange={(open) => {
+                          setEditContactDialogOpen(open)
+                          if (open && selectedConversation) {
+                            setContactNameDraft(conversationDisplayName(selectedConversation))
+                          }
+                        }}
+                      >
+                        <DialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            disabled={actionLoading || savingContactName}
+                          >
+                            <PencilLine className="h-3.5 w-3.5" />
+                            Editar contato
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-md">
+                          <DialogHeader>
+                            <DialogTitle>Editar contato</DialogTitle>
+                            <DialogDescription>
+                              Atualize o nome exibido nesta conversa e salve no cadastro de contatos.
+                            </DialogDescription>
+                          </DialogHeader>
+
+                          <Input
+                            value={contactNameDraft}
+                            onChange={(event) => setContactNameDraft(event.target.value)}
+                            placeholder="Nome do contato"
+                            disabled={savingContactName}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault()
+                                void handleSaveContactName()
+                              }
+                            }}
+                          />
+
+                          <DialogFooter>
+                            <Button
+                              variant="outline"
+                              onClick={() => setEditContactDialogOpen(false)}
+                              disabled={savingContactName}
+                            >
+                              Cancelar
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                void handleSaveContactName()
+                              }}
+                              disabled={savingContactName}
+                            >
+                              {savingContactName ? "Salvando..." : "Salvar contato"}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {canManageConversationRestrictions ? (
