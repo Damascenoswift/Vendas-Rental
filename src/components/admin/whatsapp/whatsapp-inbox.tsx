@@ -170,8 +170,16 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
-function formatWhatsAppNumber(value: string | null | undefined) {
+function normalizeLikelyWhatsAppPhone(value: string | null | undefined) {
   const digits = (value || "").replace(/\D/g, "")
+  if (!digits) return ""
+  if (digits.length < 10 || digits.length > 13) return ""
+  if (digits.startsWith("0")) return ""
+  return digits
+}
+
+function formatWhatsAppNumber(value: string | null | undefined) {
+  const digits = normalizeLikelyWhatsAppPhone(value)
   if (!digits) return "-"
   if (digits.length <= 4) return digits
   if (digits.length <= 10) return `+${digits}`
@@ -210,12 +218,20 @@ function isAudioPlaceholderText(value: string | null | undefined) {
   return text === "[audio recebido no whatsapp]" || text === "[audio enviado no whatsapp]"
 }
 
+function conversationWhatsappNumber(conversation: WhatsAppConversationListItem) {
+  return (
+    normalizeLikelyWhatsAppPhone(conversation.contact_whatsapp) ||
+    normalizeLikelyWhatsAppPhone(conversation.customer_wa_id)
+  )
+}
+
 function conversationDisplayName(conversation: WhatsAppConversationListItem) {
+  const whatsappNumber = conversationWhatsappNumber(conversation)
+
   return (
     conversation.contact_name ||
     conversation.customer_name ||
-    conversation.contact_whatsapp ||
-    conversation.customer_wa_id
+    (whatsappNumber ? formatWhatsAppNumber(whatsappNumber) : "Contato sem WhatsApp válido")
   )
 }
 
@@ -1313,9 +1329,9 @@ export function WhatsAppInbox({
       <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
         <div className="rounded-md border bg-white">
           <div className="border-b p-3 space-y-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">Conversas</h2>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <Dialog
                   open={contactDialogOpen}
                   onOpenChange={(open) => {
@@ -1408,7 +1424,7 @@ export function WhatsAppInbox({
                   disabled={syncingConversationContacts || actionLoading}
                 >
                   <UserRound className="h-4 w-4" />
-                  {syncingConversationContacts ? "Vinculando..." : "Vincular contatos"}
+                  {syncingConversationContacts ? "Vinculando..." : "Vincular"}
                 </Button>
               </div>
             </div>
@@ -1522,7 +1538,11 @@ export function WhatsAppInbox({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="font-medium truncate">{conversationDisplayName(conversation)}</p>
-                          <p className="text-xs text-muted-foreground truncate">{conversation.customer_wa_id}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {conversationWhatsappNumber(conversation)
+                              ? formatWhatsAppNumber(conversationWhatsappNumber(conversation))
+                              : "Sem número WhatsApp válido"}
+                          </p>
                         </div>
                         {conversation.unread_count > 0 ? (
                           <Badge variant="default">{conversation.unread_count}</Badge>
@@ -1618,7 +1638,9 @@ export function WhatsAppInbox({
                                     ) : null}
                                   </div>
                                   <p className="truncate text-xs text-muted-foreground">
-                                    {conversation.customer_wa_id}
+                                    {conversationWhatsappNumber(conversation)
+                                      ? formatWhatsAppNumber(conversationWhatsappNumber(conversation))
+                                      : "Sem número WhatsApp válido"}
                                   </p>
                                   <div className="mt-2 flex flex-wrap items-center gap-1">
                                     <Badge variant={conversation.brand ? "secondary" : "outline"}>
@@ -1672,7 +1694,11 @@ export function WhatsAppInbox({
                   <div>
                     <p className="text-lg font-semibold">{conversationDisplayName(selectedConversation)}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <p className="text-sm text-muted-foreground">{selectedConversation.customer_wa_id}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {conversationWhatsappNumber(selectedConversation)
+                          ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
+                          : "Sem número WhatsApp válido"}
+                      </p>
                       {selectedConversation.is_restricted ? (
                         <Badge variant="destructive">
                           <Lock className="mr-1 h-3 w-3" />
@@ -1837,44 +1863,46 @@ export function WhatsAppInbox({
                       </AlertDialog>
                     )}
 
-                    {canManageConversationRestrictions ? (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" disabled={actionLoading}>
-                            Excluir
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Tem certeza que deseja excluir esta conversa?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Esta ação remove permanentemente mensagens, eventos e vínculos da
-                              conversa. Não será possível desfazer.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => {
-                                void handleDeleteConversation()
-                              }}
-                              disabled={actionLoading}
-                            >
-                              Excluir conversa
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    ) : null}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="sm" disabled={actionLoading}>
+                          Excluir
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Tem certeza que deseja excluir esta conversa?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Esta ação remove permanentemente mensagens, eventos e vínculos da
+                            conversa. Não será possível desfazer.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => {
+                              void handleDeleteConversation()
+                            }}
+                            disabled={actionLoading}
+                          >
+                            Excluir conversa
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </div>
 
                 <div className="grid gap-2 rounded-md border bg-slate-50 p-3 text-xs text-muted-foreground md:grid-cols-3">
                   <div className="space-y-0.5">
                     <p className="font-medium text-foreground">Número da conversa</p>
-                    <p>{formatWhatsAppNumber(selectedConversation.customer_wa_id)}</p>
+                    <p>
+                      {conversationWhatsappNumber(selectedConversation)
+                        ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
+                        : "Sem número WhatsApp válido"}
+                    </p>
                   </div>
                   <div className="space-y-0.5">
                     <p className="font-medium text-foreground">Contato vinculado</p>
@@ -1882,7 +1910,11 @@ export function WhatsAppInbox({
                   </div>
                   <div className="space-y-0.5">
                     <p className="font-medium text-foreground">WhatsApp no contato</p>
-                    <p>{formatWhatsAppNumber(selectedConversation.contact_whatsapp)}</p>
+                    <p>
+                      {normalizeLikelyWhatsAppPhone(selectedConversation.contact_whatsapp)
+                        ? formatWhatsAppNumber(selectedConversation.contact_whatsapp)
+                        : "Sem WhatsApp no contato"}
+                    </p>
                   </div>
                 </div>
 

@@ -146,7 +146,9 @@ function normalizeZApiIdentifierCandidate(value: unknown, source: ZApiIdentifier
 
   const normalized = normalizeWhatsAppIdentifier(candidate)
   if (!normalized) return ""
-  if (normalized.length < 10 || normalized.length > 15) return ""
+  // Inbox usa números WhatsApp (telefone), então ignoramos identificadores longos de sessão.
+  if (normalized.length < 10 || normalized.length > 13) return ""
+  if (normalized.startsWith("0")) return ""
 
   return normalized
 }

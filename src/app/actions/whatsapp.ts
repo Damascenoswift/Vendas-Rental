@@ -306,6 +306,14 @@ function extractFirstName(fullName: string) {
   return firstName || fullName
 }
 
+function normalizeLikelyWhatsAppPhone(raw: string | null | undefined) {
+  const digits = normalizeWhatsAppIdentifier(raw)
+  if (!digits) return ""
+  if (digits.length < 10 || digits.length > 13) return ""
+  if (digits.startsWith("0")) return ""
+  return digits
+}
+
 function ensureValidBrand(value: string): value is WhatsAppBrand {
   return (
     value === "rental" ||
@@ -719,8 +727,8 @@ async function ensureConversationContactLink(params: {
   preferredName?: string | null
 }) {
   const { supabaseAdmin, conversation } = params
-  const normalizedCustomerWa = normalizeWhatsAppIdentifier(conversation.customer_wa_id)
-  const fallbackWhatsapp = normalizedCustomerWa || conversation.customer_wa_id.trim() || null
+  const normalizedCustomerWa = normalizeLikelyWhatsAppPhone(conversation.customer_wa_id)
+  const fallbackWhatsapp = normalizedCustomerWa || null
   const preferredName = params.preferredName ? normalizeContactFullName(params.preferredName) : null
 
   let contactRow: {
@@ -763,7 +771,7 @@ async function ensureConversationContactLink(params: {
     preferredName ||
     contactRow?.full_name?.trim() ||
     conversation.customer_name?.trim() ||
-    `Contato ${fallbackWhatsapp || "WhatsApp"}`
+    (fallbackWhatsapp ? `Contato ${fallbackWhatsapp}` : "Contato sem WhatsApp válido")
 
   if (contactRow) {
     const updates: Record<string, unknown> = {}
@@ -792,19 +800,20 @@ async function ensureConversationContactLink(params: {
       }
     }
   } else {
+    if (!normalizedCustomerWa) {
+      throw new WhatsAppActionError(
+        "Conversa sem número de WhatsApp válido para vincular contato."
+      )
+    }
+
     const contactPayload: Record<string, unknown> = {
       source: "whatsapp_inbox",
       full_name: nextContactName,
       first_name: extractFirstName(nextContactName),
     }
 
-    if (fallbackWhatsapp) {
-      contactPayload.whatsapp = fallbackWhatsapp
-    }
-
-    if (normalizedCustomerWa) {
-      contactPayload.whatsapp_normalized = normalizedCustomerWa
-    }
+    contactPayload.whatsapp = fallbackWhatsapp
+    contactPayload.whatsapp_normalized = normalizedCustomerWa
 
     const { data: insertedContactData, error: insertContactError } = await supabaseAdmin
       .from("contacts")
@@ -1936,12 +1945,6 @@ export async function deleteWhatsAppConversation(
 ): Promise<ActionResult<{ id: string }>> {
   try {
     const accessContext = await requireWhatsAppAccess()
-
-    if (!accessContext.isRestrictionAdmin) {
-      throw new WhatsAppActionError(
-        "Somente adm_mestre e adm_dorata podem excluir conversas do WhatsApp."
-      )
-    }
 
     const supabaseAdmin = createSupabaseServiceClient()
     await fetchConversationById(conversationId, accessContext)
