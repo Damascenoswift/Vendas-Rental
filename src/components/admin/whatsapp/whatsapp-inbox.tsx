@@ -1326,17 +1326,17 @@ export function WhatsAppInbox({
   }, [selectedConversation])
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <div className="flex shrink-0 flex-col gap-2">
         <h1 className="text-3xl font-bold">Inbox WhatsApp</h1>
         <p className="text-muted-foreground">
           Atendimento 1:1 via provedor configurado (Meta Cloud API ou Z-API).
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="rounded-md border bg-white">
-          <div className="border-b p-3 space-y-3">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+        <div className="flex h-full min-h-0 flex-col rounded-md border bg-white">
+          <div className="space-y-3 border-b p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">Conversas</h2>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1527,7 +1527,7 @@ export function WhatsAppInbox({
             </div>
           </div>
 
-          <ScrollArea className="h-[64vh]">
+          <ScrollArea className="min-h-0 flex-1">
             {conversationViewMode === "list" ? (
               <div className="divide-y">
                 {conversations.map((conversation) => {
@@ -1598,31 +1598,31 @@ export function WhatsAppInbox({
         </div>
 
         <div
-          className={`rounded-md border min-h-[70vh] ${
+          className={`h-full min-h-0 rounded-md border ${
             conversationViewMode === "kanban"
               ? "relative overflow-hidden bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100"
-              : "bg-white flex flex-col"
+              : "flex min-h-0 flex-col bg-white"
           }`}
         >
           {conversationViewMode === "kanban" ? (
             <ScrollArea
               scrollbarOrientation="both"
-              className="h-[70vh] w-full [&_[data-radix-scroll-area-viewport]]:overflow-x-auto [&_[data-radix-scroll-area-viewport]]:overflow-y-hidden [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-x] [&_[data-radix-scroll-area-viewport]]:[-webkit-overflow-scrolling:touch]"
+              className="h-full w-full [&_[data-radix-scroll-area-viewport]]:overflow-x-auto [&_[data-radix-scroll-area-viewport]]:overflow-y-hidden [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-x] [&_[data-radix-scroll-area-viewport]]:[-webkit-overflow-scrolling:touch]"
             >
-              <div className="min-w-[1700px] p-4">
-                <div className="grid grid-cols-5 gap-4">
+              <div className="h-full min-w-[1700px] p-4">
+                <div className="grid h-full grid-cols-5 gap-4">
                   {KANBAN_BRAND_COLUMNS.map((columnKey) => {
                     const columnConversations = conversationsByKanbanColumn[columnKey]
                     return (
                       <div
                         key={columnKey}
-                        className="rounded-xl border bg-white/85 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75"
+                        className="flex h-full min-h-0 flex-col rounded-xl border bg-white/85 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75"
                       >
                         <div className="flex items-center justify-between border-b px-3 py-2">
                           <p className="text-sm font-semibold">{KANBAN_COLUMN_LABELS[columnKey]}</p>
                           <Badge variant="secondary">{columnConversations.length}</Badge>
                         </div>
-                        <ScrollArea className="h-[calc(70vh-168px)] px-2 pb-2 [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-y]">
+                        <ScrollArea className="min-h-0 flex-1 px-2 pb-2 [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-y]">
                           <div className="space-y-2 pt-2">
                             {columnConversations.map((conversation) => {
                               const isSelected = conversation.id === selectedConversationId
@@ -1690,9 +1690,9 @@ export function WhatsAppInbox({
             className={
               conversationViewMode === "kanban"
                 ? `absolute inset-y-3 right-3 z-20 w-[min(780px,calc(100%-1.5rem))] rounded-xl border bg-white shadow-2xl overflow-hidden ${
-                    selectedConversation ? "flex flex-col" : "hidden"
+                    selectedConversation ? "flex min-h-0 flex-col" : "hidden"
                   }`
-                : "flex h-full flex-col"
+                : "flex h-full min-h-0 flex-col"
             }
           >
             {selectedConversation ? (
@@ -2110,7 +2110,7 @@ export function WhatsAppInbox({
 
               <ScrollArea
                 ref={messagesScrollAreaRef}
-                className="flex-1 p-4 bg-slate-50/40 [&_[data-radix-scroll-area-viewport]]:scroll-smooth"
+                className="min-h-0 flex-1 bg-slate-50/40 p-4 [&_[data-radix-scroll-area-viewport]]:scroll-smooth"
               >
                 <div className="space-y-3">
                   {hasMoreMessages ? (
@@ -2225,7 +2225,7 @@ export function WhatsAppInbox({
                 </div>
               </ScrollArea>
 
-              <div className="border-t p-4 space-y-2">
+              <div className="shrink-0 space-y-2 border-t p-4">
                 {!canSend.allowed ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                     {canSend.reason}
