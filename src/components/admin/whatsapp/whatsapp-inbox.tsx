@@ -1690,34 +1690,143 @@ export function WhatsAppInbox({
             {selectedConversation ? (
             <>
               <div className="border-b p-4 space-y-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-lg font-semibold">{conversationDisplayName(selectedConversation)}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <p className="text-sm text-muted-foreground">
-                        {conversationWhatsappNumber(selectedConversation)
-                          ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
-                          : "Sem número WhatsApp válido"}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-lg font-semibold leading-tight">
+                        {conversationDisplayName(selectedConversation)}
                       </p>
-                      {selectedConversation.is_restricted ? (
-                        <Badge variant="destructive">
-                          <Lock className="mr-1 h-3 w-3" />
-                          Conversa restrita
-                        </Badge>
-                      ) : null}
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <p className="text-sm text-muted-foreground">
+                          {conversationWhatsappNumber(selectedConversation)
+                            ? formatWhatsAppNumber(conversationWhatsappNumber(selectedConversation))
+                            : "Sem número WhatsApp válido"}
+                        </p>
+                        {selectedConversation.is_restricted ? (
+                          <Badge variant="destructive">
+                            <Lock className="mr-1 h-3 w-3" />
+                            Conversa restrita
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2">
                     {conversationViewMode === "kanban" ? (
                       <Button
                         variant="ghost"
                         size="sm"
+                        className="shrink-0"
                         onClick={() => setSelectedConversationId(null)}
                         disabled={actionLoading}
                       >
                         <X className="h-4 w-4" />
                         Fechar painel
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedConversation.status === "CLOSED" ? (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={actionLoading}
+                        onClick={() => {
+                          void handleCloseOrReopen()
+                        }}
+                      >
+                        Reabrir conversa
+                      </Button>
+                    ) : (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" disabled={actionLoading}>
+                            Fechar conversa
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Tem certeza que deseja fechar essa conversa?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Você poderá reabrir a conversa depois, se precisar.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => {
+                                void handleCloseOrReopen()
+                              }}
+                              disabled={actionLoading}
+                            >
+                              Fechar conversa
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="destructive" size="sm" disabled={actionLoading}>
+                          Excluir
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Tem certeza que deseja excluir esta conversa?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Esta ação remove permanentemente mensagens, eventos e vínculos da
+                            conversa. Não será possível desfazer.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => {
+                              void handleDeleteConversation()
+                            }}
+                            disabled={actionLoading}
+                          >
+                            Excluir conversa
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={actionLoading}
+                      onClick={() => {
+                        void handleAssign(
+                          selectedConversation.assigned_user_id === currentUserId ? null : currentUserId
+                        )
+                      }}
+                    >
+                      <UserRound className="h-4 w-4" />
+                      {selectedConversation.assigned_user_id === currentUserId ? "Liberar" : "Assumir"}
+                    </Button>
+
+                    {canManageConversationRestrictions ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={actionLoading || savingRestrictionSettings}
+                        onClick={() => {
+                          void handleOpenRestrictionDialog()
+                        }}
+                      >
+                        {selectedConversation.is_restricted ? (
+                          <Lock className="h-4 w-4" />
+                        ) : (
+                          <Unlock className="h-4 w-4" />
+                        )}
+                        {selectedConversation.is_restricted ? "Gerenciar restrição" : "Restringir"}
                       </Button>
                     ) : null}
 
@@ -1788,110 +1897,6 @@ export function WhatsAppInbox({
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
-
-                    {canManageConversationRestrictions ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={actionLoading || savingRestrictionSettings}
-                        onClick={() => {
-                          void handleOpenRestrictionDialog()
-                        }}
-                      >
-                        {selectedConversation.is_restricted ? (
-                          <Lock className="h-4 w-4" />
-                        ) : (
-                          <Unlock className="h-4 w-4" />
-                        )}
-                        {selectedConversation.is_restricted ? "Gerenciar restrição" : "Restringir"}
-                      </Button>
-                    ) : null}
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={actionLoading}
-                      onClick={() => {
-                        void handleAssign(
-                          selectedConversation.assigned_user_id === currentUserId ? null : currentUserId
-                        )
-                      }}
-                    >
-                      <UserRound className="h-4 w-4" />
-                      {selectedConversation.assigned_user_id === currentUserId ? "Liberar" : "Assumir"}
-                    </Button>
-
-                    {selectedConversation.status === "CLOSED" ? (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        disabled={actionLoading}
-                        onClick={() => {
-                          void handleCloseOrReopen()
-                        }}
-                      >
-                        Reabrir
-                      </Button>
-                    ) : (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" disabled={actionLoading}>
-                            Fechar
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>
-                              Tem certeza que deseja fechar essa conversa?
-                            </AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Você poderá reabrir a conversa depois, se precisar.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => {
-                                void handleCloseOrReopen()
-                              }}
-                              disabled={actionLoading}
-                            >
-                              Fechar conversa
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="destructive" size="sm" disabled={actionLoading}>
-                          Excluir
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Tem certeza que deseja excluir esta conversa?
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Esta ação remove permanentemente mensagens, eventos e vínculos da
-                            conversa. Não será possível desfazer.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => {
-                              void handleDeleteConversation()
-                            }}
-                            disabled={actionLoading}
-                          >
-                            Excluir conversa
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
                   </div>
                 </div>
 
