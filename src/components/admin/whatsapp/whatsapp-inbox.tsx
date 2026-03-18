@@ -1610,7 +1610,7 @@ export function WhatsAppInbox({
               className="h-full w-full [&_[data-radix-scroll-area-viewport]]:overflow-x-auto [&_[data-radix-scroll-area-viewport]]:overflow-y-hidden [&_[data-radix-scroll-area-viewport]]:scroll-smooth [&_[data-radix-scroll-area-viewport]]:[touch-action:pan-x] [&_[data-radix-scroll-area-viewport]]:[-webkit-overflow-scrolling:touch]"
             >
               <div className="h-full min-w-[1700px] p-4">
-                <div className="grid h-full grid-cols-5 gap-4">
+                <div className="grid h-full grid-cols-5 grid-rows-[minmax(0,1fr)] gap-4">
                   {KANBAN_BRAND_COLUMNS.map((columnKey) => {
                     const columnConversations = conversationsByKanbanColumn[columnKey]
                     return (
