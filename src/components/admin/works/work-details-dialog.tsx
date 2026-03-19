@@ -71,12 +71,7 @@ import {
 import { getProductRealtimeInfo, type ProductRealtimeInfo } from "@/services/product-service"
 import { formatManualContractProductionEstimateInput } from "@/lib/proposal-contract-estimate"
 import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
-
-function statusLabel(status: WorkCard["status"]) {
-    if (status === "FECHADA") return "Obra Concluída"
-    if (status === "PARA_INICIAR") return "Obra Para Iniciar"
-    return "Obra em Andamento"
-}
+import { resolveWorkCardStatusLabel, type WorkCardCompletionMode } from "@/lib/work-card-status"
 
 function processStatusLabel(status: WorkProcessStatus) {
     if (status === "TODO") return "A Fazer"
@@ -1008,16 +1003,20 @@ export function WorkDetailsDialog({
         }
     }
 
-    async function handleUpdateWorkStatus(status?: WorkCard["status"]) {
+    async function handleUpdateWorkStatus(
+        status?: WorkCard["status"],
+        completionMode?: WorkCardCompletionMode
+    ) {
         if (!workId || !work) return
         const nextStatus = status ?? statusDraft
-        if (nextStatus === work.status) return
+        if (nextStatus === work.status && !completionMode) return
 
         setIsSaving(true)
         try {
             const result = await setWorkCardStatus({
                 workId,
                 status: nextStatus,
+                completionMode,
             })
 
             if (result.error) {
@@ -1487,7 +1486,14 @@ export function WorkDetailsDialog({
                 <DialogHeader>
                     <DialogTitle className="flex flex-wrap items-center gap-2">
                         <span>{work?.title || "Obra"}</span>
-                        {work ? <Badge variant="outline">{statusLabel(work.status)}</Badge> : null}
+                        {work ? (
+                            <Badge variant="outline">
+                                {resolveWorkCardStatusLabel({
+                                    status: work.status,
+                                    completedAt: work.completed_at,
+                                })}
+                            </Badge>
+                        ) : null}
                     </DialogTitle>
                     <DialogDescription>
                         {work?.codigo_instalacao
@@ -1517,7 +1523,7 @@ export function WorkDetailsDialog({
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="FECHADA">Obra Concluída</SelectItem>
+                                        <SelectItem value="FECHADA">Obra Fechada</SelectItem>
                                         <SelectItem value="PARA_INICIAR">Obra Para Iniciar</SelectItem>
                                         <SelectItem value="EM_ANDAMENTO">Obra em Andamento</SelectItem>
                                     </SelectContent>
@@ -1531,14 +1537,14 @@ export function WorkDetailsDialog({
                                     Salvar status
                                 </Button>
                             </div>
-                            {work.status !== "FECHADA" ? (
+                            {work.status !== "FECHADA" || Boolean(work.completed_at) ? (
                                 <Button
                                     variant="secondary"
                                     size="sm"
-                                    onClick={() => handleUpdateWorkStatus("FECHADA")}
+                                    onClick={() => handleUpdateWorkStatus("FECHADA", "open")}
                                     disabled={isSaving}
                                 >
-                                    Voltar para Obras Concluídas
+                                    Voltar para Obras Fechadas
                                 </Button>
                             ) : null}
                             <Button

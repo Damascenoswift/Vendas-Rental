@@ -15,9 +15,15 @@ import { addBusinessDays } from "@/lib/business-days"
 import { hasWorksOnlyScope } from "@/lib/department-access"
 import { getManualContractProductionEstimate } from "@/lib/proposal-contract-estimate"
 import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
+import {
+    resolveWorkCardCompletedAt,
+    shouldUpdateWorkCardStatus,
+    type WorkCardCompletionMode,
+    type WorkCardStatus as SharedWorkCardStatus,
+} from "@/lib/work-card-status"
 import type { WorkCompletionFilter } from "@/lib/work-status-filter"
 
-export type WorkCardStatus = "FECHADA" | "PARA_INICIAR" | "EM_ANDAMENTO"
+export type WorkCardStatus = SharedWorkCardStatus
 export type WorkPhase = "PROJETO" | "EXECUCAO"
 export type WorkImageType = "CAPA" | "PERFIL" | "ANTES" | "DEPOIS"
 export type WorkCommentType = "GERAL" | "ENERGISA_RESPOSTA"
@@ -2297,6 +2303,7 @@ export async function toggleWorkTasksIntegration(workId: string, enabled: boolea
 export async function setWorkCardStatus(input: {
     workId: string
     status: WorkCardStatus
+    completionMode?: WorkCardCompletionMode
 }) {
     const { user, role } = await ensureUserCanAccessWorkModule()
     if (!user || !role) return { error: "Sem permissão." }
@@ -2309,7 +2316,7 @@ export async function setWorkCardStatus(input: {
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: card, error: cardError } = await supabaseAdmin
         .from("obra_cards" as any)
-        .select("id, status, tasks_integration_enabled, projeto_liberado_at, projeto_liberado_by")
+        .select("id, status, completed_at, tasks_integration_enabled, projeto_liberado_at, projeto_liberado_by")
         .eq("id", input.workId)
         .maybeSingle()
 
@@ -2317,14 +2324,31 @@ export async function setWorkCardStatus(input: {
         return { error: cardError?.message ?? "Obra não encontrada." }
     }
 
-    if ((card.status as WorkCardStatus) === nextStatus) {
+    const now = new Date().toISOString()
+    const currentStatus = card.status as WorkCardStatus
+    const nextCompletedAt = resolveWorkCardCompletedAt({
+        currentStatus,
+        currentCompletedAt: (card.completed_at as string | null) ?? null,
+        nextStatus,
+        completionMode: input.completionMode,
+        nowIso: now,
+    })
+
+    if (!shouldUpdateWorkCardStatus({
+        current: {
+            status: currentStatus,
+            completedAt: (card.completed_at as string | null) ?? null,
+        },
+        nextStatus,
+        nextCompletedAt,
+    })) {
         return { success: true }
     }
 
-    const now = new Date().toISOString()
+    const statusChanged = currentStatus !== nextStatus
     const updatePayload: Record<string, unknown> = {
         status: nextStatus,
-        completed_at: nextStatus === "FECHADA" ? now : null,
+        completed_at: nextCompletedAt,
     }
 
     if (nextStatus === "PARA_INICIAR" || nextStatus === "EM_ANDAMENTO") {
@@ -2341,11 +2365,11 @@ export async function setWorkCardStatus(input: {
         return { error: normalizeWorkCardsError(updateError.message) }
     }
 
-    if (nextStatus !== "FECHADA") {
+    if (statusChanged && nextStatus !== "FECHADA") {
         await ensureExecutionTemplate(input.workId)
     }
 
-    if (card.tasks_integration_enabled) {
+    if (card.tasks_integration_enabled && statusChanged) {
         await syncWorkTasksByCardStatus({
             obraId: input.workId,
             status: nextStatus,

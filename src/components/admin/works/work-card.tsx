@@ -6,9 +6,9 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import type { WorkCard } from "@/services/work-cards-service"
 import { differenceInBusinessDays } from "@/lib/business-days"
 
-function getStatusLabel(status: WorkCard["status"]) {
-    if (status === "FECHADA") return "Concluída"
-    if (status === "PARA_INICIAR") return "Para Iniciar"
+function getStatusLabel(item: Pick<WorkCard, "status" | "completed_at">) {
+    if (item.status === "FECHADA") return item.completed_at ? "Concluída" : "Fechada"
+    if (item.status === "PARA_INICIAR") return "Para Iniciar"
     return "Em Andamento"
 }
 
@@ -118,7 +118,7 @@ export function WorkCardItem({
 
             <CardHeader className="space-y-2 p-3 pb-0">
                 <div className="flex items-center justify-between gap-2">
-                    <Badge variant="outline">{getStatusLabel(item.status)}</Badge>
+                    <Badge variant="outline">{getStatusLabel(item)}</Badge>
                     <Badge variant="secondary" className="uppercase">{item.brand}</Badge>
                 </div>
 
