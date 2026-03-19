@@ -35,6 +35,7 @@ import {
   searchWhatsAppContacts,
   reopenWhatsAppConversation,
   sendWhatsAppMediaMessage,
+  sendWhatsAppReactivationTemplate,
   startWhatsAppConversationFromPhone,
   sendWhatsAppTextMessage,
   setWhatsAppConversationRestriction,
@@ -113,6 +114,13 @@ type PendingOutgoingMedia = {
   storagePath: string
   fileName: string
 }
+
+type SendAvailabilityCode =
+  | "no_conversation"
+  | "missing_brand"
+  | "closed"
+  | "window_closed"
+  | "ready"
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
   all: "Todos",
@@ -1390,6 +1398,44 @@ export function WhatsAppInbox({
     withAction,
   ])
 
+  const handleSendReactivationTemplate = useCallback(async () => {
+    if (!selectedConversation) return
+
+    await withAction(async () => {
+      const result = await sendWhatsAppReactivationTemplate(selectedConversation.id)
+
+      if (!result.success) {
+        showToast({
+          variant: "error",
+          title: "Falha ao enviar template",
+          description: result.error || "Não foi possível enviar o template de reativação.",
+        })
+        return
+      }
+
+      await loadConversations({ preserveSelection: true })
+      await loadMessages(selectedConversation.id)
+      window.requestAnimationFrame(() => {
+        scrollMessagesToBottom("smooth")
+        ensureConversationPanelInView()
+      })
+
+      showToast({
+        variant: "success",
+        title: "Template enviado",
+        description: "Template de reativação enviado com sucesso.",
+      })
+    })
+  }, [
+    ensureConversationPanelInView,
+    loadConversations,
+    loadMessages,
+    scrollMessagesToBottom,
+    selectedConversation,
+    showToast,
+    withAction,
+  ])
+
   const handleLoadOlderMessages = useCallback(async () => {
     const selectedId = selectedConversationIdRef.current
     if (!selectedId || !nextBeforeCursor || loadingOlderMessages) {
@@ -1402,27 +1448,40 @@ export function WhatsAppInbox({
     })
   }, [loadMessages, loadingOlderMessages, nextBeforeCursor])
 
-  const canSend = useMemo(() => {
+  const canSend = useMemo<{
+    allowed: boolean
+    reason: string | null
+    code: SendAvailabilityCode
+  }>(() => {
     if (!selectedConversation) {
-      return { allowed: false, reason: "Selecione uma conversa." }
+      return { allowed: false, reason: "Selecione uma conversa.", code: "no_conversation" }
     }
 
     if (!selectedConversation.brand) {
-      return { allowed: false, reason: "Defina a marca da conversa antes do envio." }
+      return {
+        allowed: false,
+        reason: "Defina a marca da conversa antes do envio.",
+        code: "missing_brand",
+      }
     }
 
     if (selectedConversation.status === "CLOSED") {
-      return { allowed: false, reason: "Conversa fechada. Reabra para enviar mensagens." }
+      return {
+        allowed: false,
+        reason: "Conversa fechada. Reabra para enviar mensagens.",
+        code: "closed",
+      }
     }
 
     if (!isWindowOpen(selectedConversation.window_expires_at)) {
       return {
         allowed: false,
         reason: "Janela de 24h encerrada. O envio de mensagens está bloqueado nesta fase.",
+        code: "window_closed",
       }
     }
 
-    return { allowed: true, reason: null as string | null }
+    return { allowed: true, reason: null as string | null, code: "ready" }
   }, [selectedConversation])
 
   return (
@@ -2329,6 +2388,25 @@ export function WhatsAppInbox({
                 {!canSend.allowed ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                     {canSend.reason}
+                    {canSend.code === "window_closed" ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            void handleSendReactivationTemplate()
+                          }}
+                          disabled={actionLoading || uploadingMedia || recordingAudio}
+                        >
+                          <Send className="h-4 w-4" />
+                          Enviar template de reativação
+                        </Button>
+                        <span className="text-xs text-amber-900/90">
+                          Fora da janela, mantenha o contato via template oficial.
+                        </span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 

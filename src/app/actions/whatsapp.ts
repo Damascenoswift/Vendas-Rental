@@ -8,6 +8,7 @@ import {
   isWhatsAppInboxEnabled,
   normalizeWhatsAppIdentifier,
   sendWhatsAppMediaMessage as sendWhatsAppCloudMediaMessage,
+  sendWhatsAppTemplateMessage as sendWhatsAppCloudTemplateMessage,
   sendWhatsAppTextMessage as sendWhatsAppCloudTextMessage,
   type SendMessageResult,
   type WhatsAppBrand,
@@ -37,6 +38,7 @@ const SEND_RATE_LIMIT_PER_MINUTE = 20
 const MESSAGE_PAGE_SIZE_DEFAULT = 100
 const MESSAGE_PAGE_SIZE_MAX = 200
 const WINDOW_DURATION_MS = 24 * 60 * 60 * 1000
+const REACTIVATION_TEMPLATE_DEFAULT_LANGUAGE = "pt_BR"
 const WHATSAPP_RESTRICTION_ADMIN_ROLES = new Set(["adm_mestre", "adm_dorata"])
 const RESTRICTION_SCHEMA_HINT =
   "Execute a migration 113 (whatsapp_conversation_restrictions) no Supabase para habilitar conversas restritas."
@@ -170,6 +172,12 @@ type EnsuredConversationContact = {
   contactId: string
   contactName: string
   contactWhatsapp: string | null
+}
+
+type ReactivationTemplateConfig = {
+  templateName: string
+  languageCode: string
+  bodyParameters: string[]
 }
 
 function toRecord(value: unknown): Record<string, unknown> | null {
@@ -628,6 +636,78 @@ function hasMessageAgentSignature(text: string) {
   return /^\*[^*\n]+\*:\s*/.test(text)
 }
 
+function normalizeTemplateLanguageCode(value: string | null | undefined) {
+  const trimmed = (value || "").trim()
+  if (!trimmed) return REACTIVATION_TEMPLATE_DEFAULT_LANGUAGE
+  return trimmed.replace("-", "_")
+}
+
+function applyTemplateTokenValue(
+  raw: string,
+  conversation: Pick<ConversationRow, "customer_name" | "brand" | "customer_wa_id">
+) {
+  return raw.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, token: string) => {
+    const normalizedToken = token.trim().toLowerCase()
+    if (normalizedToken === "customer_name") {
+      return conversation.customer_name?.trim() || ""
+    }
+    if (normalizedToken === "brand") {
+      return conversation.brand || ""
+    }
+    if (normalizedToken === "customer_wa_id") {
+      return conversation.customer_wa_id || ""
+    }
+    return ""
+  })
+}
+
+function resolveReactivationTemplateBodyParameters(
+  conversation: Pick<ConversationRow, "customer_name" | "brand" | "customer_wa_id">
+) {
+  const raw = process.env.WHATSAPP_REACTIVATION_TEMPLATE_PARAMS
+  if (!raw || !raw.trim()) return [] as string[]
+
+  const trimmed = raw.trim()
+  let values: string[] = []
+
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (Array.isArray(parsed)) {
+        values = parsed.filter((item) => typeof item === "string") as string[]
+      }
+    } catch {
+      values = []
+    }
+  } else {
+    values = trimmed.split("|").map((item) => item.trim())
+  }
+
+  return values
+    .map((value) => applyTemplateTokenValue(value, conversation).trim())
+    .filter(Boolean)
+}
+
+function getReactivationTemplateConfig(
+  conversation: Pick<ConversationRow, "customer_name" | "brand" | "customer_wa_id">
+): ReactivationTemplateConfig {
+  const templateName = (process.env.WHATSAPP_REACTIVATION_TEMPLATE_NAME || "").trim()
+  if (!templateName) {
+    throw new WhatsAppActionError(
+      "Template de reativação não configurado. Defina WHATSAPP_REACTIVATION_TEMPLATE_NAME no ambiente."
+    )
+  }
+
+  const languageCode = normalizeTemplateLanguageCode(process.env.WHATSAPP_REACTIVATION_TEMPLATE_LANGUAGE)
+  const bodyParameters = resolveReactivationTemplateBodyParameters(conversation)
+
+  return {
+    templateName,
+    languageCode,
+    bodyParameters,
+  }
+}
+
 async function shouldPrefixAgentSignature(input: { conversationId: string; senderUserId: string }) {
   const supabaseAdmin = createSupabaseServiceClient()
 
@@ -671,6 +751,34 @@ async function sendWhatsAppByConfiguredProvider(input: {
     to: input.to,
     text: input.text,
     phoneNumberId: input.phoneNumberId,
+  })
+}
+
+async function sendWhatsAppTemplateByConfiguredProvider(input: {
+  to: string
+  phoneNumberId: string
+  templateName: string
+  languageCode: string
+  bodyParameters: string[]
+}): Promise<SendMessageResult> {
+  const provider = getWhatsAppProvider()
+
+  if (provider === "z_api") {
+    return {
+      success: false,
+      statusCode: 400,
+      error:
+        "Template de reativação está disponível apenas no provedor Meta Cloud API. " +
+        "No Z-API, aguarde resposta do cliente para reabrir a janela de 24h.",
+    }
+  }
+
+  return sendWhatsAppCloudTemplateMessage({
+    to: input.to,
+    phoneNumberId: input.phoneNumberId,
+    templateName: input.templateName,
+    languageCode: input.languageCode,
+    bodyParameters: input.bodyParameters,
   })
 }
 
@@ -2424,6 +2532,142 @@ export async function sendWhatsAppTextMessage(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao enviar mensagem.",
+    }
+  }
+}
+
+export async function sendWhatsAppReactivationTemplate(
+  conversationId: string
+): Promise<ActionResult<{ message: WhatsAppMessage; send_result: SendMessageResult }>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
+    const supabaseAdmin = createSupabaseServiceClient()
+    const conversation = await fetchConversationById(conversationId, accessContext)
+
+    if (!conversation.brand) {
+      throw new WhatsAppActionError("Defina a marca da conversa antes de enviar o template.")
+    }
+
+    if (conversation.status === "CLOSED") {
+      throw new WhatsAppActionError("Conversa fechada. Reabra para enviar mensagens.")
+    }
+
+    const now = Date.now()
+    if (conversation.window_expires_at && new Date(conversation.window_expires_at).getTime() > now) {
+      throw new WhatsAppActionError("A janela de 24h está ativa. Use o envio normal de mensagens.")
+    }
+
+    const templateConfig = getReactivationTemplateConfig(conversation)
+
+    const oneMinuteAgo = new Date(now - 60 * 1000).toISOString()
+    const { count: recentOutboundCount, error: rateError } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("direction", "OUTBOUND")
+      .eq("sender_user_id", user.id)
+      .gte("created_at", oneMinuteAgo)
+
+    if (rateError) {
+      throw new WhatsAppActionError(rateError.message)
+    }
+
+    if ((recentOutboundCount ?? 0) >= SEND_RATE_LIMIT_PER_MINUTE) {
+      throw new WhatsAppActionError(
+        "Limite de envio atingido temporariamente. Aguarde alguns segundos e tente novamente."
+      )
+    }
+
+    const { data: accountData, error: accountError } = await supabaseAdmin
+      .from("whatsapp_accounts")
+      .select("id, phone_number_id, status")
+      .eq("id", conversation.account_id)
+      .maybeSingle()
+
+    if (accountError || !accountData) {
+      throw new WhatsAppActionError(accountError?.message ?? "Conta WhatsApp não encontrada.")
+    }
+
+    if ((accountData as { status: string }).status !== "active") {
+      throw new WhatsAppActionError("Conta WhatsApp inativa. Verifique a configuração da integração.")
+    }
+
+    const sendResult = await sendWhatsAppTemplateByConfiguredProvider({
+      to: conversation.customer_wa_id,
+      phoneNumberId: (accountData as { phone_number_id: string }).phone_number_id,
+      templateName: templateConfig.templateName,
+      languageCode: templateConfig.languageCode,
+      bodyParameters: templateConfig.bodyParameters,
+    })
+
+    if (!sendResult.success) {
+      throw new WhatsAppActionError(sendResult.error || "Falha ao enviar template de reativação.")
+    }
+
+    const nowIso = new Date().toISOString()
+    const templateBodyText = `[Template de reativação enviado: ${templateConfig.templateName}]`
+
+    const { data: insertedData, error: insertError } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .insert({
+        conversation_id: conversationId,
+        direction: "OUTBOUND",
+        wa_message_id: sendResult.messageId ?? null,
+        message_type: "text",
+        body_text: templateBodyText,
+        status: mapSendResultToMessageStatus(sendResult),
+        sender_user_id: user.id,
+        raw_payload: {
+          kind: "reactivation_template",
+          provider: getWhatsAppProvider(),
+          template_name: templateConfig.templateName,
+          language_code: templateConfig.languageCode,
+          body_parameters: templateConfig.bodyParameters,
+          send_result: sendResult.raw ?? null,
+        },
+        sent_at: nowIso,
+      })
+      .select(
+        "id, conversation_id, direction, wa_message_id, message_type, body_text, status, sender_user_id, error_message, created_at, sent_at, delivered_at, read_at, failed_at"
+      )
+      .single()
+
+    if (insertError || !insertedData) {
+      throw new WhatsAppActionError(
+        insertError?.message ?? "Falha ao registrar template de reativação enviado."
+      )
+    }
+
+    const { error: conversationUpdateError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update({
+        status: "OPEN",
+        last_message_at: nowIso,
+      })
+      .eq("id", conversationId)
+
+    if (conversationUpdateError) {
+      console.error("whatsapp_conversation_last_message_update_failed", {
+        conversation_id: conversationId,
+        error: conversationUpdateError.message,
+      })
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    const inserted = insertedData as MessageRow
+
+    return {
+      success: true,
+      data: {
+        message: mapMessageRowToModel(inserted),
+        send_result: sendResult,
+      },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao enviar template de reativação.",
     }
   }
 }

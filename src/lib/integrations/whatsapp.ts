@@ -39,6 +39,14 @@ export type SendWhatsAppTextInput = {
   phoneNumberId?: string
 }
 
+export type SendWhatsAppTemplateInput = {
+  to: string
+  templateName: string
+  languageCode?: string
+  bodyParameters?: string[]
+  phoneNumberId?: string
+}
+
 export type SendWhatsAppMediaInput = {
   to: string
   mediaType: WhatsAppOutboundMediaType
@@ -265,6 +273,97 @@ export async function sendWhatsAppTextMessage(input: SendWhatsAppTextInput): Pro
     text: {
       preview_url: false,
       body,
+    },
+  }
+
+  try {
+    const response = await fetch(buildGraphApiUrl(phoneNumberId), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const json = (await response.json().catch(() => ({}))) as WhatsAppCloudSendResponse
+
+    if (!response.ok) {
+      return {
+        success: false,
+        statusCode: response.status,
+        error: json?.error?.message || `Erro WhatsApp Cloud API (${response.status})`,
+        raw: json,
+      }
+    }
+
+    return {
+      success: true,
+      statusCode: response.status,
+      messageId: json?.messages?.[0]?.id,
+      raw: json,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      statusCode: 500,
+      error: error instanceof Error ? error.message : "Falha ao conectar na WhatsApp Cloud API",
+    }
+  }
+}
+
+export async function sendWhatsAppTemplateMessage(
+  input: SendWhatsAppTemplateInput
+): Promise<SendMessageResult> {
+  const to = normalizeWhatsAppIdentifier(input.to)
+  const templateName = input.templateName?.trim() || ""
+  const languageCode = (input.languageCode?.trim() || "pt_BR").replace("-", "_")
+  const bodyParameters = (input.bodyParameters ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  if (!to) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Destino invalido para envio WhatsApp.",
+    }
+  }
+
+  if (!templateName) {
+    return {
+      success: false,
+      statusCode: 400,
+      error: "Template WhatsApp inválido para envio.",
+    }
+  }
+
+  const token = getCloudApiToken()
+  const phoneNumberId = input.phoneNumberId || getDefaultPhoneNumberId()
+
+  const payload: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "template",
+    template: {
+      name: templateName,
+      language: {
+        code: languageCode,
+      },
+      ...(bodyParameters.length > 0
+        ? {
+            components: [
+              {
+                type: "body",
+                parameters: bodyParameters.map((text) => ({
+                  type: "text",
+                  text,
+                })),
+              },
+            ],
+          }
+        : {}),
     },
   }
 
