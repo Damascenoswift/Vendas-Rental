@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { sendWhatsAppTemplateMessage } from "../whatsapp"
+import { isUnsafeOutsideWindowAllowedForZApi, sendWhatsAppTemplateMessage } from "../whatsapp"
 
 const ORIGINAL_ENV = { ...process.env }
 
@@ -66,5 +66,18 @@ describe("whatsapp template sending", () => {
         parameters: [{ type: "text", text: "Cliente Teste" }],
       },
     ])
+  })
+
+  it("habilita bypass de janela somente para z_api com flag ativa", () => {
+    process.env.WHATSAPP_PROVIDER = "z_api"
+    process.env.WHATSAPP_ZAPI_ALLOW_OUTSIDE_24H = "true"
+    expect(isUnsafeOutsideWindowAllowedForZApi()).toBe(true)
+
+    process.env.WHATSAPP_PROVIDER = "meta_cloud_api"
+    expect(isUnsafeOutsideWindowAllowedForZApi()).toBe(false)
+
+    process.env.WHATSAPP_PROVIDER = "z_api"
+    process.env.WHATSAPP_ZAPI_ALLOW_OUTSIDE_24H = "false"
+    expect(isUnsafeOutsideWindowAllowedForZApi()).toBe(false)
   })
 })

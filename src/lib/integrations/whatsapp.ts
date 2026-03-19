@@ -203,6 +203,11 @@ export function isWhatsAppInboxEnabled() {
   return isEnabledFlag(process.env.WHATSAPP_INBOX_ENABLED)
 }
 
+export function isUnsafeOutsideWindowAllowedForZApi() {
+  if (getWhatsAppProvider() !== "z_api") return false
+  return isEnabledFlag(process.env.WHATSAPP_ZAPI_ALLOW_OUTSIDE_24H)
+}
+
 export function normalizeWhatsAppIdentifier(raw: string | null | undefined) {
   if (!raw) return ""
   return raw.replace(/\D/g, "")

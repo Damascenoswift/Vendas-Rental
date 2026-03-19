@@ -6,6 +6,7 @@ import { getProfile } from "@/lib/auth"
 import {
   getWhatsAppProvider,
   isWhatsAppInboxEnabled,
+  isUnsafeOutsideWindowAllowedForZApi,
   normalizeWhatsAppIdentifier,
   sendWhatsAppMediaMessage as sendWhatsAppCloudMediaMessage,
   sendWhatsAppTemplateMessage as sendWhatsAppCloudTemplateMessage,
@@ -42,6 +43,10 @@ const REACTIVATION_TEMPLATE_DEFAULT_LANGUAGE = "pt_BR"
 const WHATSAPP_RESTRICTION_ADMIN_ROLES = new Set(["adm_mestre", "adm_dorata"])
 const RESTRICTION_SCHEMA_HINT =
   "Execute a migration 113 (whatsapp_conversation_restrictions) no Supabase para habilitar conversas restritas."
+
+function canBypassWhatsApp24hWindow() {
+  return isUnsafeOutsideWindowAllowedForZApi()
+}
 
 export type WhatsAppAgent = {
   id: string
@@ -2415,7 +2420,11 @@ export async function sendWhatsAppTextMessage(
     }
 
     const now = Date.now()
-    if (!conversation.window_expires_at || new Date(conversation.window_expires_at).getTime() <= now) {
+    const canBypassWindow = canBypassWhatsApp24hWindow()
+    if (
+      (!conversation.window_expires_at || new Date(conversation.window_expires_at).getTime() <= now) &&
+      !canBypassWindow
+    ) {
       throw new WhatsAppActionError(
         "Janela de 24h encerrada. O envio de texto livre foi bloqueado nesta fase."
       )
@@ -2710,7 +2719,11 @@ export async function sendWhatsAppMediaMessage(
     }
 
     const now = Date.now()
-    if (!conversation.window_expires_at || new Date(conversation.window_expires_at).getTime() <= now) {
+    const canBypassWindow = canBypassWhatsApp24hWindow()
+    if (
+      (!conversation.window_expires_at || new Date(conversation.window_expires_at).getTime() <= now) &&
+      !canBypassWindow
+    ) {
       throw new WhatsAppActionError(
         "Janela de 24h encerrada. O envio de mensagens foi bloqueado nesta fase."
       )

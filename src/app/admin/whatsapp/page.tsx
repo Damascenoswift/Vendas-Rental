@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation"
 
 import { getProfile } from "@/lib/auth"
-import { isWhatsAppInboxEnabled } from "@/lib/integrations/whatsapp"
+import { isUnsafeOutsideWindowAllowedForZApi, isWhatsAppInboxEnabled } from "@/lib/integrations/whatsapp"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
@@ -102,12 +102,14 @@ export default async function AdminWhatsAppPage() {
 
   const canManageConversationRestrictions =
     profile?.role === "adm_mestre" || profile?.role === "adm_dorata"
+  const allowOutsideWindowOnZApi = isUnsafeOutsideWindowAllowedForZApi()
 
   return (
     <WhatsAppInbox
       currentUserId={user.id}
       initialAgents={agents}
       canManageConversationRestrictions={canManageConversationRestrictions}
+      allowOutsideWindowOnZApi={allowOutsideWindowOnZApi}
     />
   )
 }

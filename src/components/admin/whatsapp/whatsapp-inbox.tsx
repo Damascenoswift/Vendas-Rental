@@ -100,6 +100,7 @@ type WhatsAppInboxProps = {
   currentUserId: string
   initialAgents: WhatsAppAgent[]
   canManageConversationRestrictions: boolean
+  allowOutsideWindowOnZApi: boolean
 }
 
 type StatusFilter = "all" | "PENDING_BRAND" | "OPEN" | "CLOSED"
@@ -120,6 +121,7 @@ type SendAvailabilityCode =
   | "missing_brand"
   | "closed"
   | "window_closed"
+  | "unsafe_window_bypass"
   | "ready"
 
 const STATUS_LABELS: Record<StatusFilter, string> = {
@@ -252,6 +254,7 @@ export function WhatsAppInbox({
   currentUserId,
   initialAgents,
   canManageConversationRestrictions,
+  allowOutsideWindowOnZApi,
 }: WhatsAppInboxProps) {
   const { showToast } = useToast()
   const searchParams = useSearchParams()
@@ -1474,6 +1477,15 @@ export function WhatsAppInbox({
     }
 
     if (!isWindowOpen(selectedConversation.window_expires_at)) {
+      if (allowOutsideWindowOnZApi) {
+        return {
+          allowed: true,
+          reason:
+            "Modo risco ativo: envio fora da janela de 24h liberado para Z-API. Isso pode aumentar risco de bloqueio/restrição.",
+          code: "unsafe_window_bypass",
+        }
+      }
+
       return {
         allowed: false,
         reason: "Janela de 24h encerrada. O envio de mensagens está bloqueado nesta fase.",
@@ -1482,7 +1494,7 @@ export function WhatsAppInbox({
     }
 
     return { allowed: true, reason: null as string | null, code: "ready" }
-  }, [selectedConversation])
+  }, [allowOutsideWindowOnZApi, selectedConversation])
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -2407,6 +2419,12 @@ export function WhatsAppInbox({
                         </span>
                       </div>
                     ) : null}
+                  </div>
+                ) : null}
+
+                {canSend.code === "unsafe_window_bypass" ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                    {canSend.reason}
                   </div>
                 ) : null}
 
