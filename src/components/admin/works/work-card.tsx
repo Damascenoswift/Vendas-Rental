@@ -102,6 +102,7 @@ export function WorkCardItem({
 
             <div className="h-32 w-full bg-slate-100">
                 {item.cover_image_url ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
                     <img
                         src={item.cover_image_url}
                         alt={`Capa da obra ${item.title ?? item.id}`}

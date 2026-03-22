@@ -3,13 +3,23 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Legend } from "recharts"
 
+type IndicationChartRow = {
+    status?: string | null
+}
+
+type LegendEntry = {
+    payload?: {
+        value?: number
+    }
+}
+
 interface IndicationsChartProps {
-    data: any[]
+    data: IndicationChartRow[]
 }
 
 export function IndicationsChart({ data }: IndicationsChartProps) {
     // Calculate status counts
-    const statusCounts = data.reduce((acc: any, curr: any) => {
+    const statusCounts = data.reduce<Record<string, number>>((acc, curr) => {
         const status = curr.status || "EM_ANALISE"
         acc[status] = (acc[status] || 0) + 1
         return acc
@@ -59,9 +69,9 @@ export function IndicationsChart({ data }: IndicationsChartProps) {
                                 align="right"
                                 layout="vertical"
                                 iconType="circle"
-                                formatter={(value, entry: any) => (
+                                formatter={(value, entry: LegendEntry) => (
                                     <span className="text-xs text-muted-foreground ml-1">
-                                        {value} ({entry.payload.value})
+                                        {value} ({entry.payload?.value ?? 0})
                                     </span>
                                 )}
                             />

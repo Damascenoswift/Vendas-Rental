@@ -117,14 +117,14 @@ export async function updateIndicationStatus(id: string, newStatus: string) {
     }
 
     const { data: statusInteraction, error: interactionError } = await supabaseAdmin
-        .from("indicacao_interactions" as any)
+        .from("indicacao_interactions")
         .insert({
             indicacao_id: id,
             user_id: user.id,
             type: "STATUS_CHANGE",
             content: `Status alterado para: ${newStatus}`,
             metadata: { new_status: newStatus },
-        } as any)
+        })
         .select("id")
         .maybeSingle()
 

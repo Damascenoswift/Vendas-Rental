@@ -10,7 +10,7 @@ import { createIndicationAction } from '@/app/actions/indicacoes'
 import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
 import { hasSalesAccess } from '@/lib/sales-access'
 
-type TemplateBasePayload = Record<string, any>
+type TemplateBasePayload = Record<string, unknown>
 
 const normalizeString = (value: string) =>
   value
@@ -154,7 +154,7 @@ const csvSchema = z.object({
 
 type ImportError = { line: number; codigo_instalacao?: string | null; reason: string }
 
-function extractField(row: Record<string, any>, keys: string[]) {
+function extractField(row: Record<string, unknown>, keys: string[]) {
   for (const key of keys) {
     if (key in row && row[key] != null && String(row[key]).trim().length > 0) {
       return String(row[key]).trim()

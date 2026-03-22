@@ -31,6 +31,7 @@ export type WorkProcessStatus = "TODO" | "IN_PROGRESS" | "DONE" | "BLOCKED"
 export type WorkSourceMode = "simple" | "complete" | "legacy"
 
 export type WorkTechnicalSnapshot = Record<string, unknown>
+type SupabaseAdminClient = ReturnType<typeof createSupabaseServiceClient>
 
 export interface WorkCard {
     id: string
@@ -411,7 +412,7 @@ async function syncWorkTasksByCardStatus(params: {
 
     if (!workStatus) {
         const { data: card, error: cardError } = await supabaseAdmin
-            .from("obra_cards" as any)
+            .from("obra_cards" as string)
             .select("status, tasks_integration_enabled")
             .eq("id", params.obraId)
             .maybeSingle()
@@ -426,7 +427,7 @@ async function syncWorkTasksByCardStatus(params: {
     }
 
     const { data: rows, error: rowsError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("linked_task_id")
         .eq("obra_id", params.obraId)
         .eq("phase", "EXECUCAO")
@@ -889,7 +890,7 @@ function buildTechnicalSnapshotFromProposal(input: {
         inverters: WorkProposalEquipmentInverter[]
     } | null
 }) {
-    const calculation = (input.proposal.calculation ?? null) as Record<string, any> | null
+    const calculation = (input.proposal.calculation ?? null) as Record<string, unknown> | null
     const manualContractEstimate = getManualContractProductionEstimate(calculation)
     const stakeholders = getProposalStakeholderContacts(calculation)
     const hasStakeholderData =
@@ -920,11 +921,16 @@ function buildTechnicalSnapshotFromProposal(input: {
             : null
     const calculationInputDimensioning = getCalculationInputDimensioning(input.proposal.calculation ?? null)
     const technicalPowerKwp = getTechnicalPowerFromDimensioningInput(calculationInputDimensioning)
-    const rawOutputDimensioning = calculation?.output?.dimensioning
+    const outputRecord = asRecord(calculation?.output)
+    const inputRecord = asRecord(calculation?.input)
+    const rawOutputDimensioning = outputRecord?.dimensioning
+    const outputDimensioningRecord = asRecord(rawOutputDimensioning)
+    const inputDimensioning = asRecord(inputRecord?.dimensioning)
+    const inputStructure = asRecord(inputRecord?.structure)
     const outputDimensioning =
-        rawOutputDimensioning && typeof rawOutputDimensioning === "object" && !Array.isArray(rawOutputDimensioning)
+        outputDimensioningRecord
             ? {
-                ...(rawOutputDimensioning as Record<string, unknown>),
+                ...outputDimensioningRecord,
                 ...(technicalPowerKwp !== null ? { kWp: technicalPowerKwp } : {}),
             }
             : technicalPowerKwp !== null
@@ -952,11 +958,11 @@ function buildTechnicalSnapshotFromProposal(input: {
         dimensioning: {
             total_power: technicalPowerKwp ?? input.proposal.total_power,
             output_dimensioning: outputDimensioning,
-            inverter: calculation?.output?.dimensioning?.inversor ?? null,
-            input_dimensioning: calculation?.input?.dimensioning ?? null,
+            inverter: outputDimensioningRecord?.inversor ?? null,
+            input_dimensioning: inputDimensioning ?? null,
             structure_quantities: {
-                qtd_placas_solo: calculation?.input?.structure?.qtd_placas_solo ?? null,
-                qtd_placas_telhado: calculation?.input?.structure?.qtd_placas_telhado ?? null,
+                qtd_placas_solo: inputStructure?.qtd_placas_solo ?? null,
+                qtd_placas_telhado: inputStructure?.qtd_placas_telhado ?? null,
             },
         },
         contract: {
@@ -1077,7 +1083,7 @@ function buildTechnicalSnapshotFromProposalContexts(input: {
 }
 
 async function getScopedIndicacaoIdsForRole(params: {
-    supabaseAdmin: any
+    supabaseAdmin: SupabaseAdminClient
     role: string
     userId: string
 }) {
@@ -1098,7 +1104,7 @@ async function getScopedIndicacaoIdsForRole(params: {
 }
 
 async function createWorkImagePreviewSignedUrl(params: {
-    storageClient: any
+    storageClient: SupabaseAdminClient
     storagePath: string
 }) {
     const previewResult = await params.storageClient.storage
@@ -1153,7 +1159,7 @@ async function ensureProjectTemplate(obraId: string) {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data: existing, error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("id")
         .eq("obra_id", obraId)
         .eq("phase", "PROJETO")
@@ -1175,7 +1181,7 @@ async function ensureProjectTemplate(obraId: string) {
     }))
 
     const { error: insertError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .insert(payload)
 
     if (insertError) {
@@ -1187,7 +1193,7 @@ async function ensureExecutionTemplate(obraId: string) {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data: existing, error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("id")
         .eq("obra_id", obraId)
         .eq("phase", "EXECUCAO")
@@ -1209,7 +1215,7 @@ async function ensureExecutionTemplate(obraId: string) {
     }))
 
     const { error: insertError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .insert(payload)
 
     if (insertError) {
@@ -1222,12 +1228,12 @@ async function refreshWorkStatusFromExecution(obraId: string) {
 
     const [{ data: card, error: cardError }, { data: executionItems, error: itemsError }] = await Promise.all([
         supabaseAdmin
-            .from("obra_cards" as any)
+            .from("obra_cards" as string)
             .select("id, status, completed_at, tasks_integration_enabled")
             .eq("id", obraId)
             .maybeSingle(),
         supabaseAdmin
-            .from("obra_process_items" as any)
+            .from("obra_process_items" as string)
             .select("status")
             .eq("obra_id", obraId)
             .eq("phase", "EXECUCAO"),
@@ -1269,7 +1275,7 @@ async function refreshWorkStatusFromExecution(obraId: string) {
     if (nextStatus === card.status && !needsCompletedAtUpdate) return
 
     const { error: updateError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .update({
             status: nextStatus,
             completed_at: completedAt,
@@ -1296,7 +1302,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data: card, error: cardError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select("id, title, status, brand, indicacao_id, contact_id, primary_proposal_id")
         .eq("id", obraId)
         .maybeSingle()
@@ -1306,7 +1312,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
     }
 
     const { data: executionItems, error: itemsError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("id, title, description, status, linked_task_id, responsible_user_id")
         .eq("obra_id", obraId)
         .eq("phase", "EXECUCAO")
@@ -1359,7 +1365,7 @@ async function ensureExecutionTasksForWork(obraId: string) {
         if (!taskId) continue
 
         const { error: linkError } = await supabaseAdmin
-            .from("obra_process_items" as any)
+            .from("obra_process_items" as string)
             .update({ linked_task_id: taskId })
             .eq("id", item.id)
 
@@ -1542,7 +1548,7 @@ export async function upsertWorkCardFromProposal(params: {
     })
 
     const { data: existingCardRaw, error: existingCardError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select("id, contact_id")
         .eq("brand", brand)
         .eq("installation_key", installationKey)
@@ -1581,7 +1587,7 @@ export async function upsertWorkCardFromProposal(params: {
             }
 
         const { data: inserted, error: insertError } = await supabaseAdmin
-            .from("obra_cards" as any)
+            .from("obra_cards" as string)
             .insert(insertPayload)
             .select("id")
             .single()
@@ -1608,7 +1614,7 @@ export async function upsertWorkCardFromProposal(params: {
         }
 
         const { error: updateError } = await supabaseAdmin
-            .from("obra_cards" as any)
+            .from("obra_cards" as string)
             .update(updatePayload)
             .eq("id", workId)
 
@@ -1627,7 +1633,7 @@ export async function upsertWorkCardFromProposal(params: {
     const targetProposalIds = proposalContexts.map((context) => context.proposal.id)
 
     const { error: demoteError } = await supabaseAdmin
-        .from("obra_card_proposals" as any)
+        .from("obra_card_proposals" as string)
         .update({ is_primary: false })
         .eq("obra_id", workId)
 
@@ -1636,7 +1642,7 @@ export async function upsertWorkCardFromProposal(params: {
     }
 
     const { error: linkError } = await supabaseAdmin
-        .from("obra_card_proposals" as any)
+        .from("obra_card_proposals" as string)
         .upsert(
             targetProposalIds.map((targetProposalId) => ({
                 obra_id: workId,
@@ -1652,7 +1658,7 @@ export async function upsertWorkCardFromProposal(params: {
     }
 
     const { data: existingLinks, error: existingLinksError } = await supabaseAdmin
-        .from("obra_card_proposals" as any)
+        .from("obra_card_proposals" as string)
         .select("proposal_id")
         .eq("obra_id", workId)
 
@@ -1666,7 +1672,7 @@ export async function upsertWorkCardFromProposal(params: {
 
     if (staleProposalIds.length > 0) {
         const { error: staleDeleteError } = await supabaseAdmin
-            .from("obra_card_proposals" as any)
+            .from("obra_card_proposals" as string)
             .delete()
             .eq("obra_id", workId)
             .in("proposal_id", staleProposalIds)
@@ -1688,7 +1694,7 @@ export async function reprocessWorkTechnicalSnapshot(workId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: card, error: cardError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select("id, primary_proposal_id")
         .eq("id", workId)
         .maybeSingle()
@@ -1775,7 +1781,7 @@ export async function getWorkCards(filters?: {
     }
 
     let query = supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select(`
             id,
             brand,
@@ -1832,12 +1838,12 @@ export async function getWorkCards(filters?: {
         return [] as WorkCard[]
     }
 
-    const rows = (data ?? []) as WorkCard[]
+    const rows = (data ?? []) as unknown as WorkCard[]
     if (rows.length === 0) return rows
 
     const workIds = rows.map((row) => row.id)
     const { data: processRows, error: processError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("obra_id, phase, status")
         .in("obra_id", workIds)
 
@@ -1847,7 +1853,7 @@ export async function getWorkCards(filters?: {
     }
 
     const { data: coverRows, error: coverError } = await supabaseAdmin
-        .from("obra_images" as any)
+        .from("obra_images" as string)
         .select("obra_id, storage_path, created_at")
         .in("obra_id", workIds)
         .eq("image_type", "CAPA")
@@ -1944,7 +1950,7 @@ export async function updateWorkCardLocation(input: {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { error } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .update({ work_address: normalizedAddress })
         .eq("id", input.workId)
 
@@ -1962,7 +1968,7 @@ export async function getWorkProposalLinks(workId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
-        .from("obra_card_proposals" as any)
+        .from("obra_card_proposals" as string)
         .select(`
             proposal_id,
             linked_at,
@@ -1977,7 +1983,7 @@ export async function getWorkProposalLinks(workId: string) {
         return [] as WorkProposalLink[]
     }
 
-    return (data ?? []) as WorkProposalLink[]
+    return (data ?? []) as unknown as WorkProposalLink[]
 }
 
 export async function getWorkProcessItems(workId: string) {
@@ -1986,7 +1992,7 @@ export async function getWorkProcessItems(workId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("*")
         .eq("obra_id", workId)
         .order("phase", { ascending: true })
@@ -2072,7 +2078,7 @@ export async function addWorkProcessItem(input: {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data: maxOrderRows, error: maxOrderError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("sort_order")
         .eq("obra_id", input.workId)
         .eq("phase", input.phase)
@@ -2086,7 +2092,7 @@ export async function addWorkProcessItem(input: {
     const maxOrder = (maxOrderRows?.[0]?.sort_order as number | undefined) ?? 0
 
     const { data, error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .insert({
             obra_id: input.workId,
             phase: input.phase,
@@ -2143,7 +2149,7 @@ export async function updateWorkProcessItem(input: {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .update(payload)
         .eq("id", input.itemId)
         .select("*")
@@ -2183,7 +2189,7 @@ export async function setWorkProcessItemStatus(input: {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data: current, error: currentError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("id, obra_id, title, status, phase, linked_task_id, started_at")
         .eq("id", input.itemId)
         .maybeSingle()
@@ -2210,7 +2216,7 @@ export async function setWorkProcessItemStatus(input: {
     }
 
     const { data, error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .update(payload)
         .eq("id", input.itemId)
         .select("*")
@@ -2249,7 +2255,7 @@ export async function deleteWorkProcessItem(itemId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: current, error: currentError } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .select("id, obra_id")
         .eq("id", itemId)
         .maybeSingle()
@@ -2259,7 +2265,7 @@ export async function deleteWorkProcessItem(itemId: string) {
     }
 
     const { error } = await supabaseAdmin
-        .from("obra_process_items" as any)
+        .from("obra_process_items" as string)
         .delete()
         .eq("id", itemId)
 
@@ -2279,7 +2285,7 @@ export async function toggleWorkTasksIntegration(workId: string, enabled: boolea
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { error } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .update({ tasks_integration_enabled: enabled })
         .eq("id", workId)
 
@@ -2315,7 +2321,7 @@ export async function setWorkCardStatus(input: {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: card, error: cardError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select("id, status, completed_at, tasks_integration_enabled, projeto_liberado_at, projeto_liberado_by")
         .eq("id", input.workId)
         .maybeSingle()
@@ -2357,7 +2363,7 @@ export async function setWorkCardStatus(input: {
     }
 
     const { error: updateError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .update(updatePayload)
         .eq("id", input.workId)
 
@@ -2388,7 +2394,7 @@ export async function releaseProjectForExecution(workId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: card, error: cardError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select("id, status, tasks_integration_enabled, projeto_liberado_at, projeto_liberado_by")
         .eq("id", workId)
         .maybeSingle()
@@ -2401,7 +2407,7 @@ export async function releaseProjectForExecution(workId: string) {
     const nextStatus: WorkCardStatus = card.status === "FECHADA" ? "PARA_INICIAR" : card.status
 
     const { error: updateError } = await supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .update({
             status: nextStatus,
             projeto_liberado_at: card.projeto_liberado_at ?? now,
@@ -2450,7 +2456,7 @@ type WorkExpenseRow = {
 }
 
 async function mapWorkExpenseRow(
-    supabaseAdmin: any,
+    supabaseAdmin: SupabaseAdminClient,
     row: WorkExpenseRow
 ) {
     const joinedUser = Array.isArray(row.user) ? (row.user[0] ?? null) : (row.user ?? null)
@@ -2496,7 +2502,7 @@ export async function getWorkExpenses(workId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
-        .from("obra_expenses" as any)
+        .from("obra_expenses" as string)
         .select(`
             id,
             obra_id,
@@ -2555,7 +2561,7 @@ export async function addWorkExpense(input: {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
-        .from("obra_expenses" as any)
+        .from("obra_expenses" as string)
         .insert({
             obra_id: input.workId,
             user_id: user.id,
@@ -2644,7 +2650,7 @@ function normalizeStoredWorkCommentAttachments(value: unknown): StoredWorkCommen
 }
 
 async function buildWorkCommentAttachmentsWithSignedUrl(
-    supabaseAdmin: any,
+    supabaseAdmin: SupabaseAdminClient,
     attachments: StoredWorkCommentAttachment[]
 ) {
     const results = await Promise.all(
@@ -2664,7 +2670,7 @@ async function buildWorkCommentAttachmentsWithSignedUrl(
 }
 
 async function mapWorkCommentRow(
-    supabaseAdmin: any,
+    supabaseAdmin: SupabaseAdminClient,
     row: WorkCommentRow
 ) {
     const joinedUser = Array.isArray(row.user) ? (row.user[0] ?? null) : (row.user ?? null)
@@ -2716,21 +2722,30 @@ export async function getWorkComments(workId: string) {
             user:users(name, email)
         `
 
-    let { data, error } = await supabaseAdmin
-        .from("obra_comments" as any)
+    const { data, error: initialError } = await supabaseAdmin
+        .from("obra_comments" as string)
         .select(selectWithAttachments)
         .eq("obra_id", workId)
         .order("created_at", { ascending: false })
 
+    let error = initialError
+    let rows: WorkCommentRow[] = (data ?? []) as WorkCommentRow[]
+
     if (error && isMissingWorkCommentAttachmentsColumn(error.message)) {
         const fallbackResult = await supabaseAdmin
-            .from("obra_comments" as any)
+            .from("obra_comments" as string)
             .select(selectWithoutAttachments)
             .eq("obra_id", workId)
             .order("created_at", { ascending: false })
 
-        data = fallbackResult.data
         error = fallbackResult.error
+        const fallbackRows = (fallbackResult.data ?? []) as Array<
+            Omit<WorkCommentRow, "attachments"> & { attachments?: unknown }
+        >
+        rows = fallbackRows.map((row) => ({
+            ...row,
+            attachments: row.attachments ?? [],
+        }))
     }
 
     if (error) {
@@ -2738,7 +2753,9 @@ export async function getWorkComments(workId: string) {
         return [] as WorkComment[]
     }
 
-    const rows = (data ?? []) as WorkCommentRow[]
+    if (!rows.length) {
+        rows = (data ?? []) as WorkCommentRow[]
+    }
     const mapped = await Promise.all(rows.map((row) => mapWorkCommentRow(supabaseAdmin, row)))
     return mapped
 }
@@ -2799,7 +2816,7 @@ export async function addWorkComment(input: {
 
     if (attachments.length > 0) {
         const insertResult = await supabaseAdmin
-            .from("obra_comments" as any)
+            .from("obra_comments" as string)
             .insert({
                 ...insertPayload,
                 attachments,
@@ -2815,7 +2832,7 @@ export async function addWorkComment(input: {
         }
     } else {
         const insertResult = await supabaseAdmin
-            .from("obra_comments" as any)
+            .from("obra_comments" as string)
             .insert(insertPayload)
             .select(selectWithoutAttachments)
             .single()
@@ -2830,7 +2847,7 @@ export async function addWorkComment(input: {
 
     if (commentType === "ENERGISA_RESPOSTA") {
         const { error: updateError } = await supabaseAdmin
-            .from("obra_cards" as any)
+            .from("obra_cards" as string)
             .update({ latest_energisa_comment_id: data.id })
             .eq("id", input.workId)
 
@@ -2884,7 +2901,7 @@ export async function deleteWorkComment(commentId: string) {
     let rowError: { message?: string | null } | null = null
 
     const rowResultWithAttachments = await supabaseAdmin
-        .from("obra_comments" as any)
+        .from("obra_comments" as string)
         .select(selectWithAttachments)
         .eq("id", normalizedCommentId)
         .maybeSingle()
@@ -2894,7 +2911,7 @@ export async function deleteWorkComment(commentId: string) {
 
     if (rowError && isMissingWorkCommentAttachmentsColumn(rowError.message)) {
         const fallbackResult = await supabaseAdmin
-            .from("obra_comments" as any)
+            .from("obra_comments" as string)
             .select(selectWithoutAttachments)
             .eq("id", normalizedCommentId)
             .maybeSingle()
@@ -2915,7 +2932,7 @@ export async function deleteWorkComment(commentId: string) {
     const attachmentPaths = attachments.map((attachment) => attachment.path).filter(Boolean)
 
     const { error: deleteError } = await supabaseAdmin
-        .from("obra_comments" as any)
+        .from("obra_comments" as string)
         .delete()
         .eq("id", normalizedCommentId)
         .eq("user_id", user.id)
@@ -2945,7 +2962,7 @@ export async function getWorkImages(workId: string) {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data, error } = await supabaseAdmin
-        .from("obra_images" as any)
+        .from("obra_images" as string)
         .select("*")
         .eq("obra_id", workId)
         .order("image_type", { ascending: true })
@@ -2984,7 +3001,7 @@ export async function getWorkImages(workId: string) {
 }
 
 async function canSupervisorAccessWorkCard(params: {
-    supabaseAdmin: any
+    supabaseAdmin: SupabaseAdminClient
     userId: string
     obraId: string
 }) {
@@ -2999,7 +3016,7 @@ async function canSupervisorAccessWorkCard(params: {
     }
 
     const { data: cardRow, error } = await params.supabaseAdmin
-        .from("obra_cards" as any)
+        .from("obra_cards" as string)
         .select("indicacao_id")
         .eq("id", params.obraId)
         .maybeSingle()
@@ -3026,7 +3043,7 @@ export async function getWorkImageOriginalAssetUrls(imageId: string) {
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data: row, error: rowError } = await supabaseAdmin
-        .from("obra_images" as any)
+        .from("obra_images" as string)
         .select("id, obra_id, storage_path")
         .eq("id", normalizedImageId)
         .maybeSingle()
@@ -3094,7 +3111,7 @@ export async function addWorkImage(input: {
 
     if (input.imageType === "CAPA" || input.imageType === "PERFIL") {
         const { data: existingRows, error: existingRowsError } = await supabaseAdmin
-            .from("obra_images" as any)
+            .from("obra_images" as string)
             .select("id, storage_path")
             .eq("obra_id", input.workId)
             .eq("image_type", input.imageType)
@@ -3118,7 +3135,7 @@ export async function addWorkImage(input: {
         }
 
         const { error: cleanupError } = await supabaseAdmin
-            .from("obra_images" as any)
+            .from("obra_images" as string)
             .delete()
             .eq("obra_id", input.workId)
             .eq("image_type", input.imageType)
@@ -3129,7 +3146,7 @@ export async function addWorkImage(input: {
     }
 
     const { data, error } = await supabaseAdmin
-        .from("obra_images" as any)
+        .from("obra_images" as string)
         .insert({
             obra_id: input.workId,
             image_type: input.imageType,
@@ -3173,7 +3190,7 @@ export async function deleteWorkImage(imageId: string) {
     const supabaseAdmin = createSupabaseServiceClient()
 
     const { data: row, error: rowError } = await supabaseAdmin
-        .from("obra_images" as any)
+        .from("obra_images" as string)
         .select("id, storage_path")
         .eq("id", imageId)
         .maybeSingle()
@@ -3193,7 +3210,7 @@ export async function deleteWorkImage(imageId: string) {
     }
 
     const { error: deleteRowError } = await supabaseAdmin
-        .from("obra_images" as any)
+        .from("obra_images" as string)
         .delete()
         .eq("id", imageId)
 

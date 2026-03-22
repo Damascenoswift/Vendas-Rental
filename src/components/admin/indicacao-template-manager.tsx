@@ -21,7 +21,7 @@ type Template = {
   name: string
   vendedor_id: string
   created_at: string
-  base_payload?: any
+  base_payload?: Record<string, unknown> | null
 }
 
 type Props = {

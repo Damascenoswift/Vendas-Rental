@@ -21,12 +21,11 @@ export async function importConsumerUnits(formData: FormData) {
         const worksheet = workbook.Sheets[sheetName]
 
         // Convert to JSON with array of arrays to handle duplicate headers (like E-mail Faturamento)
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[][]
 
         if (jsonData.length < 2) throw new Error("Planilha vazia ou sem dados.")
 
         // Header row is index 0
-        const headers = jsonData[0]
         const rows = jsonData.slice(1)
 
         const supabase = await createClient()
@@ -180,9 +179,10 @@ export async function importConsumerUnits(formData: FormData) {
         revalidatePath('/admin/importacao')
         return { success: true, count: processedRows.length }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
         console.error("Import Error:", e)
-        return { success: false, error: e.message }
+        const message = e instanceof Error ? e.message : "Erro inesperado na importação."
+        return { success: false, error: message }
     }
 }
 

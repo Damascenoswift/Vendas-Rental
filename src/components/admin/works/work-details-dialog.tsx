@@ -185,11 +185,11 @@ const WORK_COMMENT_ATTACHMENT_MAX_MB = Math.round(MAX_WORK_COMMENT_ATTACHMENT_BY
 function getSnapshotValue(snapshot: unknown, path: string): unknown {
     if (!snapshot || typeof snapshot !== "object") return null
     const keys = path.split(".")
-    let current: any = snapshot
+    let current: unknown = snapshot
 
     for (const key of keys) {
-        if (!current || typeof current !== "object") return null
-        current = current[key]
+        if (!current || typeof current !== "object" || Array.isArray(current)) return null
+        current = (current as Record<string, unknown>)[key]
     }
 
     return current ?? null
@@ -702,6 +702,7 @@ function ImageGallery({
                                     className="block w-full"
                                     onClick={() => onOpenImage(image)}
                                 >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
                                     <img
                                         src={image.signed_url}
                                         alt={image.caption || "Imagem da obra"}
@@ -2283,6 +2284,7 @@ export function WorkDetailsDialog({
                         </div>
                     ) : viewerViewUrl ? (
                         <div className="overflow-hidden rounded-md border bg-slate-100">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                                 src={viewerViewUrl}
                                 alt={viewerImage?.caption || "Imagem da obra"}

@@ -17,6 +17,13 @@ import { Button } from "@/components/ui/button"
 
 export const dynamic = "force-dynamic"
 
+type ProducaoRow = {
+    id: string
+    mes_ano: string
+    kwh_gerado: number
+    usina: { nome: string } | null
+}
+
 export default async function ProducaoPage() {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -37,7 +44,7 @@ export default async function ProducaoPage() {
     }
 
     // Manual typing for joined data
-    const list = (producoes as any[]) || []
+    const list = (producoes ?? []) as unknown as ProducaoRow[]
 
     return (
         <div className="max-w-5xl mx-auto py-6 space-y-6">

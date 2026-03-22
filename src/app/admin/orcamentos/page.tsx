@@ -28,11 +28,39 @@ function parseMissingColumnError(message?: string | null) {
     return { column: match[1], table: match[2] }
 }
 
+type JsonObject = Record<string, unknown>
+
+type ProposalQueryRow = {
+    id: string
+    created_at: string
+    updated_at?: string | null
+    valid_until?: string | null
+    status?: string | null
+    source_mode?: unknown
+    total_value?: number | null
+    calculation?: unknown
+    seller?:
+        | { name?: string | null; email?: string | null }
+        | Array<{ name?: string | null; email?: string | null }>
+        | null
+    cliente?:
+        | { id?: string; nome?: string | null }
+        | Array<{ id?: string; nome?: string | null }>
+        | null
+    [key: string]: unknown
+}
+
 function getEstimatedKwh(calculation: unknown): number | null {
     if (!calculation || typeof calculation !== "object" || Array.isArray(calculation)) return null
-    const output = (calculation as Record<string, any>).output
-    const dimensioning = output && typeof output === "object" ? output.dimensioning : null
-    const value = dimensioning && typeof dimensioning === "object" ? dimensioning.kWh_estimado : null
+    const output = (calculation as JsonObject).output
+    const dimensioning =
+        output && typeof output === "object" && !Array.isArray(output)
+            ? (output as JsonObject).dimensioning
+            : null
+    const value =
+        dimensioning && typeof dimensioning === "object" && !Array.isArray(dimensioning)
+            ? (dimensioning as JsonObject).kWh_estimado
+            : null
     const parsed = Number(value)
     return Number.isFinite(parsed) ? parsed : null
 }
@@ -110,7 +138,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
         scopedClientIds = (scopedIndicacoes ?? []).map((item: { id: string }) => item.id)
     }
 
-    let proposals: any[] = []
+    let proposals: ProposalQueryRow[] = []
     let proposalsError: { message: string } | null = null
 
     if (role === "supervisor" && (!scopedClientIds || scopedClientIds.length === 0)) {
@@ -149,11 +177,11 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
             proposalsResult = await buildProposalsQuery("created_at")
         }
 
-        proposals = proposalsResult.data ?? []
+        proposals = (proposalsResult.data ?? []) as ProposalQueryRow[]
         proposalsError = proposalsResult.error as { message: string } | null
     }
 
-    const normalizedProposals = proposals.map((proposal: any) => {
+    const normalizedProposals = proposals.map((proposal) => {
         const seller = Array.isArray(proposal.seller) ? (proposal.seller[0] ?? null) : proposal.seller
         const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
 
@@ -214,7 +242,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            normalizedProposals.map((proposal: any) => (
+                            normalizedProposals.map((proposal) => (
                                 <TableRow key={proposal.id}>
                                     <TableCell className="hidden lg:table-cell text-muted-foreground">
                                         {format(new Date(proposal.updated_at ?? proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}

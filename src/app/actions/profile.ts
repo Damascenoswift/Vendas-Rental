@@ -171,9 +171,10 @@ export async function updatePassword(
             console.error("Erro ao atualizar senha:", updateError)
             return { error: updateError.message || "Não foi possível alterar a senha." }
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Não foi possível alterar a senha."
         console.error("Erro ao atualizar senha:", error)
-        return { error: error?.message || "Não foi possível alterar a senha." }
+        return { error: message }
     }
 
     return { success: "Senha alterada com sucesso!", error: undefined }

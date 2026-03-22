@@ -1,6 +1,6 @@
 "use client"
 
-import { useForm } from "react-hook-form"
+import { useForm, type Resolver } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { useRouter } from "next/navigation"
@@ -22,7 +22,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
-import { createProduct, updateProduct, Product } from "@/services/product-service"
+import { createProduct, updateProduct, Product, type ProductInsert, type ProductUpdate } from "@/services/product-service"
 import { useToast } from "@/hooks/use-toast"
 import { Checkbox } from "@/components/ui/checkbox"
 
@@ -46,6 +46,11 @@ const productSchema = z.object({
 })
 
 type ProductFormValues = z.infer<typeof productSchema>
+type ProductSpecs = Record<string, unknown> & {
+    category_special?: string
+    inverter_kind?: "micro" | "string"
+    mppt_inputs?: number
+}
 
 interface ProductFormProps {
     initialData?: Product
@@ -56,7 +61,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
     const { showToast } = useToast()
     const specsObject =
         initialData?.specs && typeof initialData.specs === "object" && !Array.isArray(initialData.specs)
-            ? (initialData.specs as Record<string, any>)
+            ? (initialData.specs as ProductSpecs)
             : {}
 
     // Default values need to handle potential nulls from DB nicely
@@ -96,48 +101,50 @@ export function ProductForm({ initialData }: ProductFormProps) {
         active: true
     }
 
-    const form = useForm<any>({
-        resolver: zodResolver(productSchema) as any,
-        defaultValues: defaultValues as any
+    const form = useForm<ProductFormValues>({
+        resolver: zodResolver(productSchema) as Resolver<ProductFormValues>,
+        defaultValues
     })
     const watchedType = form.watch("type")
 
-    async function onSubmit(data: any) {
+    async function onSubmit(data: ProductFormValues) {
         try {
-            let parsedSpecs = {}
+            const { specs, category_special, inverter_kind, mppt_inputs, ...rest } = data
+            let parsedSpecs: ProductSpecs = {}
             try {
-                parsedSpecs = JSON.parse(data.specs || "{}")
-            } catch (e) {
+                const parsed = JSON.parse(specs || "{}")
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                    parsedSpecs = parsed as ProductSpecs
+                }
+            } catch {
                 // ignore
             }
 
-            const { specs, category_special, inverter_kind, mppt_inputs, ...rest } = data
-
             if (category_special) {
-                ;(parsedSpecs as any).category_special = category_special
-            } else if ((parsedSpecs as any).category_special) {
-                delete (parsedSpecs as any).category_special
+                parsedSpecs.category_special = category_special
+            } else if (parsedSpecs.category_special) {
+                delete parsedSpecs.category_special
             }
 
             if (rest.type === "inverter" && inverter_kind) {
-                ;(parsedSpecs as any).inverter_kind = inverter_kind
-            } else if ((parsedSpecs as any).inverter_kind) {
-                delete (parsedSpecs as any).inverter_kind
+                parsedSpecs.inverter_kind = inverter_kind
+            } else if (parsedSpecs.inverter_kind) {
+                delete parsedSpecs.inverter_kind
             }
 
             if (rest.type === "inverter" && Number.isFinite(mppt_inputs)) {
-                ;(parsedSpecs as any).mppt_inputs = mppt_inputs
-            } else if ((parsedSpecs as any).mppt_inputs) {
-                delete (parsedSpecs as any).mppt_inputs
+                parsedSpecs.mppt_inputs = mppt_inputs
+            } else if (parsedSpecs.mppt_inputs) {
+                delete parsedSpecs.mppt_inputs
             }
 
-            const payload: any = {
+            const payload = {
                 ...rest,
                 specs: parsedSpecs
             }
 
             if (initialData) {
-                const result = await updateProduct(initialData.id, payload)
+                const result = await updateProduct(initialData.id, payload as ProductUpdate)
                 if (result.error) {
                     throw new Error(result.error)
                 }
@@ -147,7 +154,7 @@ export function ProductForm({ initialData }: ProductFormProps) {
                     variant: "success",
                 })
             } else {
-                const result = await createProduct(payload)
+                const result = await createProduct(payload as ProductInsert)
                 if (result.error) {
                     throw new Error(result.error)
                 }

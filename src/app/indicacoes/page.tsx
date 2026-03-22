@@ -25,6 +25,7 @@ import { supabase } from "@/lib/supabase"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { formatPhone } from "@/lib/formatters"
 import type { Brand } from "@/lib/auth"
+import type { IndicacaoFormProps } from "@/components/forms/indicacao-form"
 
 const STORAGE_BUCKET = "indicacoes"
 
@@ -105,7 +106,7 @@ export default function IndicacoesPage() {
   const [attachmentsError, setAttachmentsError] = useState<string | null>(null)
   const [attachmentsMap, setAttachmentsMap] = useState<Record<string, AttachmentInfo[]>>({})
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false)
-  const [subordinates, setSubordinates] = useState<any[]>([])
+  const [subordinates, setSubordinates] = useState<NonNullable<IndicacaoFormProps["subordinates"]>>([])
 
   const isMounted = useRef(true)
 
@@ -274,7 +275,7 @@ export default function IndicacoesPage() {
     }
 
     void loadIndicacoes()
-  }, [userId, loadIndicacoes])
+  }, [userId, loadIndicacoes, profile?.role])
 
   useEffect(() => {
     if (!userId) {
@@ -303,7 +304,7 @@ export default function IndicacoesPage() {
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [userId, loadIndicacoes])
+  }, [userId, loadIndicacoes, profile?.role])
 
   const emptyStateCopy = useMemo(() => {
     if (isLoading) {

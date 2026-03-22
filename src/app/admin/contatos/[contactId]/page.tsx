@@ -1,3 +1,4 @@
+
 import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
@@ -140,6 +141,82 @@ function buildContactName(contact: ContactRow) {
     )
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return value as Record<string, unknown>
+}
+
+function asBrand(value: unknown): "rental" | "dorata" | null {
+    return value === "rental" || value === "dorata" ? value : null
+}
+
+function asNullableString(value: unknown): string | null {
+    return typeof value === "string" ? value : null
+}
+
+function asNullableNumber(value: unknown): number | null {
+    return typeof value === "number" ? value : null
+}
+
+function mapProposalRow(row: Record<string, unknown>): ProposalRow {
+    const sellerRaw = pickOne(row.seller as unknown)
+    const sellerRecord = asRecord(sellerRaw)
+    const clientRaw = pickOne(row.client as unknown)
+    const clientRecord = asRecord(clientRaw)
+
+    return {
+        id: String(row.id ?? ""),
+        client_id: asNullableString(row.client_id),
+        contact_id: asNullableString(row.contact_id),
+        status: asNullableString(row.status),
+        total_value: asNullableNumber(row.total_value),
+        created_at: String(row.created_at ?? ""),
+        valid_until: asNullableString(row.valid_until),
+        seller: sellerRecord
+            ? {
+                name: asNullableString(sellerRecord.name),
+                email: asNullableString(sellerRecord.email),
+            }
+            : null,
+        client: clientRecord
+            ? {
+                id: String(clientRecord.id ?? ""),
+                nome: asNullableString(clientRecord.nome),
+                status: asNullableString(clientRecord.status),
+                marca: asBrand(clientRecord.marca),
+                codigo_instalacao: asNullableString(clientRecord.codigo_instalacao),
+                created_at: String(clientRecord.created_at ?? ""),
+            }
+            : null,
+    }
+}
+
+function mapTaskRow(row: Record<string, unknown>): TaskRow {
+    const assigneeRaw = pickOne(row.assignee as unknown)
+    const assigneeRecord = asRecord(assigneeRaw)
+    return {
+        id: String(row.id ?? ""),
+        title: String(row.title ?? ""),
+        status: String(row.status ?? ""),
+        priority: String(row.priority ?? ""),
+        due_date: asNullableString(row.due_date),
+        created_at: String(row.created_at ?? ""),
+        brand: asBrand(row.brand),
+        department: asNullableString(row.department),
+        client_name: asNullableString(row.client_name),
+        codigo_instalacao: asNullableString(row.codigo_instalacao),
+        indicacao_id: asNullableString(row.indicacao_id),
+        contact_id: asNullableString(row.contact_id),
+        proposal_id: asNullableString(row.proposal_id),
+        assignee: assigneeRecord
+            ? {
+                name: asNullableString(assigneeRecord.name),
+                email: asNullableString(assigneeRecord.email),
+            }
+            : null,
+    }
+}
+
 export default async function ContactDetailsPage({
     params,
 }: {
@@ -213,17 +290,7 @@ export default async function ContactDetailsPage({
         .order("created_at", { ascending: false })
         .limit(120)
 
-    const directProposals: ProposalRow[] = (directProposalsRaw ?? []).map((row: any) => ({
-        id: row.id,
-        client_id: row.client_id ?? null,
-        contact_id: row.contact_id ?? null,
-        status: row.status ?? null,
-        total_value: row.total_value ?? null,
-        created_at: row.created_at,
-        valid_until: row.valid_until ?? null,
-        seller: pickOne(row.seller),
-        client: pickOne(row.client),
-    }))
+    const directProposals: ProposalRow[] = ((directProposalsRaw ?? []) as Array<Record<string, unknown>>).map(mapProposalRow)
 
     const { data: directTasksRaw } = await supabase
         .from("tasks")
@@ -247,22 +314,7 @@ export default async function ContactDetailsPage({
         .order("created_at", { ascending: false })
         .limit(200)
 
-    const directTasks: TaskRow[] = (directTasksRaw ?? []).map((row: any) => ({
-        id: row.id,
-        title: row.title,
-        status: row.status,
-        priority: row.priority,
-        due_date: row.due_date ?? null,
-        created_at: row.created_at,
-        brand: row.brand ?? null,
-        department: row.department ?? null,
-        client_name: row.client_name ?? null,
-        codigo_instalacao: row.codigo_instalacao ?? null,
-        indicacao_id: row.indicacao_id ?? null,
-        contact_id: row.contact_id ?? null,
-        proposal_id: row.proposal_id ?? null,
-        assignee: pickOne(row.assignee),
-    }))
+    const directTasks: TaskRow[] = ((directTasksRaw ?? []) as Array<Record<string, unknown>>).map(mapTaskRow)
 
     const relatedIndicationIds = new Set<string>()
     directProposals.forEach((proposal) => {
@@ -340,17 +392,7 @@ export default async function ContactDetailsPage({
             .order("created_at", { ascending: false })
             .limit(200)
 
-        const linkedProposals: ProposalRow[] = (linkedProposalsRaw ?? []).map((row: any) => ({
-            id: row.id,
-            client_id: row.client_id ?? null,
-            contact_id: row.contact_id ?? null,
-            status: row.status ?? null,
-            total_value: row.total_value ?? null,
-            created_at: row.created_at,
-            valid_until: row.valid_until ?? null,
-            seller: pickOne(row.seller),
-            client: pickOne(row.client),
-        }))
+        const linkedProposals: ProposalRow[] = ((linkedProposalsRaw ?? []) as Array<Record<string, unknown>>).map(mapProposalRow)
 
         allProposals = dedupeById([...directProposals, ...linkedProposals]).sort(
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -385,22 +427,7 @@ export default async function ContactDetailsPage({
             .limit(220)
 
         taskMatches.push(
-            ...((tasksByIndicationRaw ?? []).map((row: any) => ({
-                id: row.id,
-                title: row.title,
-                status: row.status,
-                priority: row.priority,
-                due_date: row.due_date ?? null,
-                created_at: row.created_at,
-                brand: row.brand ?? null,
-                department: row.department ?? null,
-                client_name: row.client_name ?? null,
-                codigo_instalacao: row.codigo_instalacao ?? null,
-                indicacao_id: row.indicacao_id ?? null,
-                contact_id: row.contact_id ?? null,
-                proposal_id: row.proposal_id ?? null,
-                assignee: pickOne(row.assignee),
-            })) as TaskRow[])
+            ...(((tasksByIndicationRaw ?? []) as Array<Record<string, unknown>>).map(mapTaskRow))
         )
     }
 
@@ -428,22 +455,7 @@ export default async function ContactDetailsPage({
             .limit(220)
 
         taskMatches.push(
-            ...((tasksByProposalRaw ?? []).map((row: any) => ({
-                id: row.id,
-                title: row.title,
-                status: row.status,
-                priority: row.priority,
-                due_date: row.due_date ?? null,
-                created_at: row.created_at,
-                brand: row.brand ?? null,
-                department: row.department ?? null,
-                client_name: row.client_name ?? null,
-                codigo_instalacao: row.codigo_instalacao ?? null,
-                indicacao_id: row.indicacao_id ?? null,
-                contact_id: row.contact_id ?? null,
-                proposal_id: row.proposal_id ?? null,
-                assignee: pickOne(row.assignee),
-            })) as TaskRow[])
+            ...(((tasksByProposalRaw ?? []) as Array<Record<string, unknown>>).map(mapTaskRow))
         )
     }
 
@@ -485,12 +497,16 @@ export default async function ContactDetailsPage({
                 : Promise.resolve({ data: [], error: null }),
         ])
 
-        const stageMap = new Map((stagesResult.data ?? []).map((row: any) => [row.id, row.name as string]))
+        const stageRows = (stagesResult.data ?? []) as Array<{ id: string; name: string }>
+        const pipelineRows = (pipelinesResult.data ?? []) as Array<{ id: string; name: string; brand: "rental" | "dorata" }>
+        const indicationRows = (indicationsResult.data ?? []) as Array<{ id: string; nome: string | null; status: string | null }>
+
+        const stageMap = new Map(stageRows.map((row) => [row.id, row.name]))
         const pipelineMap = new Map(
-            (pipelinesResult.data ?? []).map((row: any) => [row.id, { name: row.name as string, brand: row.brand as "rental" | "dorata" }])
+            pipelineRows.map((row) => [row.id, { name: row.name, brand: row.brand }])
         )
         const indicationMap = new Map(
-            (indicationsResult.data ?? []).map((row: any) => [row.id, { nome: row.nome as string | null, status: row.status as string | null }])
+            indicationRows.map((row) => [row.id, { nome: row.nome, status: row.status }])
         )
 
         crmCards = cards.map((card) => {

@@ -1,8 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { AlocacaoForm } from "@/components/forms/alocacao-form"
+import type { ComponentProps } from "react"
 
 export const dynamic = "force-dynamic"
+
+type AlocacaoFormUc = ComponentProps<typeof AlocacaoForm>["ucs"][number]
 
 export default async function NovaAlocacaoPage() {
     const supabase = await createClient()
@@ -40,7 +43,7 @@ export default async function NovaAlocacaoPage() {
 
             <AlocacaoForm
                 usinas={usinas || []}
-                ucs={(ucs as any[]) || []}
+                ucs={((ucs ?? []) as AlocacaoFormUc[])}
             />
         </div>
     )

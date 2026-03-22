@@ -1,5 +1,6 @@
 "use server"
 
+
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { revalidatePath } from "next/cache"
@@ -18,7 +19,7 @@ export interface Interaction {
     user_id: string | null
     type: InteractionType
     content: string
-    metadata: any
+    metadata: unknown
     created_at: string
     user: {
         name: string | null
@@ -38,12 +39,27 @@ export async function getInteractions(indicacaoId: string) {
         .order('created_at', { ascending: true })
 
     if (!withJoin.error) {
-        return (withJoin.data as any[]).map(item => {
+        return ((withJoin.data ?? []) as Array<Record<string, unknown>>).map((item) => {
             const rawUser = item.user
             const normalizedUser = Array.isArray(rawUser) ? rawUser[0] ?? null : rawUser ?? null
+            const userRecord =
+                normalizedUser && typeof normalizedUser === "object" && !Array.isArray(normalizedUser)
+                    ? (normalizedUser as Record<string, unknown>)
+                    : null
             return {
-                ...item,
-                user: normalizedUser,
+                id: String(item.id ?? ""),
+                indicacao_id: String(item.indicacao_id ?? ""),
+                user_id: typeof item.user_id === "string" ? item.user_id : null,
+                type: item.type as InteractionType,
+                content: String(item.content ?? ""),
+                metadata: item.metadata ?? null,
+                created_at: String(item.created_at ?? ""),
+                user: userRecord
+                    ? {
+                        name: typeof userRecord.name === "string" ? userRecord.name : null,
+                        email: typeof userRecord.email === "string" ? userRecord.email : null,
+                    }
+                    : null,
             }
         }) as Interaction[]
     }
@@ -67,7 +83,7 @@ export async function getInteractions(indicacaoId: string) {
         user_id: string | null
         type: InteractionType
         content: string
-        metadata: any
+        metadata: unknown
         created_at: string
     }[]
 
@@ -102,7 +118,7 @@ export async function addInteraction(
     indicacaoId: string,
     content: string,
     type: InteractionType = 'COMMENT',
-    metadata: any = {}
+    metadata: unknown = {}
 ) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -534,7 +550,7 @@ async function hasTaskAccessForIndicacao(indicacaoId: string) {
 
 export async function getEnergisaLogs(indicacaoId: string) {
     const supabase = await createClient()
-    let activeClient: any = supabase
+    let activeClient: Awaited<ReturnType<typeof createClient>> = supabase
     let { data, error } = await activeClient
         .from('energisa_logs')
         .select('*, user:users(name)')
@@ -553,8 +569,8 @@ export async function getEnergisaLogs(indicacaoId: string) {
                     .eq('indicacao_id', indicacaoId)
                     .order('created_at', { ascending: false })
 
-                data = adminResult.data as any
-                error = adminResult.error as any
+                data = adminResult.data as EnergisaLogRow[] | null
+                error = adminResult.error
             } catch (adminError) {
                 console.error('Error creating admin client for Energisa logs:', adminError)
             }
@@ -568,8 +584,8 @@ export async function getEnergisaLogs(indicacaoId: string) {
             .eq('indicacao_id', indicacaoId)
             .order('created_at', { ascending: false })
 
-        data = fallback.data as any
-        error = fallback.error as any
+        data = fallback.data as EnergisaLogRow[] | null
+        error = fallback.error
     }
 
     if (error) {

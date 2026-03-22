@@ -1,8 +1,8 @@
-
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
 import { IndicacaoForm } from "@/components/forms/indicacao-form"
+import type { IndicacaoFormProps } from "@/components/forms/indicacao-form"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft } from "lucide-react"
 import Link from "next/link"
@@ -29,7 +29,7 @@ export default async function NewIndicacaoPage() {
     const allowedBrands = profile.allowedBrands || ["rental"]
 
     // Fetch subordinates if supervisor
-    let subordinates: any[] = []
+    let subordinates: NonNullable<IndicacaoFormProps["subordinates"]> = []
     if (profile.role === 'supervisor') {
         const { getSubordinates } = await import('@/app/actions/auth-admin')
         subordinates = await getSubordinates(user.id)

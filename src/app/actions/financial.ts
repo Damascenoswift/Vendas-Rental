@@ -50,6 +50,16 @@ type FinancialPermissionResult =
     | { userId: string }
     | { error: string }
 
+type SessionSupabaseClient = Awaited<ReturnType<typeof createClient>>
+type ServiceSupabaseClient = ReturnType<typeof createSupabaseServiceClient>
+type FinancialSupabaseClient = SessionSupabaseClient | ServiceSupabaseClient
+
+type ClosingInsertedItem = {
+    id: string | null
+    source_kind: string | null
+    source_ref_id: string | null
+}
+
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
     const schemaCacheMatch = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
@@ -116,7 +126,7 @@ function isTransactionsSchemaUnavailableError(error: unknown) {
 }
 
 async function upsertPricingRuleWithFallback(
-    supabaseAdmin: any,
+    supabaseAdmin: FinancialSupabaseClient,
     payload: Record<string, unknown>
 ) {
     const candidate: Record<string, unknown> = { ...payload }
@@ -198,7 +208,7 @@ function firstRelationRow(value: unknown): Record<string, unknown> | null {
 }
 
 async function resolveDorataSaleReference(
-    supabaseClient: any,
+    supabaseClient: FinancialSupabaseClient,
     saleId: string
 ): Promise<DorataSaleReference> {
     const [proposalResult, indicationResult] = await Promise.all([
@@ -238,15 +248,21 @@ async function resolveDorataSaleReference(
     return { isValid: false, clientName: null }
 }
 
-async function getSalesEligibilityMap(supabaseAdmin: any, userIds: string[]) {
+async function getSalesEligibilityMap(supabaseAdmin: FinancialSupabaseClient, userIds: string[]) {
     const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)))
     if (uniqueUserIds.length === 0) return new Map<string, boolean>()
+
+    type SalesEligibilityRow = {
+        id: string
+        role?: string | null
+        sales_access?: boolean | null
+    }
 
     const selectResult = await supabaseAdmin
         .from('users')
         .select('id, role, sales_access')
         .in('id', uniqueUserIds)
-    let data = selectResult.data
+    let rows = (selectResult.data ?? []) as SalesEligibilityRow[]
     const selectError = selectResult.error
 
     const missingSalesAccessColumn =
@@ -258,11 +274,11 @@ async function getSalesEligibilityMap(supabaseAdmin: any, userIds: string[]) {
             .from('users')
             .select('id, role')
             .in('id', uniqueUserIds)
-        data = fallback.data
+        rows = (fallback.data ?? []) as SalesEligibilityRow[]
     }
 
     const map = new Map<string, boolean>()
-    for (const row of (data ?? []) as Array<{ id: string; role?: string | null; sales_access?: boolean | null }>) {
+    for (const row of rows) {
         map.set(row.id, hasSalesAccess(row))
     }
 
@@ -358,7 +374,7 @@ function buildFinancialRedirect(params: {
     return query ? `/admin/financeiro?${query}` : '/admin/financeiro'
 }
 
-async function buildClosureCode(supabaseAdmin: any, competenciaDate: string) {
+async function buildClosureCode(supabaseAdmin: FinancialSupabaseClient, competenciaDate: string) {
     const yearMonth = competenciaDate.slice(0, 7).replace('-', '')
     const prefix = `FECH-${yearMonth}`
 
@@ -384,7 +400,7 @@ async function buildClosureCode(supabaseAdmin: any, competenciaDate: string) {
 }
 
 async function createClosingRecord(params: {
-    supabaseAdmin: any
+    supabaseAdmin: FinancialSupabaseClient
     competencia: string
     totalItens: number
     totalValor: number
@@ -470,7 +486,7 @@ function buildTransactionsPayload(params: {
 }
 
 async function insertFinancialTransactions(params: {
-    supabaseAdmin: any
+    supabaseAdmin: FinancialSupabaseClient
     items: Array<z.infer<typeof closeableItemSchema>>
     paymentDate: string
     createdBy: string
@@ -702,12 +718,18 @@ export async function closeCommissionBatchFromForm(formData: FormData): Promise<
         }))
     }
 
-    const manualInserted = insertedItems?.filter((item: any) => item.source_kind === 'manual_elyakim') ?? []
+    const insertedClosureItems = (insertedItems ?? []) as ClosingInsertedItem[]
+    const manualInserted = insertedClosureItems.filter(
+        (item): item is ClosingInsertedItem & { source_ref_id: string; id: string } =>
+            item.source_kind === 'manual_elyakim' &&
+            typeof item.source_ref_id === 'string' &&
+            typeof item.id === 'string'
+    )
     if (manualInserted.length > 0) {
-        const manualIds = manualInserted.map((item: any) => item.source_ref_id)
+        const manualIds = manualInserted.map((item) => item.source_ref_id)
         const closureItemIdByManualId = new Map<string, string>()
         for (const item of manualInserted) {
-            closureItemIdByManualId.set(item.source_ref_id as string, item.id as string)
+            closureItemIdByManualId.set(item.source_ref_id, item.id)
         }
 
         for (const manualId of manualIds) {
@@ -917,7 +939,7 @@ export async function upsertDorataSaleCommissionPercent(input: { saleId: string;
     const { saleId, percent } = parsed.data
 
     const sessionClient = await createClient()
-    let supabaseAdmin: any = null
+    let supabaseAdmin: ServiceSupabaseClient | null = null
     try {
         supabaseAdmin = createSupabaseServiceClient()
     } catch (error) {
@@ -929,7 +951,7 @@ export async function upsertDorataSaleCommissionPercent(input: { saleId: string;
         : { isValid: false, clientName: null }
 
     if (!reference.isValid) {
-        reference = await resolveDorataSaleReference(sessionClient as any, saleId)
+        reference = await resolveDorataSaleReference(sessionClient, saleId)
     }
 
     if (!reference.isValid) {
@@ -954,7 +976,7 @@ export async function upsertDorataSaleCommissionPercent(input: { saleId: string;
     }
 
     if (lastError) {
-        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient, rulePayload)
         if (!sessionError) {
             revalidatePath('/admin/financeiro')
             return { success: true as const, message: 'Comissão individual de venda Dorata atualizada.' }
@@ -1018,7 +1040,7 @@ export async function upsertSellerRentalCommissionPercent(input: { userId: strin
     }
 
     if (lastError) {
-        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient, rulePayload)
         if (!sessionError) {
             revalidatePath('/admin/financeiro')
             return { success: true as const, message: 'Comissão do vendedor atualizada.' }
@@ -1067,7 +1089,7 @@ export async function upsertRentalDefaultCommissionPercent(input: { percent: num
     }
 
     if (lastError) {
-        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient, rulePayload)
         if (!sessionError) {
             revalidatePath('/admin/financeiro')
             return { success: true as const, message: 'Comissão padrão Rental atualizada.' }
@@ -1116,7 +1138,7 @@ export async function upsertRentalManagerOverridePercent(input: { percent: numbe
     }
 
     if (lastError) {
-        const sessionError = await upsertPricingRuleWithFallback(sessionClient as any, rulePayload)
+        const sessionError = await upsertPricingRuleWithFallback(sessionClient, rulePayload)
         if (!sessionError) {
             revalidatePath('/admin/financeiro')
             return { success: true as const, message: 'Override do gestor atualizado.' }

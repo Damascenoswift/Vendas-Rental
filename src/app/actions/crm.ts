@@ -257,7 +257,11 @@ export async function deleteCrmCard(cardId: string, brand: "dorata" | "rental") 
         return { error: fetchError?.message ?? "Card não encontrado" }
     }
 
-    const pipelineBrand = (card as any)?.pipeline?.brand ?? null
+    const pipelineData = card.pipeline
+    const pipelineBrand =
+        pipelineData && typeof pipelineData === "object" && !Array.isArray(pipelineData)
+            ? ((pipelineData as { brand?: string | null }).brand ?? null)
+            : null
     if (pipelineBrand && pipelineBrand !== brand) {
         return { error: "Card não pertence a este CRM." }
     }
@@ -333,14 +337,14 @@ export async function markDorataContractSigned(
 
         if (updates.status === "AGUARDANDO_ASSINATURA") {
             const { error: statusInteractionError } = await supabaseAdmin
-                .from("indicacao_interactions" as any)
+                .from("indicacao_interactions")
                 .insert({
                     indicacao_id: indicacaoId,
                     user_id: user.id,
                     type: "STATUS_CHANGE",
                     content: "Status alterado para: AGUARDANDO_ASSINATURA",
                     metadata: { new_status: "AGUARDANDO_ASSINATURA", source: "crm_dorata_contract_toggle" },
-                } as any)
+                })
 
             if (statusInteractionError) {
                 console.error("Erro ao registrar histórico de status (Dorata toggle):", statusInteractionError)
@@ -370,7 +374,7 @@ export async function markDorataContractSigned(
         }
 
         const { error: commissionInteractionError } = await supabaseAdmin
-            .from("indicacao_interactions" as any)
+            .from("indicacao_interactions")
             .insert({
                 indicacao_id: indicacaoId,
                 user_id: user.id,
@@ -382,7 +386,7 @@ export async function markDorataContractSigned(
                     manager_notified: false,
                     reverted: true,
                 },
-            } as any)
+            })
 
         if (commissionInteractionError) {
             console.error("Erro ao registrar interação de reversão de comissão Dorata:", commissionInteractionError)
@@ -463,14 +467,14 @@ export async function markDorataContractSigned(
 
     if (updates.status === "CONCLUIDA") {
         const { error: statusInteractionError } = await supabaseAdmin
-            .from("indicacao_interactions" as any)
+            .from("indicacao_interactions")
             .insert({
                 indicacao_id: indicacaoId,
                 user_id: user.id,
                 type: "STATUS_CHANGE",
                 content: "Status alterado para: CONCLUIDA",
                 metadata: { new_status: "CONCLUIDA", source: "crm_dorata_contract_signed" },
-            } as any)
+            })
 
         if (statusInteractionError) {
             console.error("Erro ao registrar histórico de status (Dorata):", statusInteractionError)
@@ -539,7 +543,7 @@ export async function markDorataContractSigned(
     }
 
     const { error: commissionInteractionError } = await supabaseAdmin
-        .from("indicacao_interactions" as any)
+        .from("indicacao_interactions")
         .insert({
             indicacao_id: indicacaoId,
             user_id: user.id,
@@ -552,7 +556,7 @@ export async function markDorataContractSigned(
                 commission_released: true,
                 manager_notified: notificationCreated,
             },
-        } as any)
+        })
 
     if (commissionInteractionError) {
         console.error("Erro ao registrar interação de comissão Dorata:", commissionInteractionError)

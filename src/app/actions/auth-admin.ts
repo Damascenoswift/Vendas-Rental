@@ -72,6 +72,15 @@ const isMissingWhatsAppInboxAccessColumnError = (error?: { message?: string | nu
     return /could not find the 'whatsapp_inbox_access' column/i.test(error?.message ?? '')
 }
 
+const isAuthUserNotFoundError = (error?: { status?: number; code?: string; message?: string } | null) => {
+    if (!error) return false
+    return (
+        error.status === 404 ||
+        error.code === 'user_not_found' ||
+        String(error.message || '').toLowerCase().includes('user not found')
+    )
+}
+
 const isValidRole = (value: unknown): value is UserRole => {
     return userRoleValues.includes(value as UserRole)
 }
@@ -249,7 +258,7 @@ export async function createUser(prevState: CreateUserState, formData: FormData)
     }
 
     // Upsert user profile to ensure row exists even if trigger is missing
-    const upsertPayload: any = {
+    const upsertPayload: Record<string, unknown> = {
         id: newUser.user.id,
         email,
         role: role,
@@ -448,7 +457,7 @@ export async function syncUsersFromAuth() {
         if (users.length === 0) break
 
         const rows = users.map((authUser) => {
-            const metadata: any = authUser.user_metadata ?? {}
+            const metadata = (authUser.user_metadata ?? {}) as Record<string, unknown>
             const role = isValidRole(metadata.role) ? metadata.role : 'vendedor_externo'
             const allowedBrands = normalizeBrands(metadata.brands ?? metadata.allowed_brands)
             const salesAccess = resolveSalesAccess(role, metadata.sales_access)
@@ -572,11 +581,7 @@ export async function deleteUser(userId: string) {
 
     // Soft delete to avoid FK blocks and still revoke access
     const { error } = await supabaseAdmin.auth.admin.deleteUser(userId, true)
-    const authMissing =
-        error &&
-        ((error as any).status === 404 ||
-            (error as any).code === 'user_not_found' ||
-            String(error.message || '').toLowerCase().includes('user not found'))
+    const authMissing = isAuthUserNotFoundError(error)
 
     if (error && !authMissing) {
         console.error('Erro ao excluir usuário:', error)
@@ -682,7 +687,7 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
         whatsapp_inbox_access ?? roleHasWhatsAppInboxAccessByDefault(role)
 
     // 1. Update public.users table (Profile)
-    const updatePayload: any = {
+    const updatePayload: Record<string, unknown> = {
         role,
         department: department || 'outro',
         allowed_brands: brands,
@@ -739,7 +744,11 @@ export async function updateUser(prevState: CreateUserState, formData: FormData)
     }
 
     // 2. Update auth.users metadata (to keep sync) and password if provided
-    const authUpdateData: any = {
+    const authUpdateData: {
+        email: string
+        user_metadata: Record<string, unknown>
+        password?: string
+    } = {
         email,
         user_metadata: {
             nome: name,

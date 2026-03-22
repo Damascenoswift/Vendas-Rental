@@ -5,6 +5,7 @@ import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { CrmBoard } from "@/components/admin/crm/crm-board"
 import { CrmToolbar } from "@/components/admin/crm/crm-toolbar"
+import type { CrmCardData } from "@/components/admin/crm/crm-card"
 
 export const dynamic = "force-dynamic"
 
@@ -122,8 +123,8 @@ export default async function AdminCrmPage() {
         scopedIndicacaoIds = (scopedIndicacoes ?? []).map((item: { id: string }) => item.id)
     }
 
-    let cards: any[] = []
-    let cardsData: any[] = []
+    let cards: CrmCardData[] = []
+    let cardsData: CrmCardData[] = []
     let cardsError: { message: string } | null = null
     let cardsIncludeContractProposal = true
     if (role === "supervisor" && (!scopedIndicacaoIds || scopedIndicacaoIds.length === 0)) {
@@ -169,13 +170,13 @@ export default async function AdminCrmPage() {
         }
 
         const cardsResult = await runCardsQuery(true)
-        cardsData = cardsResult.data ?? []
+        cardsData = (cardsResult.data ?? []) as CrmCardData[]
         cardsError = cardsResult.error as { message: string } | null
 
         if (cardsError && hasMissingContractProposalColumn(cardsError.message)) {
             cardsIncludeContractProposal = false
             const retryResult = await runCardsQuery(false)
-            cardsData = retryResult.data ?? []
+            cardsData = (retryResult.data ?? []) as CrmCardData[]
             cardsError = retryResult.error as { message: string } | null
         }
     }
@@ -184,7 +185,7 @@ export default async function AdminCrmPage() {
         const proposalIds = Array.from(
             new Set(
                 cardsData
-                    .map((card) => (card as any)?.indicacoes?.contract_proposal_id)
+                    .map((card) => card.indicacoes?.contract_proposal_id)
                     .filter((value): value is string => typeof value === "string" && value.length > 0)
             )
         )
@@ -200,7 +201,7 @@ export default async function AdminCrmPage() {
             } else if (contractProposals) {
                 const contractProposalById = new Map(contractProposals.map((proposal) => [proposal.id, proposal]))
                 cardsData = cardsData.map((card) => {
-                    const contractProposalId = (card as any)?.indicacoes?.contract_proposal_id as string | null | undefined
+                    const contractProposalId = card.indicacoes?.contract_proposal_id
                     const proposal = contractProposalId ? contractProposalById.get(contractProposalId) ?? null : null
                     const validProposal = proposal && proposal.client_id === card.indicacao_id ? proposal : null
                     return {
@@ -213,7 +214,7 @@ export default async function AdminCrmPage() {
     }
 
     if (cardsError) {
-        let fallbackCards: any[] = []
+        let fallbackCards: CrmCardData[] = []
         let fallbackError: { message: string } | null = null
 
         if (role !== "supervisor" || (scopedIndicacaoIds && scopedIndicacaoIds.length > 0)) {
@@ -228,7 +229,7 @@ export default async function AdminCrmPage() {
             }
 
             const fallbackResult = await fallbackQuery
-            fallbackCards = fallbackResult.data ?? []
+            fallbackCards = (fallbackResult.data ?? []) as CrmCardData[]
             fallbackError = fallbackResult.error as { message: string } | null
         }
 

@@ -1,5 +1,6 @@
 "use server"
 
+
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { Database } from "@/types/database"
@@ -477,7 +478,8 @@ export async function createProposal(
 
     let clientId = proposalData.client_id ?? options?.client?.indicacao_id ?? null
     const contact = options?.client?.contact ?? null
-    let contactId = ((proposalData as Record<string, any>).contact_id as string | null | undefined) ?? contact?.id ?? null
+    const proposalDataRecord = proposalData as Record<string, unknown>
+    let contactId = (proposalDataRecord.contact_id as string | null | undefined) ?? contact?.id ?? null
     let crmCreated = false
 
     if (!clientId && contact) {
@@ -795,7 +797,7 @@ export async function createProposal(
     }
 
     // 1. Create Proposal
-    const proposalPayload: Record<string, any> = {
+    const proposalPayload: Record<string, unknown> = {
         ...proposalData,
         client_id: clientId ?? proposalData.client_id ?? null,
         seller_id: resolvedSellerId,
@@ -831,7 +833,7 @@ export async function createProposal(
             delete calculation.commission_split
         }
 
-        proposalPayload.calculation = calculation as any
+        proposalPayload.calculation = calculation
     }
 
     let proposal: Proposal | null = null
@@ -839,7 +841,7 @@ export async function createProposal(
     while (true) {
         const insertResult = await supabaseAdmin
             .from('proposals')
-            .insert(proposalPayload as any)
+            .insert(proposalPayload as ProposalInsert)
             .select()
             .single()
 
@@ -975,8 +977,9 @@ export async function getProposalEditorData(proposalId: string): Promise<Proposa
             return null
         }
 
-        const rawCliente = (proposal as Record<string, any>).cliente
-        const rawContato = (proposal as Record<string, any>).contato
+        const proposalRecord = proposal as unknown as Record<string, unknown>
+        const rawCliente = proposalRecord.cliente
+        const rawContato = proposalRecord.contato
         const cliente = Array.isArray(rawCliente) ? (rawCliente[0] ?? null) : rawCliente
         const contato = Array.isArray(rawContato) ? (rawContato[0] ?? null) : rawContato
         const contactName =
@@ -985,17 +988,17 @@ export async function getProposalEditorData(proposalId: string): Promise<Proposa
             null
 
         return {
-            id: String((proposal as Record<string, any>).id),
-            source_mode: normalizeSourceMode((proposal as Record<string, any>).source_mode),
-            status: ((proposal as Record<string, any>).status as ProposalStatus | null) ?? null,
-            client_id: ((proposal as Record<string, any>).client_id as string | null) ?? null,
+            id: String(proposalRecord.id),
+            source_mode: normalizeSourceMode(proposalRecord.source_mode),
+            status: (proposalRecord.status as ProposalStatus | null) ?? null,
+            client_id: (proposalRecord.client_id as string | null) ?? null,
             client_name: (cliente?.nome as string | null) ?? null,
-            contact_id: ((proposal as Record<string, any>).contact_id as string | null) ?? null,
+            contact_id: (proposalRecord.contact_id as string | null) ?? null,
             contact_name: contactName,
-            seller_id: ((proposal as Record<string, any>).seller_id as string | null) ?? null,
-            total_power: ((proposal as Record<string, any>).total_power as number | null) ?? null,
-            total_value: ((proposal as Record<string, any>).total_value as number | null) ?? null,
-            calculation: asProposalCalculation((proposal as Record<string, any>).calculation),
+            seller_id: (proposalRecord.seller_id as string | null) ?? null,
+            total_power: (proposalRecord.total_power as number | null) ?? null,
+            total_value: (proposalRecord.total_value as number | null) ?? null,
+            calculation: asProposalCalculation(proposalRecord.calculation),
             contact: contato
                 ? {
                     id: (contato.id as string | null) ?? null,
@@ -1030,7 +1033,7 @@ export async function updateProposal(
     const supabaseAdmin = createSupabaseServiceClient()
     let includeSourceMode = "source_mode" in proposalData
 
-    const updatePayload: Record<string, any> = {
+    const updatePayload: Record<string, unknown> = {
         ...proposalData,
         status: normalizeProposalStatusForForm((proposalData.status as ProposalStatus | null | undefined) ?? null),
         updated_at: new Date().toISOString(),
@@ -1156,7 +1159,7 @@ export async function updateProposal(
 
     if (!shouldSyncWorkCard) {
         const { data: workLinks, error: workLinksError } = await supabaseAdmin
-            .from("obra_card_proposals" as any)
+            .from("obra_card_proposals" as never)
             .select("obra_id")
             .eq("proposal_id", proposalId)
             .limit(1)
@@ -1250,7 +1253,7 @@ export async function updateProposalStatus(id: string, newStatus: ProposalStatus
     // 3. Stock Logic
     // If becoming ACCEPTED -> Reserve Stock
     if (newStatus === 'accepted' && previousStatus !== 'accepted') {
-        const items = currentProposal.items as any[]
+        const items = (currentProposal.items ?? []) as Array<{ product_id: string | null; quantity: number }>
         for (const item of items) {
             if (item.product_id) {
                 await createStockMovement({
@@ -1268,7 +1271,7 @@ export async function updateProposalStatus(id: string, newStatus: ProposalStatus
 
     // If leaving ACCEPTED (e.g. to Rejected or Draft) -> Release Stock
     if (previousStatus === 'accepted' && newStatus !== 'accepted') {
-        const items = currentProposal.items as any[]
+        const items = (currentProposal.items ?? []) as Array<{ product_id: string | null; quantity: number }>
         for (const item of items) {
             if (item.product_id) {
                 await createStockMovement({

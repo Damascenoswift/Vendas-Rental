@@ -1,7 +1,6 @@
 "use server"
 
 import { createClient } from "@/lib/supabase/server"
-import { ContractType, Brand } from "@/lib/auth"
 import { revalidatePath } from "next/cache"
 import { generateContractHtml } from "@/lib/documents"
 import { z } from "zod"
@@ -43,7 +42,7 @@ const contractFormSchema = z.object({
 export type CreateContractState = {
     success: boolean
     message: string
-    errors?: any
+    errors?: Record<string, string[] | undefined>
     contractId?: string
 }
 
@@ -155,12 +154,13 @@ export async function createContract(prevState: CreateContractState, formData: F
     let draftHtml = ""
     try {
         draftHtml = await generateContractHtml(templateName, templateData)
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Falha ao gerar o HTML do contrato."
         console.error("Error generating HTML:", error)
         // Fallback or Error?
         // If template is missing, we might want to fail or just show a warning.
         // For now, let's fail to alert the user they need the template.
-        return { success: false, message: `Erro: ${error.message}` }
+        return { success: false, message: `Erro: ${message}` }
     }
 
     // 3. Save to DB

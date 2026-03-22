@@ -9,14 +9,6 @@ import PizZip from "pizzip"
 import Docxtemplater from "docxtemplater"
 import { revalidatePath } from "next/cache"
 
-// TYPES 
-interface ContractValues {
-    CM_total: number
-    valor_locacao_total: number
-    placas_total: number
-    preco_kwh_final: number
-}
-
 type ProposalContractSource = {
     id: string
     client_id: string | null
@@ -25,11 +17,52 @@ type ProposalContractSource = {
     total_power: number | null
     notes: string | null
     created_at: string
-    calculation: Record<string, any> | null
+    calculation: Record<string, unknown> | null
+}
+
+type ProposalCalculation = {
+    output?: {
+        dimensioning?: {
+            kWh_estimado?: number | string | null
+            kWp?: number | string | null
+        }
+        totals?: {
+            total_a_vista?: number | string | null
+        }
+    }
+    commission?: {
+        value?: number | string | null
+        percent?: number | string | null
+    }
+}
+
+type ContractMetadata = {
+    [key: string]: unknown
+    precoKwh?: number | string | null
+    desconto?: number | string | null
+    consumos?: unknown[]
+    consumoMedioPF?: number | string | null
+    consumoMedioKwh?: number | string | null
+    logradouro?: string | null
+    endereco?: string | null
+    numero?: string | number | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+    rg?: string | null
+    prazoContrato?: string | null
+    avisoPrevio?: string | null
+    codigoInstalacao?: string | null
+    localizacaoUC?: string | null
+    outrasUcs?: Array<{
+        codigoInstalacao?: string | null
+        localizacaoUC?: string | null
+    }>
 }
 
 // 1. Helper to load and fill template
-async function fillDocxTemplate(templateName: string, data: any): Promise<Buffer> {
+async function fillDocxTemplate(templateName: string, data: Record<string, unknown>): Promise<Buffer> {
     const content = await loadTemplateDocx(templateName)
     const zip = new PizZip(content)
 
@@ -73,7 +106,10 @@ export async function generateContractFromIndication(indicacaoId: string) {
     }
 
     let selectedProposal: ProposalContractSource | null = null
-    const selectedProposalId = (indicacao as any)?.contract_proposal_id as string | null | undefined
+    const indicacaoRecord = indicacao as Record<string, unknown>
+    const selectedProposalId = typeof indicacaoRecord.contract_proposal_id === "string"
+        ? indicacaoRecord.contract_proposal_id
+        : null
 
     if (selectedProposalId) {
         const { data: proposalBySelection, error: proposalSelectionError } = await supabaseAdmin
@@ -116,14 +152,17 @@ export async function generateContractFromIndication(indicacaoId: string) {
     const ownerId = indicacao.user_id
     const metadataPath = `${ownerId}/${indicacaoId}/metadata.json`
 
-    const { data: jsonBlob, error: storageError } = await supabaseAdmin.storage
+    const { data: jsonBlob } = await supabaseAdmin.storage
         .from('indicacoes')
         .download(metadataPath)
 
-    let metadata: any = {}
+    let metadata: ContractMetadata = {}
     if (jsonBlob) {
         const text = await jsonBlob.text()
-        metadata = JSON.parse(text)
+        const parsedMetadata: unknown = JSON.parse(text)
+        if (parsedMetadata && typeof parsedMetadata === "object" && !Array.isArray(parsedMetadata)) {
+            metadata = parsedMetadata as ContractMetadata
+        }
     } else {
         console.warn("Metadata not found, using generic data from columns")
     }
@@ -140,7 +179,7 @@ export async function generateContractFromIndication(indicacaoId: string) {
     // If list exists:
     let cmTotal = 0
     if (metadata.consumos && Array.isArray(metadata.consumos) && metadata.consumos.length > 0) {
-        const valid = metadata.consumos.filter((n: any) => Number(n) > 0).map(Number)
+        const valid = metadata.consumos.filter((n: unknown) => Number(n) > 0).map((n) => Number(n))
         if (valid.length > 0) {
             const avg = valid.reduce((a: number, b: number) => a + b, 0) / valid.length
             cmTotal = avg
@@ -199,7 +238,7 @@ export async function generateContractFromIndication(indicacaoId: string) {
         ? `${proposalTotalPower.toFixed(2)} kWp`
         : ""
     const proposalNotes = selectedProposal?.notes ?? ""
-    const proposalCalculation = (selectedProposal?.calculation ?? null) as Record<string, any> | null
+    const proposalCalculation = (selectedProposal?.calculation ?? null) as ProposalCalculation | null
     const proposalEstimatedKwh = Number(proposalCalculation?.output?.dimensioning?.kWh_estimado ?? 0)
     const proposalManualContractEstimate = getManualContractProductionEstimate(proposalCalculation)
     const proposalKwpOutput = Number(proposalCalculation?.output?.dimensioning?.kWp ?? 0)
@@ -326,9 +365,10 @@ export async function generateContractFromIndication(indicacaoId: string) {
     let docBuffer: Buffer
     try {
         docBuffer = await fillDocxTemplate(templateName, templateData)
-    } catch (e: any) {
+    } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Erro desconhecido no template."
         console.error("Template Error:", e)
-        return { success: false, message: `Erro no template: ${e.message}` }
+        return { success: false, message: `Erro no template: ${message}` }
     }
 
     // H. Upload to Storage

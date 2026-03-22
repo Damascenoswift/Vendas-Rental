@@ -1,10 +1,13 @@
 "use server"
 
+
 import { revalidatePath } from "next/cache"
+import type { SupabaseClient } from "@supabase/supabase-js"
 
 import { getProfile } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import type { Database } from "@/types/database"
 import {
     buildChecklistNotificationDedupeKey,
     buildChecklistNotificationMessage,
@@ -18,6 +21,8 @@ export type NotificationType =
     | "TASK_REPLY"
     | "TASK_SYSTEM"
     | "INTERNAL_CHAT_MESSAGE"
+
+type AuthProfileClient = SupabaseClient<Database>
 
 export type NotificationDomain = "TASK" | "INDICACAO" | "OBRA" | "CHAT" | "SYSTEM"
 
@@ -1308,7 +1313,7 @@ export async function getMyNotificationRules(): Promise<NotificationRulesRespons
         }
     }
 
-    const profile = await getProfile(supabase as any, user.id)
+    const profile = await getProfile(supabase as unknown as AuthProfileClient, user.id)
     const sector = normalizeSector(profile?.department)
     const canManageDefaults = profile?.role === "adm_mestre"
 
@@ -1417,7 +1422,7 @@ export async function upsertMyNotificationRule(params: {
 
     if (!user) return { error: "Unauthorized" }
 
-    const profile = await getProfile(supabase as any, user.id)
+    const profile = await getProfile(supabase as unknown as AuthProfileClient, user.id)
     const sector = normalizeSector(profile?.department)
     if (!sector) return { error: "Setor do usuário não configurado." }
 
@@ -1480,7 +1485,7 @@ export async function getDefaultRulesBySector(sector?: string | null) {
 
     if (!user) return [] as Array<Record<string, unknown>>
 
-    const profile = await getProfile(supabase as any, user.id)
+    const profile = await getProfile(supabase as unknown as AuthProfileClient, user.id)
     if (profile?.role !== "adm_mestre") {
         return [] as Array<Record<string, unknown>>
     }
@@ -1527,7 +1532,7 @@ export async function upsertDefaultRule(params: {
 
     if (!user) return { error: "Unauthorized" }
 
-    const profile = await getProfile(supabase as any, user.id)
+    const profile = await getProfile(supabase as unknown as AuthProfileClient, user.id)
     if (profile?.role !== "adm_mestre") {
         return { error: "Apenas adm_mestre pode atualizar regras globais." }
     }
@@ -2423,14 +2428,14 @@ export async function createWorkCommentNotifications(params: {
         return
     }
 
-    const [workResult, linkedTaskResult, actorResult, sectorMembers] = await Promise.all([
-        supabaseAdmin
-            .from("obra_cards" as any)
+        const [workResult, linkedTaskResult, actorResult, sectorMembers] = await Promise.all([
+            supabaseAdmin
+            .from("obra_cards" as never)
             .select("id, title, created_by")
             .eq("id", params.workId)
             .maybeSingle(),
-        supabaseAdmin
-            .from("obra_process_items" as any)
+            supabaseAdmin
+            .from("obra_process_items" as never)
             .select("linked_task_id")
             .eq("obra_id", params.workId)
             .not("linked_task_id", "is", null),
@@ -2543,9 +2548,9 @@ export async function createWorkProcessStatusChangedNotifications(params: {
         return
     }
 
-    const [workResult, actorResult, sectorMembers] = await Promise.all([
-        supabaseAdmin
-            .from("obra_cards" as any)
+        const [workResult, actorResult, sectorMembers] = await Promise.all([
+            supabaseAdmin
+            .from("obra_cards" as never)
             .select("id, title, created_by")
             .eq("id", params.workId)
             .maybeSingle(),
@@ -2639,9 +2644,9 @@ export async function createWorkReleasedForStartNotifications(params: {
         return
     }
 
-    const [workResult, actorResult, sectorMembers] = await Promise.all([
-        supabaseAdmin
-            .from("obra_cards" as any)
+        const [workResult, actorResult, sectorMembers] = await Promise.all([
+            supabaseAdmin
+            .from("obra_cards" as never)
             .select("id, title")
             .eq("id", params.workId)
             .maybeSingle(),
@@ -2718,14 +2723,14 @@ export async function createWorkImageAddedNotifications(params: {
         return
     }
 
-    const [workResult, linkedTaskResult, actorResult, sectorMembers] = await Promise.all([
-        supabaseAdmin
-            .from("obra_cards" as any)
+        const [workResult, linkedTaskResult, actorResult, sectorMembers] = await Promise.all([
+            supabaseAdmin
+            .from("obra_cards" as never)
             .select("id, title, created_by")
             .eq("id", params.workId)
             .maybeSingle(),
-        supabaseAdmin
-            .from("obra_process_items" as any)
+            supabaseAdmin
+            .from("obra_process_items" as never)
             .select("linked_task_id")
             .eq("obra_id", params.workId)
             .not("linked_task_id", "is", null),

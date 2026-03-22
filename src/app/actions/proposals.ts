@@ -53,6 +53,15 @@ function mapDeleteProposalError(error: { message?: string | null; details?: stri
   return "Erro ao excluir orçamento."
 }
 
+type ProposalCandidateRow = {
+  id?: string | null
+  nome?: string | null
+  email?: string | null
+  telefone?: string | null
+  documento?: string | null
+  user_id?: string | null
+}
+
 export async function getProposalsForIndication(indicacaoId: string) {
   const supabase = await createClient()
   const {
@@ -106,7 +115,7 @@ export async function getProposalsForIndication(indicacaoId: string) {
     const docCurrent = onlyDigits(indicacao.documento)
     const nameCurrent = normalizeText(indicacao.nome)
 
-    const candidatePools: any[] = []
+    const candidatePools: ProposalCandidateRow[] = []
 
     if (indicacao.user_id) {
       const { data: sameSellerCandidates, error: sameSellerError } = await supabaseAdmin
@@ -143,15 +152,15 @@ export async function getProposalsForIndication(indicacaoId: string) {
     }
 
     const seenCandidateIds = new Set<string>()
-    candidatePools.forEach((row: any) => {
-      const rowId = row?.id as string | undefined
+    candidatePools.forEach((row) => {
+      const rowId = row.id ?? undefined
       if (!rowId || seenCandidateIds.has(rowId)) return
       seenCandidateIds.add(rowId)
 
-      const emailRow = ((row?.email as string | null) ?? "").trim().toLowerCase()
-      const phoneRow = onlyDigits(row?.telefone as string | null)
-      const docRow = onlyDigits(row?.documento as string | null)
-      const nameRow = normalizeText(row?.nome as string | null)
+      const emailRow = (row.email ?? "").trim().toLowerCase()
+      const phoneRow = onlyDigits(row.telefone)
+      const docRow = onlyDigits(row.documento)
+      const nameRow = normalizeText(row.nome)
 
       const emailMatch = Boolean(emailCurrent && emailRow && emailCurrent === emailRow)
       const docMatch = Boolean(docCurrent && docRow && docCurrent === docRow)
@@ -190,7 +199,7 @@ export async function getProposalsForIndication(indicacaoId: string) {
 
   return {
     data: data ?? [],
-    selectedProposalId: (indicacao as any)?.contract_proposal_id ?? null,
+    selectedProposalId: indicacao?.contract_proposal_id ?? null,
   }
 }
 
@@ -275,7 +284,7 @@ export async function deleteProposal(proposalId: string) {
   }
 
   const { error: clearWorkPrimaryProposalError } = await supabaseAdmin
-    .from("obra_cards" as any)
+    .from("obra_cards")
     .update({ primary_proposal_id: null })
     .eq("primary_proposal_id", normalizedProposalId)
 
@@ -285,7 +294,7 @@ export async function deleteProposal(proposalId: string) {
   }
 
   const { error: clearWorkProposalLinksError } = await supabaseAdmin
-    .from("obra_card_proposals" as any)
+    .from("obra_card_proposals")
     .delete()
     .eq("proposal_id", normalizedProposalId)
 

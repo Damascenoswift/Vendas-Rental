@@ -55,6 +55,146 @@ type SellerRow = {
     email: string
 }
 
+type NewTransactionUserRow = Parameters<typeof NewTransactionDialog>[0]["users"][number]
+type FinancialListTransactionRow = Parameters<typeof FinancialList>[0]["transactions"][number]
+type PaymentRow = FinancialListTransactionRow & {
+    beneficiary_user_id: string | null
+}
+
+type UserLookupRow = {
+    id: string
+    name?: string | null
+    email?: string | null
+    role?: string | null
+    sales_access?: boolean | null
+    allowed_brands?: string[] | null
+}
+
+type PaidInvoiceRow = {
+    cliente_id?: string | null
+    mes_ano?: string | null
+}
+
+type ChecklistTaskRow = {
+    indicacao_id?: string | null
+    codigo_instalacao?: string | null
+    brand?: string | null
+}
+
+type SignedChecklistRow = {
+    created_at?: string | null
+    completed_at?: string | null
+    task?: ChecklistTaskRow | ChecklistTaskRow[] | null
+}
+
+type RelatedUserRow = {
+    id?: string | null
+    name?: string | null
+    email?: string | null
+}
+
+type ProposalClientRow = {
+    id?: string | null
+    nome?: string | null
+    marca?: string | null
+    status?: string | null
+    assinada_em?: string | null
+    contract_proposal_id?: string | null
+}
+
+type DorataProposalRow = {
+    id?: string | null
+    client_id?: string | null
+    status?: string | null
+    created_at?: string | null
+    total_value?: number | string | null
+    calculation?: unknown
+    seller_id?: string | null
+    seller?: RelatedUserRow | RelatedUserRow[] | null
+    cliente?: ProposalClientRow | ProposalClientRow[] | null
+}
+
+type IndicacaoRow = {
+    id?: string | null
+    created_at?: string | null
+    nome?: string | null
+    status?: string | null
+    valor?: number | string | null
+    user_id?: string | null
+    codigo_instalacao?: string | null
+    assinada_em?: string | null
+    users?: RelatedUserRow | null
+}
+
+type ClosingStatusRow = {
+    status?: string | null
+}
+
+type ClosingItemRow = {
+    id?: string | null
+    fechamento_id?: string | null
+    brand?: string | null
+    beneficiary_user_id?: string | null
+    transaction_type?: string | null
+    source_kind?: string | null
+    source_ref_id?: string | null
+    origin_lead_id?: string | null
+    descricao?: string | null
+    valor_liberado?: number | string | null
+    valor_pago?: number | string | null
+    pagamento_em?: string | null
+    snapshot?: unknown
+    created_at?: string | null
+    fechamento?: ClosingStatusRow | ClosingStatusRow[] | null
+}
+
+type ManualReportRow = {
+    competencia?: string | null
+}
+
+type ManualItemRow = {
+    id?: string | null
+    report_id?: string | null
+    beneficiary_user_id?: string | null
+    brand?: "rental" | "dorata" | null
+    transaction_type?: "comissao_venda" | "comissao_dorata" | "override_gestao" | null
+    client_name?: string | null
+    origin_lead_id?: string | null
+    valor?: number | string | null
+    status?: string | null
+    external_ref?: string | null
+    observacao?: string | null
+    created_at?: string | null
+    paid_at?: string | null
+    report?: ManualReportRow | ManualReportRow[] | null
+}
+
+type ClosingRow = {
+    id?: string | null
+    codigo?: string | null
+    competencia?: string | null
+    status?: string | null
+    total_itens?: number | string | null
+    total_valor?: number | string | null
+    fechado_em?: string | null
+    fechado_por?: string | null
+    observacao?: string | null
+    created_at?: string | null
+}
+
+type FinancialTransactionRow = {
+    id?: string | null
+    created_at?: string | null
+    origin_lead_id?: string | null
+    beneficiary_user_id?: string | null
+    amount?: number | string | null
+    type?: string | null
+    status?: string | null
+    description?: string | null
+    beneficiary?: { name?: string | null; email?: string | null } | Array<{ name?: string | null; email?: string | null }> | null
+    creator?: { name?: string | null } | Array<{ name?: string | null }> | null
+}
+
 type DorataForecastSeller = {
     id?: string | null
     name?: string | null
@@ -83,6 +223,37 @@ type DorataForecastRow = {
 
 const COMMISSION_SPLIT_PERCENT_OPTIONS = new Set<number>([1, 1.5, 2, 2.5, 3])
 
+function toRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return value as Record<string, unknown>
+}
+
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+    if (Array.isArray(value)) return value[0] ?? null
+    return value ?? null
+}
+
+function toNullableString(value: unknown): string | null {
+    return typeof value === "string" ? value : null
+}
+
+function normalizeBeneficiary(value: FinancialTransactionRow["beneficiary"]): FinancialListTransactionRow["beneficiary"] {
+    const beneficiary = firstRelation(value)
+    if (!beneficiary) return null
+    return {
+        name: beneficiary.name ?? "—",
+        email: beneficiary.email ?? "",
+    }
+}
+
+function normalizeCreator(value: FinancialTransactionRow["creator"]): FinancialListTransactionRow["creator"] {
+    const creator = firstRelation(value)
+    if (!creator) return null
+    return {
+        name: creator.name ?? "Sistema",
+    }
+}
+
 function toNumber(value: unknown) {
     const num = Number(value)
     return Number.isFinite(num) ? num : 0
@@ -100,9 +271,12 @@ function toPercentDisplay(rawValue: unknown, fallbackPercent = 0) {
     return raw > 1 ? raw : raw * 100
 }
 
-function parseProposalCommissionSplit(calculation: any) {
-    const split = calculation?.commission_split
-    if (!split || typeof split !== "object" || Array.isArray(split)) return null
+function parseProposalCommissionSplit(calculation: unknown) {
+    const calculationRecord = toRecord(calculation)
+    if (!calculationRecord) return null
+
+    const split = toRecord(calculationRecord.commission_split)
+    if (!split) return null
     if (split.enabled === false) return null
 
     const sellerId = typeof split.seller_id === "string" ? split.seller_id.trim() : ""
@@ -156,10 +330,11 @@ function buildFinancialPageHref(params: {
     return query ? `/admin/financeiro?${query}` : "/admin/financeiro"
 }
 
-function extractRentalBase(metadata: any) {
-    const consumoMedioPf = toNumber(metadata?.consumoMedioPF ?? metadata?.consumo_medio_pf ?? 0)
-    const precoKwh = toNumber(metadata?.precoKwh ?? metadata?.preco_kwh ?? 0)
-    const descontoRaw = toNumber(metadata?.desconto ?? metadata?.desconto_percent ?? 0)
+function extractRentalBase(metadata: unknown) {
+    const metadataRecord = toRecord(metadata)
+    const consumoMedioPf = toNumber(metadataRecord?.consumoMedioPF ?? metadataRecord?.consumo_medio_pf ?? 0)
+    const precoKwh = toNumber(metadataRecord?.precoKwh ?? metadataRecord?.preco_kwh ?? 0)
+    const descontoRaw = toNumber(metadataRecord?.desconto ?? metadataRecord?.desconto_percent ?? 0)
     const descontoPercent = Math.min(Math.max(descontoRaw, 0), 100)
 
     const hasBase = consumoMedioPf > 0 && precoKwh > 0
@@ -297,14 +472,16 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             .limit(300),
     ])
 
-    const dorataProposals = dorataProposalsResult.data ?? []
-    const rentalIndicacoes = rentalIndicacoesResult.data ?? []
-    const dorataIndicacoes = dorataIndicacoesResult.data ?? []
-    const paidInvoices = paidInvoicesResult.data ?? []
-    const signedContractChecklists = signedContractChecklistsResult.data ?? []
-    const closings = closingsResult.data ?? []
-    const closingItems = closingItemsResult.data ?? []
-    const manualItems = manualItemsResult.data ?? []
+    const dorataProposals = (dorataProposalsResult.data ?? []) as DorataProposalRow[]
+    const rentalIndicacoes = (rentalIndicacoesResult.data ?? []) as IndicacaoRow[]
+    const dorataIndicacoes = (dorataIndicacoesResult.data ?? []) as IndicacaoRow[]
+    const paidInvoiceRows = (paidInvoicesResult.data ?? []) as PaidInvoiceRow[]
+    const signedContractChecklistRows = (signedContractChecklistsResult.data ?? []) as SignedChecklistRow[]
+    const closings = (closingsResult.data ?? []) as ClosingRow[]
+    const closingItemsRowsData = (closingItemsResult.data ?? []) as ClosingItemRow[]
+    const manualItemsRowsData = (manualItemsResult.data ?? []) as ManualItemRow[]
+    const usersRows = (users ?? []) as UserLookupRow[]
+    const transactionRows = (transactions ?? []) as FinancialTransactionRow[]
 
     const formatCurrency = (value: number) => new Intl.NumberFormat("pt-BR", {
         style: "currency",
@@ -345,9 +522,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         sellerPercentDisplayByUserId.set(userId, toPercentDisplay(rule.value, rentalDefaultPercentDisplay))
     }
 
-    const usersRows = users as any[]
     const salesEligibleUsers = usersRows.filter((item) => hasSalesAccess(item))
-    const salesEligibleUserIds = new Set(salesEligibleUsers.map((item) => item.id as string))
+    const salesEligibleUserIds = new Set(salesEligibleUsers.map((item) => item.id))
 
     const managerUserCandidate = usersRows.find((item) => normalizeText(item.name) === "guilherme damasceno")
     const managerUserId = managerUserCandidate && hasSalesAccess(managerUserCandidate)
@@ -357,9 +533,10 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const usersById = new Map(usersRows.map((item) => [item.id, item]))
 
     const paidInvoiceDateByLead = new Map<string, string>()
-    for (const invoice of paidInvoices) {
-        const leadId = (invoice as any).cliente_id as string
-        const mes = ((invoice as any).mes_ano as string) || ""
+    for (const invoice of paidInvoiceRows) {
+        const leadId = invoice.cliente_id?.trim()
+        if (!leadId) continue
+        const mes = (invoice.mes_ano ?? "") || ""
         const current = paidInvoiceDateByLead.get(leadId)
         if (!current || mes > current) {
             paidInvoiceDateByLead.set(leadId, mes)
@@ -369,45 +546,47 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const paidCommissionByLeadBeneficiary = new Map<string, number>()
     const paidOverrideByLeadBeneficiary = new Map<string, number>()
     const paidDorataByLeadBeneficiary = new Map<string, number>()
-    const useClosureItemsAsPaidSource = (transactions as any[]).length === 0 && (closingItems as any[]).length > 0
+    const useClosureItemsAsPaidSource = transactionRows.length === 0 && closingItemsRowsData.length > 0
     if (useClosureItemsAsPaidSource) {
-        for (const item of closingItems as any[]) {
-            const closingRecord = Array.isArray(item.fechamento) ? item.fechamento[0] : item.fechamento
+        for (const item of closingItemsRowsData) {
+            const closingRecord = firstRelation(item.fechamento)
             if (closingRecord?.status === 'cancelado') continue
             if (!item.origin_lead_id || !item.beneficiary_user_id) continue
             const isSalesEligibleBeneficiary = salesEligibleUserIds.has(item.beneficiary_user_id)
-            if (!isSalesEligibleBeneficiary && item.transaction_type !== 'comissao_dorata') continue
+            const transactionType = item.transaction_type ?? ""
+            if (!isSalesEligibleBeneficiary && transactionType !== 'comissao_dorata') continue
             const amount = toNumber(item.valor_pago)
             if (amount <= 0) continue
             const key = `${item.origin_lead_id}:${item.beneficiary_user_id}`
 
-            if (item.transaction_type === 'comissao_venda') {
+            if (transactionType === 'comissao_venda') {
                 paidCommissionByLeadBeneficiary.set(key, (paidCommissionByLeadBeneficiary.get(key) ?? 0) + amount)
             }
-            if (item.transaction_type === 'override_gestao') {
+            if (transactionType === 'override_gestao') {
                 paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
             }
-            if (item.transaction_type === 'comissao_dorata') {
+            if (transactionType === 'comissao_dorata') {
                 paidDorataByLeadBeneficiary.set(key, (paidDorataByLeadBeneficiary.get(key) ?? 0) + amount)
             }
         }
     } else {
-        for (const tx of transactions as any[]) {
+        for (const tx of transactionRows) {
             if (tx.status !== 'pago') continue
             if (!tx.origin_lead_id || !tx.beneficiary_user_id) continue
             const isSalesEligibleBeneficiary = salesEligibleUserIds.has(tx.beneficiary_user_id)
-            if (!isSalesEligibleBeneficiary && tx.type !== 'comissao_dorata') continue
+            const transactionType = tx.type ?? ""
+            if (!isSalesEligibleBeneficiary && transactionType !== 'comissao_dorata') continue
             const amount = toNumber(tx.amount)
             if (amount <= 0) continue
             const key = `${tx.origin_lead_id}:${tx.beneficiary_user_id}`
 
-            if (tx.type === 'comissao_venda') {
+            if (transactionType === 'comissao_venda') {
                 paidCommissionByLeadBeneficiary.set(key, (paidCommissionByLeadBeneficiary.get(key) ?? 0) + amount)
             }
-            if (tx.type === 'override_gestao') {
+            if (transactionType === 'override_gestao') {
                 paidOverrideByLeadBeneficiary.set(key, (paidOverrideByLeadBeneficiary.get(key) ?? 0) + amount)
             }
-            if (tx.type === 'comissao_dorata') {
+            if (transactionType === 'comissao_dorata') {
                 paidDorataByLeadBeneficiary.set(key, (paidDorataByLeadBeneficiary.get(key) ?? 0) + amount)
             }
         }
@@ -415,49 +594,55 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
     const signedTaskDateByLead = new Map<string, string>()
     const signedTaskDateByInstallCode = new Map<string, string>()
-    for (const item of signedContractChecklists as any[]) {
-        const task = Array.isArray(item.task) ? item.task[0] : item.task
+    for (const item of signedContractChecklistRows) {
+        const task = firstRelation(item.task)
         if (!task) continue
 
         const brand = normalizeText(task.brand)
         if (brand !== 'rental') continue
 
-        const completedAt = ((item.completed_at as string | null) ?? (item.created_at as string | null) ?? null)
+        const completedAt = item.completed_at ?? item.created_at ?? null
         if (!completedAt) continue
 
-        const leadId = (task.indicacao_id as string | null) ?? null
+        const leadId = task.indicacao_id ?? null
         if (leadId) {
             const current = signedTaskDateByLead.get(leadId)
             if (!current || completedAt > current) signedTaskDateByLead.set(leadId, completedAt)
         }
 
-        const installationCode = (task.codigo_instalacao as string | null)?.trim() ?? null
+        const installationCode = task.codigo_instalacao?.trim() ?? null
         if (installationCode) {
             const current = signedTaskDateByInstallCode.get(installationCode)
             if (!current || completedAt > current) signedTaskDateByInstallCode.set(installationCode, completedAt)
         }
     }
 
-    const rentalMetadataEntries = await Promise.all(
-        rentalIndicacoes.map(async (indicacao: any) => {
-            const ownerId = indicacao.user_id as string | null
-            if (!ownerId) return [indicacao.id as string, null] as const
+    const rentalMetadataEntriesRaw = await Promise.all(
+        rentalIndicacoes.map(async (indicacao) => {
+            const leadId = indicacao.id ?? null
+            if (!leadId) return null
+
+            const ownerId = indicacao.user_id ?? null
+            if (!ownerId) return [leadId, null] as const
 
             const { data: metadataFile, error } = await supabaseAdmin.storage
                 .from("indicacoes")
-                .download(`${ownerId}/${indicacao.id}/metadata.json`)
+                .download(`${ownerId}/${leadId}/metadata.json`)
 
-            if (error || !metadataFile) return [indicacao.id as string, null] as const
+            if (error || !metadataFile) return [leadId, null] as const
 
             try {
                 const text = await metadataFile.text()
-                return [indicacao.id as string, JSON.parse(text)] as const
+                return [leadId, JSON.parse(text)] as const
             } catch {
-                return [indicacao.id as string, null] as const
+                return [leadId, null] as const
             }
         })
     )
-    const rentalMetadataByLead = new Map(rentalMetadataEntries)
+    const rentalMetadataEntries = rentalMetadataEntriesRaw.filter(
+        (entry): entry is readonly [string, unknown | null] => Boolean(entry)
+    )
+    const rentalMetadataByLead = new Map<string, unknown | null>(rentalMetadataEntries)
 
     const proposalStatusPriority: Record<string, number> = {
         accepted: 0,
@@ -465,15 +650,15 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         draft: 2,
     }
 
-    const dorataProposalCandidates = dorataProposals.filter((proposal: any) => {
-        const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
+    const dorataProposalCandidates = dorataProposals.filter((proposal) => {
+        const cliente = firstRelation(proposal.cliente)
         return cliente?.marca === 'dorata'
     })
 
-    const dorataProposalGroups = new Map<string, any[]>()
+    const dorataProposalGroups = new Map<string, DorataProposalRow[]>()
     for (const proposal of dorataProposalCandidates) {
-        const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
-        const clientId = (cliente?.id as string | null) ?? (proposal?.client_id as string | null) ?? null
+        const cliente = firstRelation(proposal.cliente)
+        const clientId = cliente?.id ?? proposal.client_id ?? null
         if (!clientId) continue
 
         const current = dorataProposalGroups.get(clientId) ?? []
@@ -483,8 +668,8 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
 
     const dorataProposalsFiltered = Array.from(dorataProposalGroups.values())
         .map((group) => {
-            const firstClient = Array.isArray(group[0]?.cliente) ? group[0]?.cliente[0] : group[0]?.cliente
-            const selectedContractProposalId = (firstClient?.contract_proposal_id as string | null) ?? null
+            const firstClient = firstRelation(group[0]?.cliente)
+            const selectedContractProposalId = firstClient?.contract_proposal_id ?? null
 
             if (selectedContractProposalId) {
                 const selectedProposal = group.find((proposal) => proposal.id === selectedContractProposalId)
@@ -497,28 +682,30 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                     const rankA = proposalStatusPriority[a.status ?? ""] ?? 99
                     const rankB = proposalStatusPriority[b.status ?? ""] ?? 99
                     if (rankA !== rankB) return rankA - rankB
-                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    return new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
                 })[0] ?? null
         })
-        .filter(Boolean)
+        .filter((proposal): proposal is DorataProposalRow => Boolean(proposal))
 
     const dorataProposalClientIds = new Set(
         dorataProposalsFiltered
-            .map((proposal: any) => {
-                const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
-                return cliente?.id ?? proposal?.client_id
+            .map((proposal) => {
+                const cliente = firstRelation(proposal.cliente)
+                return cliente?.id ?? proposal.client_id ?? null
             })
-            .filter(Boolean)
+            .filter((clientId): clientId is string => typeof clientId === "string" && clientId.length > 0)
     )
 
-    const dorataForecastsFromProposals: DorataForecastRow[] = dorataProposalsFiltered.flatMap((proposal: any): DorataForecastRow[] => {
-        const cliente = Array.isArray(proposal?.cliente) ? proposal.cliente[0] : proposal?.cliente
-        const calculation = proposal.calculation as any
-        const storedCommission = calculation?.commission
+    const dorataForecastsFromProposals: DorataForecastRow[] = dorataProposalsFiltered.flatMap((proposal): DorataForecastRow[] => {
+        const saleId = proposal.id ?? null
+        if (!saleId) return []
+
+        const cliente = firstRelation(proposal.cliente)
+        const calculation = toRecord(proposal.calculation)
+        const storedCommission = toRecord(calculation?.commission)
         const contractValue = Number(storedCommission?.base_value ?? proposal.total_value ?? 0)
         const storedPercentRaw = Number(storedCommission?.percent ?? defaultDorataCommissionPercent)
         const storedPercent = storedPercentRaw > 1 ? storedPercentRaw / 100 : storedPercentRaw
-        const saleId = proposal.id as string
         const customPercent = dorataPercentBySaleId.get(saleId)
         const customPercentDisplay = dorataPercentDisplayBySaleId.get(saleId)
         const commissionPercent = customPercent ?? storedPercent
@@ -528,29 +715,37 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 ? contractValue * customPercent
                 : (storedCommission?.value ?? contractValue * commissionPercent)
         )
-        const signedAt = (cliente?.assinada_em as string | null) ?? null
+        const signedAt = cliente?.assinada_em ?? null
         const signed = Boolean(signedAt) || cliente?.status === "CONCLUIDA"
         const proposalClientName =
-            (cliente?.nome as string | null) ??
-            (calculation?.client_name as string | null) ??
-            (calculation?.cliente_nome as string | null) ??
+            toNullableString(cliente?.nome) ??
+            toNullableString(calculation?.client_name) ??
+            toNullableString(calculation?.cliente_nome) ??
             null
         const commissionPercentSource = customPercent !== undefined
             ? "Cliente"
             : (storedCommission?.percent != null || storedCommission?.value != null)
                 ? "Orçamento"
                 : "Padrão"
-        const seller = Array.isArray(proposal.seller) ? proposal.seller[0] : proposal.seller
-        const sellerId = (seller?.id as string | null) ?? (proposal.seller_id as string | null) ?? null
-        const leadId = (cliente?.id as string | null) ?? (proposal.client_id as string | null) ?? null
+        const sellerData = firstRelation(proposal.seller)
+        const seller = sellerData
+            ? {
+                id: sellerData.id ?? null,
+                name: sellerData.name ?? null,
+                email: sellerData.email ?? null,
+            }
+            : null
+        const sellerId = sellerData?.id ?? proposal.seller_id ?? null
+        const leadId = cliente?.id ?? proposal.client_id ?? null
         const splitConfig = parseProposalCommissionSplit(calculation)
+        const createdAt = proposal.created_at ?? new Date().toISOString()
 
         if (!splitConfig || !sellerId || splitConfig.sellerId === sellerId) {
             return [{
                 id: `${saleId}:${sellerId ?? "sem-vendedor"}`,
                 saleId,
                 leadId,
-                created_at: proposal.created_at as string,
+                created_at: createdAt,
                 sellerId,
                 seller,
                 nome: proposalClientName,
@@ -591,7 +786,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 id: `${saleId}:${sellerId}`,
                 saleId,
                 leadId,
-                created_at: proposal.created_at as string,
+                created_at: createdAt,
                 sellerId,
                 seller,
                 nome: proposalClientName,
@@ -610,7 +805,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 id: `${saleId}:${splitConfig.sellerId}`,
                 saleId,
                 leadId,
-                created_at: proposal.created_at as string,
+                created_at: createdAt,
                 sellerId: splitConfig.sellerId,
                 seller: splitSeller,
                 nome: proposalClientName,
@@ -629,25 +824,35 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     })
 
     const dorataForecastsFromIndicacoes: DorataForecastRow[] = dorataIndicacoes
-        .filter((indicacao: any) => !dorataProposalClientIds.has(indicacao.id))
-        .map((indicacao: any) => {
+        .filter((indicacao) => Boolean(indicacao.id) && !dorataProposalClientIds.has(indicacao.id ?? ""))
+        .flatMap((indicacao): DorataForecastRow[] => {
+            const leadId = indicacao.id ?? null
+            if (!leadId) return []
             const contractValue = Number(indicacao.valor ?? 0)
-            const customPercent = dorataPercentBySaleId.get(indicacao.id as string)
-            const customPercentDisplay = dorataPercentDisplayBySaleId.get(indicacao.id as string)
+            const customPercent = dorataPercentBySaleId.get(leadId)
+            const customPercentDisplay = dorataPercentDisplayBySaleId.get(leadId)
             const commissionPercent = customPercent ?? Number(defaultDorataCommissionPercent)
             const commissionPercentDisplay = customPercentDisplay ?? toPercentDisplay(defaultDorataCommissionPercent, 3)
             const commissionValue = contractValue * commissionPercent
-            const signedAt = (indicacao.assinada_em as string | null) ?? null
+            const signedAt = indicacao.assinada_em ?? null
             const signed = Boolean(signedAt) || indicacao.status === "CONCLUIDA"
+            const sellerId = indicacao.users?.id ?? indicacao.user_id ?? null
+            const createdAt = indicacao.created_at ?? new Date().toISOString()
 
-            return {
-                id: `${indicacao.id as string}:${(indicacao.users?.id as string | null) ?? (indicacao.user_id as string | null) ?? "sem-vendedor"}`,
-                saleId: indicacao.id as string,
-                leadId: indicacao.id as string,
-                created_at: indicacao.created_at as string,
-                sellerId: (indicacao.users?.id as string | null) ?? (indicacao.user_id as string | null) ?? null,
-                seller: indicacao.users,
-                nome: (indicacao.nome as string | null) ?? null,
+            return [{
+                id: `${leadId}:${sellerId ?? "sem-vendedor"}`,
+                saleId: leadId,
+                leadId,
+                created_at: createdAt,
+                sellerId,
+                seller: indicacao.users
+                    ? {
+                        id: indicacao.users.id ?? null,
+                        name: indicacao.users.name ?? null,
+                        email: indicacao.users.email ?? null,
+                    }
+                    : null,
+                nome: indicacao.nome ?? null,
                 contractValue,
                 commissionPercent,
                 commissionPercentDisplay,
@@ -658,7 +863,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 commissionStatus: signed ? "Liberado" : "Aguardando contrato assinado",
                 splitLabel: null,
                 isSplitRecipient: false,
-            }
+            }]
         })
 
     const dorataForecasts = [...dorataForecastsFromProposals, ...dorataForecastsFromIndicacoes]
@@ -667,10 +872,13 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         ? dorataForecasts.filter((item) => item.sellerId === sellerFilterId)
         : dorataForecasts
 
-    const rentalForecastRows = rentalIndicacoes.map((indicacao: any) => {
-        const metadata = rentalMetadataByLead.get(indicacao.id) ?? null
+    const rentalForecastRows = rentalIndicacoes.flatMap((indicacao) => {
+        const leadId = indicacao.id ?? null
+        const sellerId = indicacao.user_id ?? null
+        if (!leadId || !sellerId) return []
+
+        const metadata = rentalMetadataByLead.get(leadId) ?? null
         const base = extractRentalBase(metadata)
-        const sellerId = indicacao.user_id as string
         const sellerPercent = sellerPercentByUserId.get(sellerId) ?? rentalDefaultCommissionPercent
         const sellerPercentDisplay = sellerPercentDisplayByUserId.get(sellerId) ?? rentalDefaultPercentDisplay
         const hasCommissionBase = base.hasBase
@@ -679,17 +887,17 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         const allowsThirtyAdvance = Boolean(managerUserId) && sellerId === managerUserId
         const thirtyPercentValue = allowsThirtyAdvance ? commissionTotal * 0.3 : 0
         const postInvoiceForecast = allowsThirtyAdvance ? commissionTotal * 0.7 : commissionTotal
-        const installationCode = (indicacao.codigo_instalacao as string | null)?.trim() ?? null
+        const installationCode = indicacao.codigo_instalacao?.trim() ?? null
         const signedFromTask =
-            signedTaskDateByLead.get(indicacao.id as string) ??
+            signedTaskDateByLead.get(leadId) ??
             (installationCode ? signedTaskDateByInstallCode.get(installationCode) : null) ??
             null
-        const signedAt = signedFromTask ?? (indicacao.assinada_em as string | null) ?? null
+        const signedAt = signedFromTask ?? indicacao.assinada_em ?? null
         const signed = Boolean(signedAt) || indicacao.status === "CONCLUIDA"
-        const paidInvoiceDate = paidInvoiceDateByLead.get(indicacao.id as string) ?? null
+        const paidInvoiceDate = paidInvoiceDateByLead.get(leadId) ?? null
         const hasPaidInvoice = Boolean(paidInvoiceDate)
 
-        const paidSellerCommission = paidCommissionByLeadBeneficiary.get(`${indicacao.id}:${sellerId}`) ?? 0
+        const paidSellerCommission = paidCommissionByLeadBeneficiary.get(`${leadId}:${sellerId}`) ?? 0
         const thirtyStatus = !hasCommissionBase
             ? "Sem consumo médio PF"
             : allowsThirtyAdvance
@@ -707,11 +915,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 ? Math.max(commissionTotal - paidSellerCommission, 0)
                 : postInvoiceForecast
 
-        return {
-            id: indicacao.id as string,
-            createdAt: indicacao.created_at as string,
-            nome: indicacao.nome as string,
-            status: indicacao.status as string,
+        return [{
+            id: leadId,
+            createdAt: indicacao.created_at ?? new Date().toISOString(),
+            nome: indicacao.nome ?? "Sem nome",
+            status: indicacao.status ?? "",
             sellerId,
             sellerName: indicacao.users?.name || indicacao.users?.email || "Sem vendedor",
             sellerEmail: indicacao.users?.email || "",
@@ -731,7 +939,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
             paidSellerCommission,
             hasCommissionBase,
             allowsThirtyAdvance,
-        }
+        }]
     }).filter((row) => salesEligibleUserIds.has(row.sellerId))
 
     const filteredRentalForecastRows = sellerFilterId
@@ -812,6 +1020,11 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     }
 
     const sellerOptions = Array.from(sellerRowsMap.values()).sort((a, b) => a.name.localeCompare(b.name))
+    const newTransactionUsers: NewTransactionUserRow[] = sellerOptions.map((seller) => ({
+        id: seller.id,
+        name: seller.name,
+        email: seller.email,
+    }))
     const payableSellerOptions = sellerOptions.filter((seller) => salesEligibleUserIds.has(seller.id))
     const rentalSellerOptions = sellerOptions.filter((seller) => {
         const userRow = usersById.get(seller.id)
@@ -888,17 +1101,28 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
     const totalRentalSeventyAdjusted = visibleRentalForecastRows.reduce((sum, item) => sum + item.seventyAdjusted, 0)
     const totalManagerOverride = visibleManagerOverrideRows.reduce((sum, item) => sum + item.commissionTotal, 0)
 
-    const salesTransactions = (transactions as any[])
+    const salesTransactions: PaymentRow[] = transactionRows
         .filter((tx) => {
             if (!tx.beneficiary_user_id) return false
             if (salesEligibleUserIds.has(tx.beneficiary_user_id)) return true
             return tx.type === "comissao_dorata"
         })
+        .map((tx) => ({
+            id: tx.id ?? "",
+            created_at: tx.created_at ?? new Date().toISOString(),
+            amount: Number(tx.amount ?? 0),
+            type: tx.type ?? "comissao_venda",
+            status: tx.status ?? "pendente",
+            description: tx.description ?? null,
+            beneficiary: normalizeBeneficiary(tx.beneficiary),
+            creator: normalizeCreator(tx.creator),
+            beneficiary_user_id: tx.beneficiary_user_id ?? null,
+        }))
 
-    const fallbackSalesTransactions = useClosureItemsAsPaidSource
-        ? (closingItems as any[])
+    const fallbackSalesTransactions: PaymentRow[] = useClosureItemsAsPaidSource
+        ? closingItemsRowsData
             .filter((item) => {
-                const closingRecord = Array.isArray(item.fechamento) ? item.fechamento[0] : item.fechamento
+                const closingRecord = firstRelation(item.fechamento)
                 return closingRecord?.status !== 'cancelado'
             })
             .filter((item) => {
@@ -907,22 +1131,22 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 return item.transaction_type === "comissao_dorata"
             })
             .map((item) => {
-                const beneficiary = usersById.get(item.beneficiary_user_id)
+                const beneficiary = item.beneficiary_user_id ? usersById.get(item.beneficiary_user_id) : null
                 return {
-                    id: item.id as string,
-                    created_at: (item.pagamento_em as string | null) ?? new Date().toISOString(),
+                    id: item.id ?? "",
+                    created_at: item.pagamento_em ?? new Date().toISOString(),
                     amount: Number(item.valor_pago ?? 0),
-                    type: (item.transaction_type as string) ?? 'comissao_venda',
+                    type: item.transaction_type ?? 'comissao_venda',
                     status: 'pago',
-                    description: (item.descricao as string | null) ?? 'Fechamento de comissão',
+                    description: item.descricao ?? 'Fechamento de comissão',
                     beneficiary: beneficiary
                         ? {
-                            name: (beneficiary.name as string) || (beneficiary.email as string) || '—',
-                            email: (beneficiary.email as string) || '',
+                            name: beneficiary.name || beneficiary.email || '—',
+                            email: beneficiary.email || '',
                         }
                         : null,
                     creator: null,
-                    beneficiary_user_id: item.beneficiary_user_id as string,
+                    beneficiary_user_id: item.beneficiary_user_id ?? null,
                 }
             })
         : []
@@ -932,45 +1156,51 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         : salesTransactions
 
     const filteredTransactions = sellerFilterId
-        ? paymentSourceRows.filter((tx: any) => tx.beneficiary_user_id === sellerFilterId)
+        ? paymentSourceRows.filter((tx) => tx.beneficiary_user_id === sellerFilterId)
         : paymentSourceRows
 
-    const dorataPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_dorata')
-    const rentalPayments = filteredTransactions.filter((tx: any) => tx.type === 'comissao_venda')
-    const overridePayments = filteredTransactions.filter((tx: any) => tx.type === 'override_gestao')
+    const dorataPayments = filteredTransactions.filter((tx) => tx.type === 'comissao_dorata')
+    const rentalPayments = filteredTransactions.filter((tx) => tx.type === 'comissao_venda')
+    const overridePayments = filteredTransactions.filter((tx) => tx.type === 'override_gestao')
     const visiblePaymentRows = isDorataBrandView
         ? dorataPayments
         : isRentalBrandView
             ? [...rentalPayments, ...overridePayments]
             : filteredTransactions
 
-    const dorataPaymentsTotal = dorataPayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
-    const rentalPaymentsTotal = rentalPayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
-    const overridePaymentsTotal = overridePayments.reduce((sum: number, tx: any) => sum + (tx.amount || 0), 0)
+    const dorataPaymentsTotal = dorataPayments.reduce((sum, tx) => sum + (tx.amount || 0), 0)
+    const rentalPaymentsTotal = rentalPayments.reduce((sum, tx) => sum + (tx.amount || 0), 0)
+    const overridePaymentsTotal = overridePayments.reduce((sum, tx) => sum + (tx.amount || 0), 0)
     const totalBalance = visiblePaymentRows.reduce((acc, curr) => acc + (curr.amount || 0), 0)
 
-    const manualItemsRows = (manualItems as any[]).map((item) => {
-        const report = Array.isArray(item.report) ? item.report[0] : item.report
-        const beneficiary = usersById.get(item.beneficiary_user_id)
-        return {
-            id: item.id as string,
-            reportId: item.report_id as string,
-            beneficiaryUserId: item.beneficiary_user_id as string,
-            beneficiaryName: beneficiary?.name || beneficiary?.email || "Sem usuário",
-            beneficiaryEmail: beneficiary?.email || "",
-            brand: (item.brand as "rental" | "dorata") || "rental",
-            transactionType: (item.transaction_type as "comissao_venda" | "comissao_dorata" | "override_gestao") || "comissao_venda",
-            clientName: (item.client_name as string | null) ?? null,
-            originLeadId: (item.origin_lead_id as string | null) ?? null,
-            value: Number(item.valor ?? 0),
-            status: (item.status as string) || "liberado",
-            externalRef: (item.external_ref as string | null) ?? null,
-            observacao: (item.observacao as string | null) ?? null,
-            createdAt: (item.created_at as string) ?? null,
-            paidAt: (item.paid_at as string | null) ?? null,
-            competencia: (report?.competencia as string | null) ?? null,
-        }
-    }).filter((item) => salesEligibleUserIds.has(item.beneficiaryUserId))
+    const manualItemsRows = manualItemsRowsData
+        .flatMap((item) => {
+            const itemId = item.id ?? null
+            const beneficiaryUserId = item.beneficiary_user_id ?? null
+            if (!itemId || !beneficiaryUserId) return []
+
+            const report = firstRelation(item.report)
+            const beneficiary = usersById.get(beneficiaryUserId)
+            return [{
+                id: itemId,
+                reportId: item.report_id ?? "",
+                beneficiaryUserId,
+                beneficiaryName: beneficiary?.name || beneficiary?.email || "Sem usuário",
+                beneficiaryEmail: beneficiary?.email || "",
+                brand: item.brand || "rental",
+                transactionType: item.transaction_type || "comissao_venda",
+                clientName: item.client_name ?? null,
+                originLeadId: item.origin_lead_id ?? null,
+                value: Number(item.valor ?? 0),
+                status: item.status || "liberado",
+                externalRef: item.external_ref ?? null,
+                observacao: item.observacao ?? null,
+                createdAt: item.created_at ?? null,
+                paidAt: item.paid_at ?? null,
+                competencia: report?.competencia ?? null,
+            }]
+        })
+        .filter((item) => salesEligibleUserIds.has(item.beneficiaryUserId))
 
     const filteredManualItemsRows = sellerFilterId
         ? manualItemsRows.filter((item) => item.beneficiaryUserId === sellerFilterId)
@@ -979,30 +1209,33 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         ? filteredManualItemsRows
         : filteredManualItemsRows.filter((item) => item.brand === selectedBrand)
 
-    const closingItemsRows = (closingItems as any[]).map((item) => {
-        const beneficiary = usersById.get(item.beneficiary_user_id)
-        const snapshot = item.snapshot && typeof item.snapshot === "object"
-            ? item.snapshot as Record<string, unknown>
-            : null
+    const closingItemsRows = closingItemsRowsData.flatMap((item) => {
+        const closingId = item.fechamento_id ?? null
+        const itemId = item.id ?? null
+        const beneficiaryUserId = item.beneficiary_user_id ?? null
+        if (!closingId || !itemId || !beneficiaryUserId) return []
 
-        return {
-            id: item.id as string,
-            closingId: item.fechamento_id as string,
-            brand: ((item.brand as "rental" | "dorata") ?? "rental"),
-            beneficiaryUserId: item.beneficiary_user_id as string,
+        const beneficiary = usersById.get(beneficiaryUserId)
+        const snapshot = toRecord(item.snapshot)
+
+        return [{
+            id: itemId,
+            closingId,
+            brand: (item.brand as "rental" | "dorata") ?? "rental",
+            beneficiaryUserId,
             beneficiaryName: beneficiary?.name || beneficiary?.email || "Sem usuário",
             beneficiaryEmail: beneficiary?.email || "",
-            transactionType: (item.transaction_type as string) ?? "comissao_venda",
-            sourceKind: ((item.source_kind as "rental_sistema" | "dorata_sistema" | "manual_elyakim") ?? "rental_sistema"),
-            sourceRefId: (item.source_ref_id as string) ?? "",
-            originLeadId: (item.origin_lead_id as string | null) ?? null,
-            description: (item.descricao as string | null) ?? null,
-            clientName: (snapshot?.client_name as string | null) ?? null,
+            transactionType: item.transaction_type ?? "comissao_venda",
+            sourceKind: (item.source_kind as "rental_sistema" | "dorata_sistema" | "manual_elyakim") ?? "rental_sistema",
+            sourceRefId: item.source_ref_id ?? "",
+            originLeadId: item.origin_lead_id ?? null,
+            description: item.descricao ?? null,
+            clientName: toNullableString(snapshot?.client_name),
             valueReleased: Number(item.valor_liberado ?? 0),
             valuePaid: Number(item.valor_pago ?? 0),
-            paymentDate: (item.pagamento_em as string | null) ?? null,
-            createdAt: (item.created_at as string | null) ?? null,
-        }
+            paymentDate: item.pagamento_em ?? null,
+            createdAt: item.created_at ?? null,
+        }]
     })
 
     const closingItemsByClosingId = new Map<string, FinancialClosingDossierItem[]>()
@@ -1143,9 +1376,12 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
         .filter((item) => item.brand === "dorata")
         .reduce((sum, item) => sum + item.amount, 0)
 
-    const closingDossiers: FinancialClosingDossier[] = (closings as any[]).map((closing) => {
-        const closer = usersById.get(closing.fechado_por)
-        const items = (closingItemsByClosingId.get(closing.id as string) ?? [])
+    const closingDossiers: FinancialClosingDossier[] = closings.flatMap((closing) => {
+        const closingId = closing.id ?? null
+        if (!closingId) return []
+
+        const closer = closing.fechado_por ? usersById.get(closing.fechado_por) : null
+        const items = (closingItemsByClosingId.get(closingId) ?? [])
             .slice()
             .sort((a, b) => {
                 const dateA = new Date(a.paymentDate || a.createdAt || 0).getTime()
@@ -1153,19 +1389,19 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                 return dateB - dateA
             })
 
-        return {
-            id: closing.id as string,
-            code: (closing.codigo as string) ?? "Sem código",
-            status: (closing.status as string) ?? "fechado",
-            competencia: (closing.competencia as string | null) ?? null,
-            closedAt: (closing.fechado_em as string | null) ?? null,
-            createdAt: (closing.created_at as string | null) ?? null,
+        return [{
+            id: closingId,
+            code: closing.codigo ?? "Sem código",
+            status: closing.status ?? "fechado",
+            competencia: closing.competencia ?? null,
+            closedAt: closing.fechado_em ?? null,
+            createdAt: closing.created_at ?? null,
             closedByName: closer?.name || closer?.email || "Sistema",
-            observation: (closing.observacao as string | null) ?? null,
+            observation: closing.observacao ?? null,
             itemCount: Number(closing.total_itens ?? items.length ?? 0),
             totalValue: Number(closing.total_valor ?? 0),
             items,
-        }
+        }]
     })
 
     const visibleClosingDossiers = selectedBrand === "all"
@@ -1224,7 +1460,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                             Filtrar
                         </button>
                     </form>
-                    <NewTransactionDialog users={sellerOptions as any[]} />
+                    <NewTransactionDialog users={newTransactionUsers} />
                 </div>
             </div>
 
@@ -1575,7 +1811,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     </div>
                                     <span className="text-sm font-semibold">{formatCurrency(dorataPaymentsTotal)}</span>
                                 </div>
-                                <FinancialList transactions={dorataPayments as any[]} />
+                                <FinancialList transactions={dorataPayments} />
                             </div>
                         </div>
                     ) : null}
@@ -1590,7 +1826,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     </div>
                                     <span className="text-sm font-semibold">{formatCurrency(rentalPaymentsTotal)}</span>
                                 </div>
-                                <FinancialList transactions={rentalPayments as any[]} />
+                                <FinancialList transactions={rentalPayments} />
                             </div>
 
                             <div className="rounded-xl border bg-card text-card-foreground shadow p-6 space-y-4">
@@ -1601,7 +1837,7 @@ export default async function FinancialPage({ searchParams }: { searchParams?: P
                                     </div>
                                     <span className="text-sm font-semibold">{formatCurrency(overridePaymentsTotal)}</span>
                                 </div>
-                                <FinancialList transactions={overridePayments as any[]} />
+                                <FinancialList transactions={overridePayments} />
                             </div>
                         </div>
                     ) : null}

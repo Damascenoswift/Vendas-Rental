@@ -1,5 +1,6 @@
 "use server"
 
+
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasFullAccess, type UserProfile } from "@/lib/auth"
@@ -45,6 +46,8 @@ const DOC_EVENT_KEYS: Exclude<TaskChecklistEventKey, null>[] = [
     'DOCS_INCOMPLETE',
     'DOCS_REJECTED',
 ]
+
+type QueryClient = Pick<Awaited<ReturnType<typeof createClient>>, "from">
 
 function addDays(base: Date, days: number) {
     return new Date(base.getTime() + days * MS_PER_DAY)
@@ -139,7 +142,7 @@ type TaskLeadLink = {
     codigo_instalacao?: string | null
 }
 
-async function resolveTaskIndicacaoId(supabase: any, task: TaskLeadLink): Promise<string | null> {
+async function resolveTaskIndicacaoId(supabase: QueryClient, task: TaskLeadLink): Promise<string | null> {
     if (task.indicacao_id) return task.indicacao_id
 
     let resolvedId: string | null = null
@@ -467,11 +470,7 @@ export async function getTasks(filters?: {
         return []
     }
 
-    const allRows = (data as any[]).map(item => ({
-        ...item,
-        assignee: item.assignee,
-        creator: item.creator
-    })) as Task[]
+    const allRows = (data ?? []) as Task[]
 
     const rows = filters?.assigneeId
         ? allRows.filter((task) => {
@@ -495,7 +494,7 @@ export async function getTasks(filters?: {
                 .from('task_checklists')
                 .select('task_id, is_done, title')
                 .in('task_id', taskIds)
-            checklistRows = fallback.data as any
+            checklistRows = fallback.data as typeof checklistRows
             checklistError = fallback.error
         }
     }
@@ -506,7 +505,13 @@ export async function getTasks(filters?: {
     }
 
     const summary = new Map<string, { total: number; done: number }>()
-    ;(checklistRows ?? []).forEach((item: any) => {
+    const checklistData = (checklistRows ?? []) as Array<{
+        task_id: string
+        is_done: boolean
+        event_key?: string | null
+        title?: string | null
+    }>
+    checklistData.forEach((item) => {
         if (isChecklistAlertOnlyItem(item)) return
         const current = summary.get(item.task_id) ?? { total: 0, done: 0 }
         current.total += 1
@@ -540,7 +545,16 @@ export async function getTaskAssignableUsers() {
         return []
     }
 
-    return (data ?? []).map((row: any) => ({
+    const taskUsers = (data ?? []) as Array<{
+        id: string
+        name: string | null
+        email: string | null
+        department: string | null
+        status: string | null
+        role: string | null
+    }>
+
+    return taskUsers.map((row) => ({
         id: row.id,
         name: row.name || "Sem Nome",
         email: row.email ?? null,
@@ -708,7 +722,7 @@ export async function getTaskProposalOptions(brand?: Brand) {
         .maybeSingle()
 
     const profileRole = (profileData as { role?: string | null } | null)?.role ?? null
-    let proposalsClient: any = supabase
+    let proposalsClient: QueryClient = supabase
     if (profileRole && internalProposalLookupRoles.has(profileRole)) {
         try {
             proposalsClient = createSupabaseServiceClient()
@@ -751,7 +765,7 @@ export async function getTaskProposalOptions(brand?: Brand) {
                 .order('created_at', { ascending: false })
                 .limit(80)
 
-            data = fallback.data as any
+            data = fallback.data
             error = fallback.error
         }
     }
@@ -774,7 +788,7 @@ export async function getTaskProposalOptions(brand?: Brand) {
         | null
     }
 
-    const mapped = ((data ?? []) as ProposalRow[]).map((row) => {
+    const mapped = ((data ?? []) as unknown as ProposalRow[]).map((row) => {
         const clientRaw = row.cliente
         const client = Array.isArray(clientRaw) ? (clientRaw[0] ?? null) : (clientRaw ?? null)
 
@@ -850,7 +864,7 @@ export async function createTask(data: {
     const profileRole = (profileData as { role?: string | null } | null)?.role ?? null
 
     if (taskData.proposal_id) {
-        let proposalClient: any = supabase
+        let proposalClient: QueryClient = supabase
         if (profileRole && internalProposalLookupRoles.has(profileRole)) {
             try {
                 proposalClient = createSupabaseServiceClient()
@@ -859,7 +873,7 @@ export async function createTask(data: {
             }
         }
 
-        let { data: proposalData, error: proposalError } = await proposalClient
+        const { data: proposalDataRaw, error: initialProposalError } = await proposalClient
             .from('proposals')
             .select(`
                 id,
@@ -869,6 +883,14 @@ export async function createTask(data: {
             `)
             .eq('id', taskData.proposal_id)
             .maybeSingle()
+
+        let proposalError = initialProposalError
+        let proposalData = proposalDataRaw as {
+            id: string
+            client_id: string | null
+            contact_id?: string | null
+            cliente: { nome: string; codigo_instalacao: string; marca: Brand }[] | null
+        } | null
 
         if (proposalError) {
             const missingColumn = parseMissingColumnError(proposalError.message)
@@ -883,7 +905,12 @@ export async function createTask(data: {
                     .eq('id', taskData.proposal_id)
                     .maybeSingle()
 
-                proposalData = fallback.data as any
+                proposalData = fallback.data as {
+                    id: string
+                    client_id: string | null
+                    contact_id?: string | null
+                    cliente: { nome: string; codigo_instalacao: string; marca: Brand }[] | null
+                } | null
                 proposalError = fallback.error
             }
         }
@@ -970,7 +997,7 @@ export async function createTask(data: {
                 return {
                     requires_duplicate_confirmation: true as const,
                     duplicate_count: duplicateRows?.length ?? 0,
-                    duplicate_task_ids: (duplicateRows ?? []).map((row: any) => row.id as string),
+                    duplicate_task_ids: ((duplicateRows ?? []) as Array<{ id: string }>).map((row) => row.id),
                     duplicate_title: normalizedTitle,
                 }
             }
@@ -979,7 +1006,7 @@ export async function createTask(data: {
 
     // Avoid INSERT ... RETURNING here: creator may not have SELECT access on RESTRICTED tasks.
     const taskId = crypto.randomUUID()
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
         id: taskId,
         ...taskData,
         visibility_scope: visibilityScope,
@@ -1062,7 +1089,7 @@ export async function createTask(data: {
 }
 
 async function insertChecklistTemplate(params: {
-    supabase: any
+    supabase: QueryClient
     taskId: string
     phase: TaskChecklistPhase
     baseDate: Date
@@ -1088,7 +1115,11 @@ async function insertChecklistTemplate(params: {
 
     const missingColumn = parseMissingColumnError(error?.message)
     if (error && missingColumn && missingColumn.table === 'task_checklists' && missingColumn.column === 'event_key') {
-        const fallbackPayload = payload.map(({ event_key: _eventKey, ...rest }) => rest)
+        const fallbackPayload = payload.map((item) =>
+            Object.fromEntries(
+                Object.entries(item).filter(([key]) => key !== 'event_key')
+            )
+        )
         const fallbackResult = await params.supabase
             .from('task_checklists')
             .insert(fallbackPayload)
@@ -1111,7 +1142,7 @@ export async function createRentalTasksForIndication(params: {
 }) {
     const supabaseAdmin = createSupabaseServiceClient()
     const supabaseUser = await createClient()
-    let writeClient: any = supabaseAdmin
+    let writeClient: QueryClient = supabaseAdmin
 
     const codes = new Set<string>()
     const normalizedCode = params.codigoInstalacao?.trim()
@@ -1411,7 +1442,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         baseUpdates.completed_by = user.id
     }
 
-    async function tryUpdateStatus(client: any, updates: Record<string, string | null>) {
+    async function tryUpdateStatus(client: QueryClient, updates: Record<string, string | null>) {
         const payload = { ...updates }
         let { data, error } = await client
             .from('tasks')
@@ -1516,7 +1547,7 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
 export async function updateTask(taskId: string, updates: Partial<Task>) {
     const supabase = await createClient()
-    const payload: Record<string, any> = { ...updates }
+    const payload: Record<string, unknown> = { ...updates }
 
     while (true) {
         const { error } = await supabase
@@ -1560,7 +1591,27 @@ export async function deleteTask(taskId: string) {
 export async function getTaskChecklists(taskId: string) {
     const supabase = await createClient()
 
-    let data: any[] | null = null
+    type TaskChecklistRow = {
+        id: string
+        task_id: string
+        title: string
+        event_key?: string | null
+        decision_status?: string | null
+        is_done: boolean
+        sort_order: number
+        created_at: string
+        due_date: string | null
+        completed_at: string | null
+        completed_by: string | null
+        phase: string | null
+        responsible_user_id?: string | null
+        completed_by_user?:
+            | { name: string | null; email: string | null }
+            | { name: string | null; email: string | null }[]
+            | null
+    }
+
+    let data: TaskChecklistRow[] | null = null
     let error: { message?: string | null } | null = null
     let includeResponsibleUserId = true
     let includeDecisionStatus = true
@@ -1592,7 +1643,7 @@ export async function getTaskChecklists(taskId: string) {
             .order('sort_order', { ascending: true })
             .order('created_at', { ascending: true })
 
-        data = result.data as any
+        data = result.data as TaskChecklistRow[] | null
         error = result.error as { message?: string | null } | null
 
         if (!error) break
@@ -1643,7 +1694,7 @@ export async function getTaskChecklists(taskId: string) {
                 .order('sort_order', { ascending: true })
                 .order('created_at', { ascending: true })
 
-            data = fallback.data as any
+            data = fallback.data as TaskChecklistRow[] | null
             error = fallback.error as { message?: string | null } | null
 
             const fallbackMissingColumn = parseMissingColumnError(error?.message)
@@ -1675,7 +1726,7 @@ export async function getTaskChecklists(taskId: string) {
         return []
     }
 
-    return ((data ?? []) as any[]).map((item) => {
+    return (data ?? []).map((item) => {
         const rawDecision = item.decision_status
         const decisionStatus: TaskChecklistDecision =
             rawDecision === 'APPROVED' || rawDecision === 'REJECTED' || rawDecision === 'IN_REVIEW'
@@ -1832,14 +1883,14 @@ export async function triggerTaskDocAlert(taskId: string, alertType: 'DOCS_INCOM
 
     const interaction = buildInteractionFromChecklistEvent(alertType)
     const { error: interactionError } = await supabaseAdmin
-        .from('indicacao_interactions' as any)
+        .from('indicacao_interactions' as never)
         .insert({
             indicacao_id: resolvedIndicacaoId,
             user_id: user.id,
             type: interaction.type,
             content: interaction.content,
             metadata: interaction.metadata,
-        } as any)
+        } as Record<string, unknown>)
 
     if (interactionError) {
         console.error("Error logging doc alert interaction:", interactionError)
@@ -1908,7 +1959,7 @@ export async function toggleTaskChecklistItem(
         .eq('id', itemId)
         .maybeSingle()
 
-    let fallbackItemWithTaskData: any = null
+    let fallbackItemWithTaskData: unknown = null
     if (itemFetchError) {
         const missingColumn = parseMissingColumnError(itemFetchError.message)
         if (missingColumn && missingColumn.table === 'task_checklists' && missingColumn.column === 'event_key') {
@@ -2069,7 +2120,7 @@ export async function toggleTaskChecklistItem(
     // Reflect key milestones/doc commands to the lead of the seller
     if (nextIsDone && eventKey && resolvedIndicacaoId) {
         const indicacaoId = resolvedIndicacaoId
-        let supabaseAdmin: any
+        let supabaseAdmin: QueryClient
         try {
             supabaseAdmin = createSupabaseServiceClient()
         } catch (error) {
@@ -2184,14 +2235,14 @@ export async function toggleTaskChecklistItem(
         } else if (syncedLead) {
             const interaction = buildInteractionFromChecklistEvent(eventKey)
             const { error: interactionError } = await supabaseAdmin
-                .from('indicacao_interactions' as any)
+                .from('indicacao_interactions' as never)
                 .insert({
                     indicacao_id: indicacaoId,
                     user_id: user.id,
                     type: interaction.type,
                     content: interaction.content,
                     metadata: interaction.metadata,
-                } as any)
+                } as Record<string, unknown>)
 
             if (interactionError) {
                 console.error("Error logging checklist interaction:", interactionError)

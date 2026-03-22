@@ -1,8 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { AlocacoesListClient } from "@/components/energy/alocacoes-list-client"
+import type { ComponentProps } from "react"
 
 export const dynamic = "force-dynamic"
+
+type AlocacaoItem = ComponentProps<typeof AlocacoesListClient>["initialAlocacoes"][number]
 
 export default async function AlocacoesPage() {
     const supabase = await createClient()
@@ -46,11 +49,11 @@ export default async function AlocacoesPage() {
     // Cast response to expected type manually if needed, or rely on inference if types are perfect.
     // The query returns { usina: { nome: ... } | null, ... } which matches the props.
     // However, supabase-js types can be tricky with joins.
-    const typedAlocacoes = alocacoes as any[]
+    const typedAlocacoes = (alocacoes ?? []) as unknown as AlocacaoItem[]
 
     return (
         <div className="max-w-5xl mx-auto py-6">
-            <AlocacoesListClient initialAlocacoes={typedAlocacoes || []} />
+            <AlocacoesListClient initialAlocacoes={typedAlocacoes} />
         </div>
     )
 }

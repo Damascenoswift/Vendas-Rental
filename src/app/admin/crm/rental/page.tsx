@@ -5,6 +5,7 @@ import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { CrmBoard } from "@/components/admin/crm/crm-board"
 import { CrmToolbar } from "@/components/admin/crm/crm-toolbar"
+import type { CrmCardData } from "@/components/admin/crm/crm-card"
 
 export const dynamic = "force-dynamic"
 
@@ -117,8 +118,8 @@ export default async function AdminCrmRentalPage() {
         scopedIndicacaoIds = (scopedIndicacoes ?? []).map((item: { id: string }) => item.id)
     }
 
-    let cards: any[] = []
-    let cardsData: any[] = []
+    let cards: CrmCardData[] = []
+    let cardsData: CrmCardData[] = []
     let cardsError: { message: string } | null = null
     if (role === "supervisor" && (!scopedIndicacaoIds || scopedIndicacaoIds.length === 0)) {
         cardsData = []
@@ -159,12 +160,12 @@ export default async function AdminCrmRentalPage() {
         }
 
         const cardsResult = await cardsQuery
-        cardsData = cardsResult.data ?? []
+        cardsData = (cardsResult.data ?? []) as CrmCardData[]
         cardsError = cardsResult.error as { message: string } | null
     }
 
     if (cardsError) {
-        let fallbackCards: any[] = []
+        let fallbackCards: CrmCardData[] = []
         let fallbackError: { message: string } | null = null
 
         if (role !== "supervisor" || (scopedIndicacaoIds && scopedIndicacaoIds.length > 0)) {
@@ -179,7 +180,7 @@ export default async function AdminCrmRentalPage() {
             }
 
             const fallbackResult = await fallbackQuery
-            fallbackCards = fallbackResult.data ?? []
+            fallbackCards = (fallbackResult.data ?? []) as CrmCardData[]
             fallbackError = fallbackResult.error as { message: string } | null
         }
 

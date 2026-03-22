@@ -1,5 +1,6 @@
 "use client"
 
+
 import { useEffect, useMemo, useState } from "react"
 import {
     Table,
@@ -21,11 +22,46 @@ import { Button } from "@/components/ui/button"
 import { Trash2, FileText, Loader2 } from "lucide-react"
 import { generateContractFromIndication } from "@/app/actions/contracts-generation"
 import { useRouter } from "next/navigation"
+import type { Indication } from "./indication-card"
 
 import type { UserProfile, UserRole } from "@/lib/auth"
 
+type IndicacaoUser = {
+    name?: string | null
+    email?: string | null
+}
+
+type RawIndicacaoItem = {
+    id: string
+    user_id: string
+    created_at: string
+    marca: "rental" | "dorata"
+    nome: string
+    email: string
+    telefone: string
+    status: string
+    valor?: number | null
+    tipo?: string | null
+    documento?: string | null
+    created_by_supervisor_id?: string | null
+    assinada_em?: string | null
+    compensada_em?: string | null
+    users?: IndicacaoUser | IndicacaoUser[] | null
+}
+
+type IndicacaoItem = Indication & {
+    user_id: string
+    email: string
+    telefone: string
+    tipo: "PF" | "PJ"
+    documento: string | null
+    created_by_supervisor_id?: string | null
+    assinada_em?: string | null
+    compensada_em?: string | null
+}
+
 interface AdminIndicacoesClientProps {
-    initialIndicacoes: any[]
+    initialIndicacoes: RawIndicacaoItem[]
     role?: UserRole
     department?: UserProfile['department'] | null
     initialOpenIndicacaoId?: string | null
@@ -36,13 +72,39 @@ import { LayoutGrid, List } from "lucide-react"
 
 // ... imports remain the same
 
+function pickOne<T>(value: T | T[] | null | undefined): T | null {
+    if (!value) return null
+    return Array.isArray(value) ? (value[0] ?? null) : value
+}
+
+function resolveVendorName(indication: IndicacaoItem): string {
+    const user = pickOne(indication.users)
+    return user?.name || user?.email || indication.user_id
+}
+
+function normalizeIndicacao(raw: RawIndicacaoItem): IndicacaoItem {
+    const user = pickOne(raw.users)
+    return {
+        ...raw,
+        users: {
+            name: user?.name ?? undefined,
+            email: user?.email ?? undefined,
+        },
+        valor: typeof raw.valor === "number" ? raw.valor : 0,
+        tipo: raw.tipo === "PJ" ? "PJ" : "PF",
+        documento: raw.documento ?? null,
+    }
+}
+
 export function AdminIndicacoesClient({
     initialIndicacoes,
     role,
     initialOpenIndicacaoId = null,
 }: AdminIndicacoesClientProps) {
     const router = useRouter()
-    const [indicacoes, setIndicacoes] = useState(initialIndicacoes)
+    const [indicacoes, setIndicacoes] = useState<IndicacaoItem[]>(() =>
+        initialIndicacoes.map(normalizeIndicacao)
+    )
     const [selectedVendor, setSelectedVendor] = useState<string | "all">("all")
     const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest")
     const [view, setView] = useState<"list" | "kanban">("list")
@@ -59,7 +121,7 @@ export function AdminIndicacoesClient({
     const vendors = useMemo(() => {
         const uniqueVendors = new Set<string>()
         indicacoes.forEach(ind => {
-            const vendorName = (ind.users as any)?.name || (ind.users as any)?.email
+            const vendorName = resolveVendorName(ind)
             if (vendorName) uniqueVendors.add(vendorName)
         })
         return Array.from(uniqueVendors).sort()
@@ -72,7 +134,7 @@ export function AdminIndicacoesClient({
         // Filter by Vendor
         if (selectedVendor !== "all") {
             result = result.filter(ind => {
-                const vendorName = (ind.users as any)?.name || (ind.users as any)?.email
+                const vendorName = resolveVendorName(ind)
                 return vendorName === selectedVendor
             })
         }
@@ -165,7 +227,7 @@ export function AdminIndicacoesClient({
                         </TableHeader>
                         <TableBody>
                             {filteredIndicacoes.map((ind) => {
-                                const vendedorInfo = (ind.users as any)?.name || (ind.users as any)?.email || ind.user_id
+                                const vendedorInfo = resolveVendorName(ind)
                                 const isDeepLinkOpen = selectedIndicacaoId === ind.id
 
                                 return (
@@ -218,8 +280,8 @@ export function AdminIndicacoesClient({
                                                     indicationId={ind.id}
                                                     userId={ind.user_id}
                                                     fallbackUserIds={[
-                                                        (ind as any).created_by_supervisor_id,
-                                                    ].filter(Boolean)}
+                                                        ind.created_by_supervisor_id,
+                                                    ].filter((value): value is string => Boolean(value))}
                                                     initialData={ind}
                                                     open={isDeepLinkOpen ? true : undefined}
                                                     onOpenChange={isDeepLinkOpen ? (open) => {
@@ -234,8 +296,8 @@ export function AdminIndicacoesClient({
                                                     <>
                                                         <IndicationFlags
                                                             id={ind.id}
-                                                            assinadaEm={(ind as any).assinada_em ?? null}
-                                                            compensadaEm={(ind as any).compensada_em ?? null}
+                                                            assinadaEm={ind.assinada_em ?? null}
+                                                            compensadaEm={ind.compensada_em ?? null}
                                                         />
                                                         <IndicationFillButton
                                                             indication={{

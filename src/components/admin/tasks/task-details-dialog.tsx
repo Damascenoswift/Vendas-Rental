@@ -466,7 +466,7 @@ export function TaskDetailsDialog({
         }
 
         load()
-    }, [open, task?.id])
+    }, [open, task])
 
     useEffect(() => {
         setHighlightedMentionIndex(0)
@@ -493,12 +493,12 @@ export function TaskDetailsDialog({
         }
 
         fetchDependencies()
-    }, [open, task?.id, task?.brand])
+    }, [open, task])
 
     useEffect(() => {
         if (!task) return
         onChecklistSummaryChange?.(task.id, checklistSummary.total, checklistSummary.done)
-    }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, task?.id])
+    }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, task])
 
     const handleAddChecklist = async () => {
         if (!task) return

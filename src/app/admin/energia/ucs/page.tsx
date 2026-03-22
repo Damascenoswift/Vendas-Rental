@@ -1,8 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
 import { UcsListClient } from "@/components/energy/ucs-list-client"
+import type { ComponentProps } from "react"
 
 export const dynamic = "force-dynamic"
+
+type UcItem = ComponentProps<typeof UcsListClient>["initialUcs"][number]
 
 export default async function UcsPage() {
     const supabase = await createClient()
@@ -35,7 +38,7 @@ export default async function UcsPage() {
 
     return (
         <div className="max-w-6xl mx-auto py-6">
-            <UcsListClient initialUcs={(ucs as any[]) || []} />
+            <UcsListClient initialUcs={((ucs ?? []) as UcItem[])} />
         </div>
     )
 }

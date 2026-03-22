@@ -19,7 +19,17 @@ function parseMissingColumnError(message?: string | null) {
     return { column: match[1], table: match[2] }
 }
 
-export async function createIndicationAction(payload: any) {
+type IndicationActionPayload = {
+    user_id?: string
+    codigo_instalacao?: string
+    marca?: string
+    nome?: string
+    status?: string
+    created_by_supervisor_id?: string
+    [key: string]: unknown
+}
+
+export async function createIndicationAction(payload: IndicationActionPayload) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -38,8 +48,8 @@ export async function createIndicationAction(payload: any) {
     const role = profile?.role as UserRole | undefined
     const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
-    const finalPayload = { ...payload }
-    const targetUserId = typeof payload?.user_id === 'string' ? payload.user_id : ''
+    const finalPayload: IndicationActionPayload = { ...payload }
+    const targetUserId = typeof finalPayload.user_id === 'string' ? finalPayload.user_id : ''
     if (!targetUserId) {
         return { success: false, message: 'Vendedor da indicação é obrigatório.' }
     }
@@ -57,7 +67,7 @@ export async function createIndicationAction(payload: any) {
             .select('id, role, status')
             .eq('id', targetUserId)
             .maybeSingle()
-        targetUserProfile = fallback.data as any
+        targetUserProfile = fallback.data as typeof targetUserProfile
         targetUserError = fallback.error
     }
 
@@ -92,7 +102,7 @@ export async function createIndicationAction(payload: any) {
         finalPayload.created_by_supervisor_id = user.id
     }
 
-    const insertPayload = { ...finalPayload }
+    const insertPayload: IndicationActionPayload = { ...finalPayload }
     if (typeof insertPayload.codigo_instalacao === 'string') {
         const trimmedInstallationCode = insertPayload.codigo_instalacao.trim()
         if (trimmedInstallationCode.length === 0) {
@@ -102,7 +112,7 @@ export async function createIndicationAction(payload: any) {
         }
     }
 
-    const insertIndication = async (candidatePayload: any) =>
+    const insertIndication = async (candidatePayload: IndicationActionPayload) =>
         supabaseAdmin
             .from('indicacoes')
             .insert(candidatePayload)
@@ -145,11 +155,11 @@ export async function createIndicationAction(payload: any) {
     if (brand === 'dorata' || brand === 'rental') {
         const crmResult = await ensureCrmCardForIndication({
             indicacaoId: indicationId,
-            title: finalPayload.nome ?? null,
-            assigneeId: finalPayload.user_id ?? null,
+            title: typeof finalPayload.nome === 'string' ? finalPayload.nome : null,
+            assigneeId: typeof finalPayload.user_id === 'string' ? finalPayload.user_id : null,
             createdBy: user.id,
             brand,
-            status: finalPayload.status ?? null,
+            status: typeof finalPayload.status === 'string' ? finalPayload.status : null,
         })
         if (crmResult?.error) {
             console.error('CRM Auto Create Error:', crmResult.error)
@@ -159,8 +169,8 @@ export async function createIndicationAction(payload: any) {
     if (brand === 'rental') {
         const taskResult = await createRentalTasksForIndication({
             indicacaoId: indicationId,
-            nome: finalPayload.nome ?? null,
-            codigoInstalacao: finalPayload.codigo_instalacao ?? null,
+            nome: typeof finalPayload.nome === 'string' ? finalPayload.nome : null,
+            codigoInstalacao: typeof finalPayload.codigo_instalacao === 'string' ? finalPayload.codigo_instalacao : null,
             creatorId: user.id,
         })
         if (taskResult && 'error' in taskResult && taskResult.error) {
@@ -174,12 +184,12 @@ export async function createIndicationAction(payload: any) {
             indicacaoId: indicationId,
             actorUserId: user.id,
             title: 'Nova indicação criada',
-            message: `A indicação de ${finalPayload.nome ?? 'cliente sem nome'} foi criada.`,
+            message: `A indicação de ${typeof finalPayload.nome === 'string' && finalPayload.nome.trim().length > 0 ? finalPayload.nome : 'cliente sem nome'} foi criada.`,
             dedupeToken: `create:${indicationId}`,
             metadata: {
                 source: 'create_indication_action',
                 brand: brand || null,
-                initial_status: finalPayload.status ?? null,
+                initial_status: typeof finalPayload.status === 'string' ? finalPayload.status : null,
             },
         })
     } catch (notificationError) {

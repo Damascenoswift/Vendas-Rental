@@ -28,6 +28,7 @@ import type { ChangeEvent, ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { useAuthSession } from "@/hooks/use-auth-session"
 import { getIndicationStorageDetails, uploadIndicationAssets } from "@/app/actions/indication-assets"
+import type { ProposalCalculation } from "@/lib/proposal-calculation"
 
 interface IndicationDetailsDialogProps {
     indicationId: string
@@ -53,11 +54,26 @@ type ProposalSummary = {
     status: string | null
     total_value: number | null
     total_power: number | null
-    calculation?: Record<string, any> | null
+    calculation?: ProposalCalculation | null
     seller?: {
         name?: string | null
         email?: string | null
     } | null
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null
+    return value as Record<string, unknown>
+}
+
+function readString(value: unknown): string | null {
+    return typeof value === "string" ? value : null
+}
+
+function readRecordKey(source: unknown, key: string): Record<string, unknown> | null {
+    const record = asRecord(source)
+    if (!record) return null
+    return asRecord(record[key])
 }
 
 type IndicationAttachmentKey =
@@ -124,7 +140,7 @@ export function IndicationDetailsDialog({
     const router = useRouter()
     const [internalOpen, setInternalOpen] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
-    const [metadata, setMetadata] = useState<any>(null)
+    const [metadata, setMetadata] = useState<Record<string, unknown> | null>(null)
     const [files, setFiles] = useState<FileItem[]>([])
     const [storageOwnerId, setStorageOwnerId] = useState<string | null>(null)
     const [uploadFiles, setUploadFiles] = useState<Partial<Record<IndicationAttachmentKey, File | null>>>({})
@@ -133,11 +149,11 @@ export function IndicationDetailsDialog({
     const [proposalError, setProposalError] = useState<string | null>(null)
     const [proposalLoading, setProposalLoading] = useState(false)
     const [hasLoadedProposals, setHasLoadedProposals] = useState(false)
-    const [contractProposalId, setContractProposalId] = useState<string | null>((initialData as any)?.contract_proposal_id ?? null)
+    const [contractProposalId, setContractProposalId] = useState<string | null>(readString(initialData?.contract_proposal_id) ?? null)
     const [updatingContractProposalId, setUpdatingContractProposalId] = useState<string | null>(null)
     const [isMarkingContractSigned, setIsMarkingContractSigned] = useState(false)
     const [activatingProposalId, setActivatingProposalId] = useState<string | null>(null)
-    const [signedAt, setSignedAt] = useState<string | null>((initialData as any)?.assinada_em ?? null)
+    const [signedAt, setSignedAt] = useState<string | null>(readString(initialData?.assinada_em) ?? null)
     const { showToast } = useToast()
     const { session, profile } = useAuthSession()
     const isControlled = typeof open === "boolean"
@@ -149,17 +165,17 @@ export function IndicationDetailsDialog({
 
     const resolvedBrand = useMemo(() => {
         if (brand) return brand
-        const fromInitial = (initialData as any)?.marca
+        const fromInitial = readString(initialData?.marca)
         return fromInitial === "rental" || fromInitial === "dorata" ? fromInitial : null
     }, [brand, initialData])
 
     const isDorata = resolvedBrand === "dorata"
     const initialDocStatus = useMemo(() => {
-        const rawStatus = (initialData as any)?.doc_validation_status
+        const rawStatus = readString(initialData?.doc_validation_status)
         return typeof rawStatus === "string" && rawStatus.length > 0 ? rawStatus : "PENDING"
     }, [initialData])
     const personType = useMemo<"PF" | "PJ">(() => {
-        const raw = String((metadata as any)?.tipoPessoa ?? (metadata as any)?.tipo ?? (initialData as any)?.tipo ?? "").toUpperCase()
+        const raw = String(metadata?.tipoPessoa ?? metadata?.tipo ?? initialData?.tipo ?? "").toUpperCase()
         return raw === "PJ" ? "PJ" : "PF"
     }, [metadata, initialData])
     const attachmentFields = personType === "PJ" ? PJ_ATTACHMENT_FIELDS : PF_ATTACHMENT_FIELDS
@@ -174,8 +190,8 @@ export function IndicationDetailsDialog({
         setProposals([])
         setProposalError(null)
         setHasLoadedProposals(false)
-        setContractProposalId((initialData as any)?.contract_proposal_id ?? null)
-        setSignedAt((initialData as any)?.assinada_em ?? null)
+        setContractProposalId(readString(initialData?.contract_proposal_id) ?? null)
+        setSignedAt(readString(initialData?.assinada_em) ?? null)
     }, [indicationId, userId, initialData])
 
     const toDisplayMetadata = (value: Record<string, unknown> | null) => {
@@ -430,11 +446,13 @@ export function IndicationDetailsDialog({
         if (!selectedContractProposal) return []
 
         const calculation = selectedContractProposal.calculation ?? null
-        const financeInput = (calculation as any)?.input?.finance ?? null
-        const financeOutput = (calculation as any)?.output?.finance ?? null
-        const tradeInput = (calculation as any)?.input?.trade ?? null
-        const tradeOutput = (calculation as any)?.output?.trade ?? null
-        const totalsOutput = (calculation as any)?.output?.totals ?? null
+        const input = readRecordKey(calculation, "input")
+        const output = readRecordKey(calculation, "output")
+        const financeInput = readRecordKey(input, "finance")
+        const financeOutput = readRecordKey(output, "finance")
+        const tradeInput = readRecordKey(input, "trade")
+        const tradeOutput = readRecordKey(output, "trade")
+        const totalsOutput = readRecordKey(output, "totals")
         const financeEnabled = Boolean(financeInput?.enabled)
         const tradeMode = tradeInput?.mode === "INSTALLMENTS" ? "INSTALLMENTS" : "TOTAL_VALUE"
         const tradeApplied = tradeMode === "TOTAL_VALUE"
@@ -582,7 +600,7 @@ export function IndicationDetailsDialog({
         if (!isOpen) return
         if (metadata || files.length > 0) return
         fetchDetails()
-    }, [isOpen, indicationId, userId])
+    }, [isOpen, indicationId, userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!isOpen || !isDorata) return
@@ -596,8 +614,11 @@ export function IndicationDetailsDialog({
                 setProposals([])
             } else {
                 setProposalError(null)
-                setProposals((result as any).data ?? [])
-                setContractProposalId((result as any).selectedProposalId ?? (initialData as any)?.contract_proposal_id ?? null)
+                const proposalsData = Array.isArray(result?.data) ? (result.data as ProposalSummary[]) : []
+                const selectedProposalId =
+                    typeof result?.selectedProposalId === "string" ? result.selectedProposalId : null
+                setProposals(proposalsData)
+                setContractProposalId(selectedProposalId ?? readString(initialData?.contract_proposal_id) ?? null)
             }
             setProposalLoading(false)
             setHasLoadedProposals(true)

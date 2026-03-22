@@ -282,7 +282,7 @@ export default function DashboardPage() {
       }
 
       if (allowedBrands.length > 0) {
-        query = query.in("marca", allowedBrands as any)
+        query = query.in("marca", allowedBrands as string[])
       }
 
       const { data, error } = await query

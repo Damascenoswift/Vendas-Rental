@@ -13,7 +13,7 @@ type Template = {
   id: string
   name: string
   vendedor_id: string
-  base_payload?: any
+  base_payload?: Record<string, unknown> | null
 }
 
 type Item = {
