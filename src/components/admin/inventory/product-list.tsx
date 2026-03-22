@@ -62,7 +62,7 @@ export function ProductList({ initialProducts, dynamicStats = [] }: ProductListP
                 variant: "success",
             })
             setDeletingId(null)
-        } catch (error) {
+        } catch {
             showToast({
                 title: "Erro",
                 description: "Erro ao excluir produto.",

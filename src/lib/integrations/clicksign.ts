@@ -54,6 +54,30 @@ export type ClicksignResponse = {
   sign_url?: string
 }
 
+function toOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function toOptionalIsoString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim().length > 0) return value
+  if (value instanceof Date) return value.toISOString()
+  if (value && typeof value === "object") {
+    const maybeDateLike = value as { toISOString?: unknown }
+    if (typeof maybeDateLike.toISOString === "function") {
+      try {
+        return maybeDateLike.toISOString()
+      } catch {
+        return undefined
+      }
+    }
+  }
+  return undefined
+}
+
 export class ClicksignService {
   private static config = {
     webhookUrl: process.env.NEXT_PUBLIC_ZAPIER_WEBHOOK_URL || '',
@@ -78,12 +102,14 @@ export class ClicksignService {
     try {
       await this.sendWebhookWithRetry({ action: 'test_connection', timestamp: new Date().toISOString() })
       return { success: true, message: 'Zapier funcionando' }
-    } catch (_e) {
+    } catch {
       return { success: false, message: 'Erro de conexão' }
     }
   }
 
-  private static async sendWebhookWithRetry(data: unknown): Promise<any> {
+  private static async sendWebhookWithRetry(
+    data: unknown
+  ): Promise<Partial<ClicksignResponse> | { success: true }> {
     if (!this.config.webhookUrl) throw new Error('Webhook Zapier não configurado')
 
     for (let attempt = 1; attempt <= this.config.maxRetries; attempt++) {
@@ -112,55 +138,72 @@ export class ClicksignService {
         await new Promise((r) => setTimeout(r, attempt * 2000))
       }
     }
+
+    throw new Error("Falha inesperada ao enviar webhook do Clicksign.")
   }
 
-  static prepararDados(indicacao: any): ClicksignWebhookData {
+  static prepararDados(indicacao: unknown): ClicksignWebhookData {
+    const source = indicacao && typeof indicacao === "object" ? (indicacao as Record<string, unknown>) : {}
+    const tipoPessoa = source.tipoPessoa === "PF" || source.tipoPessoa === "PJ" ? source.tipoPessoa : undefined
+    const vendedorNome =
+      toOptionalString(source.vendedorNome) ?? toOptionalString(source.vendedorNomePF)
+    const vendedorTelefone =
+      toOptionalString(source.vendedorTelefone) ?? toOptionalString(source.vendedorTelefonePF)
+    const dataVenda =
+      tipoPessoa === "PF"
+        ? toOptionalIsoString(source.dataVendaPF)
+        : toOptionalIsoString(source.dataVenda)
+
     return {
       action: 'create_contract',
-      tipo_pessoa: indicacao.tipoPessoa,
-      indicacao_id: indicacao.id,
+      tipo_pessoa: tipoPessoa,
+      indicacao_id: toOptionalString(source.id),
       timestamp: new Date().toISOString(),
       cliente: {
-        nome: indicacao.nomeCliente,
-        email: indicacao.emailCliente,
-        telefone: indicacao.telefoneCliente,
-        tipo_pessoa: indicacao.tipoPessoa === 'PF' ? 'Pessoa Física' : 'Pessoa Jurídica',
+        nome: toOptionalString(source.nomeCliente),
+        email: toOptionalString(source.emailCliente),
+        telefone: toOptionalString(source.telefoneCliente),
+        tipo_pessoa: tipoPessoa === 'PF' ? 'Pessoa Física' : tipoPessoa === 'PJ' ? 'Pessoa Jurídica' : undefined,
       },
       documento:
-        indicacao.tipoPessoa === 'PF'
-          ? { cpf: indicacao.cpfCnpj, rg: indicacao.rg }
+        tipoPessoa === 'PF'
+          ? { cpf: toOptionalString(source.cpfCnpj), rg: toOptionalString(source.rg) }
           : {
-              cnpj: indicacao.cpfCnpj,
-              nome_empresa: indicacao.nomeEmpresa,
-              representante_legal: indicacao.representanteLegal,
-              cpf_representante: indicacao.cpfRepresentante,
-              rg_representante: indicacao.rgRepresentante,
+              cnpj: toOptionalString(source.cpfCnpj),
+              nome_empresa: toOptionalString(source.nomeEmpresa),
+              representante_legal: toOptionalString(source.representanteLegal),
+              cpf_representante: toOptionalString(source.cpfRepresentante),
+              rg_representante: toOptionalString(source.rgRepresentante),
             },
       endereco: {
-        cidade: indicacao.cidade,
-        estado: indicacao.estado,
-        cep: indicacao.cep,
-        ...(indicacao.tipoPessoa === 'PJ'
-          ? { logradouro: indicacao.logradouro, numero: indicacao.numero, bairro: indicacao.bairro }
-          : { endereco_completo: indicacao.endereco }),
+        cidade: toOptionalString(source.cidade),
+        estado: toOptionalString(source.estado),
+        cep: toOptionalString(source.cep),
+        ...(tipoPessoa === 'PJ'
+          ? {
+              logradouro: toOptionalString(source.logradouro),
+              numero: toOptionalString(source.numero),
+              bairro: toOptionalString(source.bairro),
+            }
+          : { endereco_completo: toOptionalString(source.endereco) }),
       },
       energia: {
-        codigo_cliente: indicacao.codigoClienteEnergia,
-        consumo_kwh: indicacao.consumoMedioKwh,
-        valor_conta: indicacao.valorContaEnergia,
+        codigo_cliente: toOptionalString(source.codigoClienteEnergia),
+        consumo_kwh: toOptionalNumber(source.consumoMedioKwh),
+        valor_conta: toOptionalNumber(source.valorContaEnergia),
       },
       vendedor: {
-        id: indicacao.vendedorId,
-        nome: indicacao.vendedorNome || indicacao.vendedorNomePF,
-        telefone: indicacao.vendedorTelefone || indicacao.vendedorTelefonePF,
-        ...(indicacao.tipoPessoa === 'PF'
-          ? { cpf: indicacao.vendedorCPF, data_venda: indicacao.dataVendaPF?.toISOString?.() }
-          : { cnpj: indicacao.vendedorCNPJ, data_venda: indicacao.dataVenda?.toISOString?.() }),
+        id: toOptionalString(source.vendedorId),
+        nome: vendedorNome,
+        telefone: vendedorTelefone,
+        ...(tipoPessoa === 'PF'
+          ? { cpf: toOptionalString(source.vendedorCPF), data_venda: dataVenda }
+          : { cnpj: toOptionalString(source.vendedorCNPJ), data_venda: dataVenda }),
       },
       documentos_anexados: {},
-      observacoes: indicacao.observacoes || '',
-      data_criacao: indicacao.createdAt?.toISOString?.() || new Date().toISOString(),
-      status_atual: indicacao.status || 'EM_ANALISE',
+      observacoes: toOptionalString(source.observacoes) || '',
+      data_criacao: toOptionalIsoString(source.createdAt) || new Date().toISOString(),
+      status_atual: toOptionalString(source.status) || 'EM_ANALISE',
     }
   }
 }

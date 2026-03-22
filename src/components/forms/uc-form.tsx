@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useForm, type Resolver } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Loader2 } from "lucide-react"
@@ -46,7 +46,7 @@ export function UcForm({ clientes }: UcFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<UcFormValues>({
-        resolver: zodResolver(ucSchema) as any,
+        resolver: zodResolver(ucSchema) as Resolver<UcFormValues>,
         defaultValues: {
             tipo_uc: "normal",
             atendido_via_consorcio: false,
@@ -82,11 +82,12 @@ export function UcForm({ clientes }: UcFormProps) {
 
             router.push("/admin/energia/ucs")
             router.refresh()
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const description = error instanceof Error ? error.message : "Ocorreu um erro inesperado."
             showToast({
                 variant: "error",
                 title: "Erro ao salvar UC",
-                description: error.message,
+                description,
             })
         } finally {
             setIsSubmitting(false)
@@ -95,10 +96,10 @@ export function UcForm({ clientes }: UcFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="cliente_id"
                         render={({ field }) => (
                             <FormItem>
@@ -123,7 +124,7 @@ export function UcForm({ clientes }: UcFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="codigo_uc_fatura"
                         render={({ field }) => (
                             <FormItem>
@@ -137,7 +138,7 @@ export function UcForm({ clientes }: UcFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="codigo_instalacao"
                         render={({ field }) => (
                             <FormItem>
@@ -151,7 +152,7 @@ export function UcForm({ clientes }: UcFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="tipo_uc"
                         render={({ field }) => (
                             <FormItem>
@@ -175,7 +176,7 @@ export function UcForm({ clientes }: UcFormProps) {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="atendido_via_consorcio"
                         render={({ field }) => (
                             <FormItem className="flex items-center gap-3">
@@ -192,7 +193,7 @@ export function UcForm({ clientes }: UcFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="transferida_para_consorcio"
                         render={({ field }) => (
                             <FormItem className="flex items-center gap-3">
@@ -209,7 +210,7 @@ export function UcForm({ clientes }: UcFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="ativo"
                         render={({ field }) => (
                             <FormItem className="flex items-center gap-3">
@@ -227,7 +228,7 @@ export function UcForm({ clientes }: UcFormProps) {
                 </div>
 
                 <FormField
-                    control={form.control as any}
+                    control={form.control}
                     name="observacoes"
                     render={({ field }) => (
                         <FormItem>

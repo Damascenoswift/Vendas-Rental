@@ -6,7 +6,7 @@ import { loadTemplateDocx } from "./template-loader"
 // This function will be called from the Server Action
 export async function generateContractHtml(
     templateName: string, // 'rental_pf', 'rental_pj', etc.
-    data: any, // The data to fill placeholders
+    data: Record<string, unknown>, // The data to fill placeholders
 ): Promise<string> {
 
     // 1. Load the template (local first, then HTTP fallback)
@@ -21,9 +21,10 @@ export async function generateContractHtml(
     // 2. Render the document (Fill placeholders)
     try {
         doc.render(data)
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Erro desconhecido"
         console.error("Docxtemplater Error:", error)
-        throw new Error("Erro ao gerar documento: " + error.message)
+        throw new Error("Erro ao gerar documento: " + errorMessage)
     }
 
     const buf = doc.getZip().generate({

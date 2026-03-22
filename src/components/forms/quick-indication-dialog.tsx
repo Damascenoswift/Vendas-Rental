@@ -42,7 +42,6 @@ export function QuickIndicationDialog() {
         handleSubmit,
         reset,
         setValue,
-        watch,
         formState: { errors },
     } = useForm<FormValues>({
         resolver: zodResolver(schema),
@@ -50,8 +49,6 @@ export function QuickIndicationDialog() {
             marca: "rental",
         },
     })
-
-    const selectedMarca = watch("marca")
 
     const onSubmit = async (data: FormValues) => {
         setIsSubmitting(true)
@@ -79,7 +76,7 @@ export function QuickIndicationDialog() {
                 setOpen(false)
                 reset()
             }
-        } catch (error) {
+        } catch {
             showToast({
                 variant: "error",
                 title: "Erro inesperado",

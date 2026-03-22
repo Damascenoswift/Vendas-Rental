@@ -95,11 +95,21 @@ npm run dev
 # Build
 npm run build
 
+# Type check
+npm run typecheck
+
 # Testes
 npm run test
+npm run test:watch
+
+# E2E
+npm run e2e
 
 # Linting
 npm run lint
+
+# Verificação completa (Definition of Done: lint + typecheck + test)
+npm run check
 ```
 
 ## 📊 Comparação com Projeto Anterior

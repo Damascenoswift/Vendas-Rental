@@ -34,8 +34,8 @@ type InvestorFinanceiroRow = {
     origem_integracao: "MANUAL" | "COGNI" | null
     boleto_url: string | null
     boleto_linha_digitavel: string | null
-    usina: { nome: string } | null
-    cliente: { nome: string } | null
+    usina: Array<{ nome: string }> | null
+    cliente: Array<{ nome: string }> | null
 }
 
 function normalizeCompetenciaFilter(raw?: string) {
@@ -183,13 +183,17 @@ export default async function FinanceiroInvestorPage({
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                faturas.map((item) => (
+                                faturas.map((item) => {
+                                    const firstUsina = item.usina?.[0] ?? null
+                                    const firstCliente = item.cliente?.[0] ?? null
+
+                                    return (
                                     <TableRow key={item.id}>
                                         <TableCell className="capitalize">
                                             {format(new Date(item.mes_ano), 'MMMM yyyy', { locale: ptBR })}
                                         </TableCell>
-                                        <TableCell>{item.usina?.nome}</TableCell>
-                                        <TableCell>{item.cliente?.nome}</TableCell>
+                                        <TableCell>{firstUsina?.nome}</TableCell>
+                                        <TableCell>{firstCliente?.nome}</TableCell>
                                         <TableCell>{item.kwh_compensado ? `${item.kwh_compensado} kWh` : "-"}</TableCell>
                                         <TableCell>
                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valor_fatura || 0)}
@@ -227,7 +231,7 @@ export default async function FinanceiroInvestorPage({
                                             )}
                                         </TableCell>
                                     </TableRow>
-                                ))
+                                )})
                             )}
                         </TableBody>
                     </Table>

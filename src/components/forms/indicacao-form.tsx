@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useFieldArray, useForm } from "react-hook-form"
+import { useFieldArray, useForm, type Resolver } from "react-hook-form"
 
 import { Button } from "@/components/ui/button"
 import { Sparkles, Loader2 } from "lucide-react"
@@ -220,7 +220,7 @@ export function IndicacaoForm({
   const initialFormValues = buildDefaultFormValues(initialBrand, userId)
 
   const form = useForm<IndicacaoFormValues>({
-    resolver: zodResolver(unifiedSchema) as any,
+    resolver: zodResolver(unifiedSchema) as Resolver<IndicacaoFormValues>,
     defaultValues: initialFormValues,
   })
 
@@ -230,7 +230,7 @@ export function IndicacaoForm({
     remove: removeOutraUc,
   } = useFieldArray({
     control: form.control,
-    name: "outrasUcs",
+    name: "outrasUcs" as const,
   })
 
   const tipoPessoa = form.watch("tipoPessoa")
@@ -928,7 +928,7 @@ export function IndicacaoForm({
                           <div key={field.id} className="grid gap-4 md:grid-cols-3 items-end">
                             <FormField
                               control={form.control}
-                              name={`outrasUcs.${index}.codigoInstalacao` as any}
+                              name={`outrasUcs.${index}.codigoInstalacao` as const}
                               render={({ field }) => (
                                 <FormItem>
                                   <FormLabel>Código da instalação</FormLabel>
@@ -939,7 +939,7 @@ export function IndicacaoForm({
                             />
                             <FormField
                               control={form.control}
-                              name={`outrasUcs.${index}.localizacaoUC` as any}
+                              name={`outrasUcs.${index}.localizacaoUC` as const}
                               render={({ field }) => (
                                 <FormItem>
                                   <FormLabel>Localização UC</FormLabel>

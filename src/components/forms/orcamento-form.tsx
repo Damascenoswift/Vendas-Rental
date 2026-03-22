@@ -3,7 +3,7 @@
 import { useState, type ChangeEvent, useRef } from "react"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useForm, type Resolver } from "react-hook-form"
 import { Button } from "@/components/ui/button"
 import {
     Form,
@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { supabase } from "@/lib/supabase"
-import { Loader2, Upload } from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 // Schema definition
 const schema = z.object({
@@ -48,7 +48,7 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const form = useForm<FormValues>({
-        resolver: zodResolver(schema) as any,
+        resolver: zodResolver(schema) as Resolver<FormValues>,
         defaultValues: {
             cliente_nome: "",
             cliente_gasto_mensal: undefined, // undefined shows as empty in input
@@ -127,9 +127,10 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
             setFile(null)
             if (fileInputRef.current) fileInputRef.current.value = ""
 
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error)
-            showToast({ variant: "error", title: "Erro", description: error.message || "Ocorreu um erro inesperado." })
+            const description = error instanceof Error ? error.message : "Ocorreu um erro inesperado."
+            showToast({ variant: "error", title: "Erro", description })
         } finally {
             setIsSubmitting(false)
         }
@@ -143,10 +144,10 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
             </div>
 
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="cliente_nome"
                         render={({ field }) => (
                             <FormItem>
@@ -161,7 +162,7 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
 
                     <div className="grid gap-4 md:grid-cols-2">
                         <FormField
-                            control={form.control as any}
+                            control={form.control}
                             name="cliente_gasto_mensal"
                             render={({ field }) => (
                                 <FormItem>
@@ -181,7 +182,7 @@ export function OrcamentoForm({ userId }: OrcamentoFormProps) {
                         />
 
                         <FormField
-                            control={form.control as any}
+                            control={form.control}
                             name="is_b_optante"
                             render={({ field }) => (
                                 <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 shadow-sm mt-8 md:mt-0 lg:mt-0 xl:mt-0 2xl:mt-0 self-end h-10 items-center">

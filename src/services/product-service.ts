@@ -88,10 +88,14 @@ function resolveWorkCustomerName(work: {
     return null
 }
 
+function toNullableString(value: unknown): string | null {
+    return typeof value === "string" ? value : null
+}
+
 async function getWorkSalesFromObras(productFilter?: Set<string>) {
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
-        .from("obra_card_proposals" as any)
+        .from("obra_card_proposals")
         .select(`
             proposal_id,
             linked_at,
@@ -128,22 +132,25 @@ async function getWorkSalesFromObras(productFilter?: Set<string>) {
 
         if (!proposalId || !workId) continue
 
+        const indicacao =
+            work?.indicacao && typeof work.indicacao === "object"
+                ? (work.indicacao as Record<string, unknown>)
+                : null
+        const contact =
+            work?.contact && typeof work.contact === "object"
+                ? (work.contact as Record<string, unknown>)
+                : null
+
         const customerName = resolveWorkCustomerName({
             title: typeof work?.title === "string" ? work.title : null,
-            indicacao: work?.indicacao && typeof work.indicacao === "object"
-                ? { nome: typeof (work.indicacao as Record<string, unknown>).nome === "string" ? (work.indicacao as Record<string, unknown>).nome : null }
+            indicacao: indicacao
+                ? { nome: toNullableString(indicacao.nome) }
                 : null,
-            contact: work?.contact && typeof work.contact === "object"
+            contact: contact
                 ? {
-                    full_name: typeof (work.contact as Record<string, unknown>).full_name === "string"
-                        ? (work.contact as Record<string, unknown>).full_name
-                        : null,
-                    first_name: typeof (work.contact as Record<string, unknown>).first_name === "string"
-                        ? (work.contact as Record<string, unknown>).first_name
-                        : null,
-                    last_name: typeof (work.contact as Record<string, unknown>).last_name === "string"
-                        ? (work.contact as Record<string, unknown>).last_name
-                        : null,
+                    full_name: toNullableString(contact.full_name),
+                    first_name: toNullableString(contact.first_name),
+                    last_name: toNullableString(contact.last_name),
                 }
                 : null,
         })
@@ -158,13 +165,12 @@ async function getWorkSalesFromObras(productFilter?: Set<string>) {
         for (let index = 0; index < items.length; index += 1) {
             const item = items[index]
             if (!item || typeof item !== "object") continue
-            const productId = typeof (item as Record<string, unknown>).product_id === "string"
-                ? (item as Record<string, unknown>).product_id
-                : null
+            const itemRecord = item as Record<string, unknown>
+            const productId = toNullableString(itemRecord.product_id)
             if (!productId) continue
             if (productFilter && !productFilter.has(productId)) continue
 
-            const quantityRaw = Number((item as Record<string, unknown>).quantity)
+            const quantityRaw = Number(itemRecord.quantity)
             const quantity = Number.isFinite(quantityRaw) && quantityRaw > 0 ? quantityRaw : 0
             if (quantity <= 0) continue
 

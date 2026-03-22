@@ -18,7 +18,11 @@ const initialState: CreateUserState = {
 }
 
 interface RegisterUserFormProps {
-    supervisors?: any[]
+    supervisors?: Array<{
+        id: string
+        name?: string | null
+        email?: string | null
+    }>
 }
 
 export function RegisterUserForm({ supervisors = [] }: RegisterUserFormProps) {

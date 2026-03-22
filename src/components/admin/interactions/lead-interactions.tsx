@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, useCallback } from "react"
 import { getInteractions, addInteraction, type Interaction } from "@/services/interactions-service"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, User as UserIcon } from "lucide-react"
+import { Send } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { useToast } from "@/hooks/use-toast"
@@ -27,14 +27,14 @@ export function LeadInteractions({ indicacaoId, readOnly = false }: LeadInteract
     // Polling or simple fetch. For now simple fetch on mount + after send.
     // In a real app we might use Supabase Realtime subscriptions.
 
-    const fetchInteractions = async () => {
+    const fetchInteractions = useCallback(async () => {
         const data = await getInteractions(indicacaoId)
         setInteractions(data)
-    }
+    }, [indicacaoId])
 
     useEffect(() => {
         fetchInteractions()
-    }, [indicacaoId])
+    }, [fetchInteractions])
 
     // Auto-scroll to bottom on new messages
     useEffect(() => {

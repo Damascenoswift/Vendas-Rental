@@ -7,7 +7,7 @@ export function useClicksign() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const criarContrato = useCallback(async (indicacao: any): Promise<ClicksignResponse | null> => {
+  const criarContrato = useCallback(async (indicacao: unknown): Promise<ClicksignResponse | null> => {
     try {
       setLoading(true)
       setError(null)

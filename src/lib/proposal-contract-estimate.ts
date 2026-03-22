@@ -50,9 +50,11 @@ export function withManualContractProductionEstimate(
       return calculation
     }
 
-    const { manual_production_estimate: _manual, ...restContract } = contractRecord
+    const restContract = { ...contractRecord }
+    delete restContract.manual_production_estimate
     if (Object.keys(restContract).length === 0) {
-      const { contract: _contract, ...restCalculation } = calculation
+      const restCalculation = { ...calculation }
+      delete restCalculation.contract
       return restCalculation
     }
 

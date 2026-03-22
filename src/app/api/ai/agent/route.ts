@@ -26,13 +26,6 @@ type ChatHistoryMessage = {
     content?: string
 }
 
-type OpenAiFunctionCall = {
-    type: "function_call"
-    name: string
-    arguments?: string
-    call_id: string
-}
-
 function normalizeSchema(schema: unknown): unknown {
     if (Array.isArray(schema)) {
         return schema.map((item) => normalizeSchema(item))
@@ -53,12 +46,16 @@ function normalizeSchema(schema: unknown): unknown {
     return schema
 }
 
-function extractOutputText(response: any): string {
-    if (typeof response?.output_text === "string" && response.output_text.trim().length > 0) {
-        return response.output_text.trim()
+function extractOutputText(response: unknown): string {
+    const parsedResponse =
+        response && typeof response === "object" ? (response as Record<string, unknown>) : {}
+    const outputText = parsedResponse.output_text
+
+    if (typeof outputText === "string" && outputText.trim().length > 0) {
+        return outputText.trim()
     }
 
-    const outputItems = Array.isArray(response?.output) ? response.output : []
+    const outputItems = Array.isArray(parsedResponse.output) ? parsedResponse.output : []
     const chunks: string[] = []
     for (const item of outputItems) {
         if (item?.type !== "message" || !Array.isArray(item.content)) continue
@@ -144,13 +141,14 @@ export async function POST(request: Request) {
 
         let response = await openai.responses.create({
             model,
-            input: inputMessages as any,
-            tools: openAiTools as any,
-        })
+            input: inputMessages as unknown as OpenAI.Responses.ResponseInput,
+            tools: openAiTools as OpenAI.Responses.Tool[],
+            stream: false,
+        } satisfies OpenAI.Responses.ResponseCreateParamsNonStreaming)
 
         for (let step = 0; step < 4; step++) {
             const functionCalls = (Array.isArray(response.output) ? response.output : []).filter(
-                (item): item is OpenAiFunctionCall => item?.type === "function_call"
+                (item) => item.type === "function_call"
             )
 
             if (functionCalls.length === 0) break
@@ -162,10 +160,14 @@ export async function POST(request: Request) {
             }> = []
 
             for (const functionCall of functionCalls) {
+                if (functionCall.type !== "function_call") continue
+
                 let parsedArgs: Record<string, unknown> = {}
-                if (functionCall.arguments) {
+                const functionArguments =
+                    typeof functionCall.arguments === "string" ? functionCall.arguments : ""
+                if (functionArguments) {
                     try {
-                        parsedArgs = JSON.parse(functionCall.arguments)
+                        parsedArgs = JSON.parse(functionArguments)
                     } catch {
                         parsedArgs = {}
                     }
@@ -187,7 +189,8 @@ export async function POST(request: Request) {
                 model,
                 previous_response_id: response.id,
                 input: toolOutputs,
-            })
+                stream: false,
+            } satisfies OpenAI.Responses.ResponseCreateParamsNonStreaming)
         }
 
         const finalResponseText =
@@ -196,10 +199,11 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ response: finalResponseText })
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Failed to process message"
         console.error("AI Agent Error:", error)
         return NextResponse.json(
-            { error: error.message || "Failed to process message" },
+            { error: errorMessage },
             { status: 500 }
         )
     }

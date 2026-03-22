@@ -69,7 +69,7 @@ const PATCHABLE_TEXT_FIELDS: Array<keyof ContactCanonicalPatch> = [
   "zipcode",
 ]
 
-function hasValue(value: string | null | undefined) {
+function hasValue(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0
 }
 

@@ -32,8 +32,8 @@ type InvestorAllocationRow = {
     quantidade_kwh_alocado: number | null
     data_inicio: string
     status: "ATIVO" | "INATIVO"
-    usina: { nome: string } | null
-    cliente: { nome: string; cidade: string | null; estado: string | null } | null
+    usina: Array<{ nome: string }> | null
+    cliente: Array<{ nome: string; cidade: string | null; estado: string | null }> | null
 }
 
 type InvestorInvoiceRow = {
@@ -187,16 +187,18 @@ export default async function MeusClientesPage({
                                 </TableRow>
                             ) : (
                                 alocacoes.map((item) => {
+                                    const firstCliente = item.cliente?.[0] ?? null
+                                    const firstUsina = item.usina?.[0] ?? null
                                     const invoiceKey = `${item.usina_id}:${item.cliente_id}`
                                     const latestInvoice = latestInvoiceByPair.get(invoiceKey)
 
                                     return (
                                         <TableRow key={item.id}>
-                                            <TableCell className="font-medium">{item.cliente?.nome}</TableCell>
+                                            <TableCell className="font-medium">{firstCliente?.nome}</TableCell>
                                             <TableCell>
-                                                {item.cliente?.cidade ? `${item.cliente.cidade}/${item.cliente.estado}` : '-'}
+                                                {firstCliente?.cidade ? `${firstCliente.cidade}/${firstCliente.estado}` : '-'}
                                             </TableCell>
-                                            <TableCell>{item.usina?.nome}</TableCell>
+                                            <TableCell>{firstUsina?.nome}</TableCell>
                                             <TableCell>
                                                 {item.percentual_alocado ? `${item.percentual_alocado}%` :
                                                     item.quantidade_kwh_alocado ? `${item.quantidade_kwh_alocado} kWh` : '-'}

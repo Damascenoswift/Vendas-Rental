@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useForm } from "react-hook-form"
+import { useForm, type Resolver } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Loader2 } from "lucide-react"
@@ -35,10 +35,11 @@ const usinaSchema = z.object({
 })
 
 type UsinaFormValues = z.infer<typeof usinaSchema>
+type UsinaInitialData = Partial<UsinaFormValues> & { id?: string }
 
 interface UsinaFormProps {
     investors: { id: string; name: string | null; email: string }[]
-    initialData?: any // Can be typed If needed
+    initialData?: UsinaInitialData
 }
 
 export function UsinaForm({ investors, initialData }: UsinaFormProps) {
@@ -47,7 +48,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<UsinaFormValues>({
-        resolver: zodResolver(usinaSchema) as any,
+        resolver: zodResolver(usinaSchema) as Resolver<UsinaFormValues>,
         defaultValues: {
             nome: initialData?.nome || "",
             capacidade_total: initialData?.capacidade_total || 0,
@@ -96,11 +97,12 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
 
             router.push("/admin/energia/usinas")
             router.refresh()
-        } catch (error: any) {
+        } catch (error: unknown) {
+            const description = error instanceof Error ? error.message : "Ocorreu um erro inesperado."
             showToast({
                 variant: "error",
                 title: "Erro ao salvar",
-                description: error.message,
+                description,
             })
         } finally {
             setIsSubmitting(false)
@@ -109,10 +111,10 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="nome"
                         render={({ field }) => (
                             <FormItem>
@@ -126,7 +128,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="capacidade_total"
                         render={({ field }) => (
                             <FormItem>
@@ -140,7 +142,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="tipo"
                         render={({ field }) => (
                             <FormItem>
@@ -162,7 +164,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="categoria_energia"
                         render={({ field }) => (
                             <FormItem>
@@ -184,7 +186,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="percentual_alocavel"
                         render={({ field }) => (
                             <FormItem>
@@ -198,7 +200,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="prazo_expiracao_credito_meses"
                         render={({ field }) => (
                             <FormItem>
@@ -213,7 +215,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
 
                     {tipo === 'parceiro' && (
                         <FormField
-                            control={form.control as any}
+                            control={form.control}
                             name="investidor_user_id"
                             render={({ field }) => (
                                 <FormItem>
@@ -233,7 +235,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                                         </SelectContent>
                                     </Select>
                                     <FormDescription>
-                                        Apenas usuários com perfil 'Investidor' aparecem aqui.
+                                        Apenas usuários com perfil &apos;Investidor&apos; aparecem aqui.
                                     </FormDescription>
                                     <FormMessage />
                                 </FormItem>
@@ -242,7 +244,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     )}
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="status"
                         render={({ field }) => (
                             <FormItem>
@@ -265,7 +267,7 @@ export function UsinaForm({ investors, initialData }: UsinaFormProps) {
                     />
 
                     <FormField
-                        control={form.control as any}
+                        control={form.control}
                         name="modelo_negocio"
                         render={({ field }) => (
                             <FormItem>

@@ -69,10 +69,11 @@ export async function POST(request: Request) {
 
         return NextResponse.json({ success: true, data })
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : "Failed to process document"
         console.error("AI Extraction Error:", error)
         return NextResponse.json(
-            { error: error.message || "Failed to process document" },
+            { error: errorMessage },
             { status: 500 }
         )
     }

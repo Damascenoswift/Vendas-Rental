@@ -29,9 +29,32 @@ import { Badge } from "@/components/ui/badge"
 import { EditUserDialog } from "./edit-user-dialog"
 import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
 
+interface UserListItem {
+    id: string
+    name?: string | null
+    email?: string | null
+    role?: string | null
+    sales_access?: boolean | null
+    internal_chat_access?: boolean | null
+    whatsapp_inbox_access?: boolean | null
+    phone?: string | null
+    department?: string | null
+    allowed_brands?: string[] | null
+    status?: string | null
+    supervisor_id?: string | null
+    company_name?: string | null
+    supervised_company_name?: string | null
+}
+
+interface SupervisorItem {
+    id: string
+    name?: string | null
+    email?: string | null
+}
+
 interface UsersListProps {
-    users: any[]
-    supervisors?: any[]
+    users: UserListItem[]
+    supervisors?: SupervisorItem[]
 }
 
 export function UsersList({ users, supervisors = [] }: UsersListProps) {
@@ -141,8 +164,26 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                             </TableCell>
                             <TableCell className="text-right">
                                 <div className="flex justify-end gap-1">
-                                    <EditUserDialog user={user} supervisors={supervisors} />
-                                    <DeleteUserButton userId={user.id} userName={user.name || user.email} />
+                                    <EditUserDialog
+                                        user={{
+                                            id: user.id,
+                                            name: user.name || "Sem nome",
+                                            email: user.email || "",
+                                            role: user.role || "vendedor_externo",
+                                            sales_access: user.sales_access,
+                                            internal_chat_access: user.internal_chat_access,
+                                            whatsapp_inbox_access: user.whatsapp_inbox_access,
+                                            phone: user.phone || undefined,
+                                            department: user.department || undefined,
+                                            allowed_brands: user.allowed_brands || undefined,
+                                            status: user.status || undefined,
+                                            supervisor_id: user.supervisor_id || undefined,
+                                            company_name: user.company_name || undefined,
+                                            supervised_company_name: user.supervised_company_name || undefined,
+                                        }}
+                                        supervisors={supervisors}
+                                    />
+                                    <DeleteUserButton userId={user.id} userName={user.name || user.email || "Usuário"} />
                                 </div>
                             </TableCell>
                         </TableRow>

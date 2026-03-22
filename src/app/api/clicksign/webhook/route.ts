@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true, indicacao_id: indicacaoId, new_status: mapped })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'unexpected' }, { status: 500 })
   }
 }

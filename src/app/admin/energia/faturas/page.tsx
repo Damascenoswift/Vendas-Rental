@@ -26,8 +26,8 @@ type FaturaListRow = {
     valor_fatura: number | null
     kwh_compensado: number | null
     status_pagamento: "ABERTO" | "PAGO" | "ATRASADO" | "CANCELADO"
-    usina: { nome: string } | null
-    cliente: { nome: string } | null
+    usina: Array<{ nome: string }> | null
+    cliente: Array<{ nome: string }> | null
     creator?: { name: string | null; email: string | null } | null
 }
 
@@ -99,8 +99,8 @@ export default async function FaturasPage() {
                                 <TableCell className="font-medium capitalize">
                                     {format(new Date(item.mes_ano), 'MMMM yyyy', { locale: ptBR })}
                                 </TableCell>
-                                <TableCell>{item.cliente?.nome || 'Cliente removido'}</TableCell>
-                                <TableCell>{item.usina?.nome || 'Usina removida'}</TableCell>
+                                <TableCell>{item.cliente?.[0]?.nome || 'Cliente removido'}</TableCell>
+                                <TableCell>{item.usina?.[0]?.nome || 'Usina removida'}</TableCell>
                                 <TableCell>
                                     {item.valor_fatura ?
                                         new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(item.valor_fatura)

@@ -43,7 +43,11 @@ interface EditUserDialogProps {
         company_name?: string
         supervised_company_name?: string
     }
-    supervisors?: any[]
+    supervisors?: Array<{
+        id: string
+        name?: string | null
+        email?: string | null
+    }>
 }
 
 export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) {

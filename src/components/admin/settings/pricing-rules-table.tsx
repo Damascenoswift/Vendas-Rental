@@ -46,7 +46,7 @@ export function PricingRulesTable({ rules }: PricingRulesTableProps) {
                 delete newState[rule.id]
                 return newState
             })
-        } catch (error) {
+        } catch {
             showToast({
                 title: "Erro",
                 description: "Falha ao atualizar regra.",

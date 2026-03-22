@@ -1,4 +1,4 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Factory, Users, Zap, FileText } from "lucide-react"
 
 export default function EnergyDashboardPage() {

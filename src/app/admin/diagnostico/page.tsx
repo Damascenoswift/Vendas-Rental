@@ -22,7 +22,10 @@ export default async function DiagnosticPage() {
         .list()
 
     // Deep check (first 5 folders)
-    const fileStructure: any[] = []
+    const fileStructure: Array<{
+        name: string
+        children: Array<{ name: string; type: string; children?: unknown; size?: unknown }>
+    }> = []
     if (rootFolders) {
         for (const folder of rootFolders.slice(0, 5)) {
             const { data: items } = await supabaseAdmin.storage
@@ -65,7 +68,7 @@ export default async function DiagnosticPage() {
             <div className="p-4 border rounded bg-muted/50">
                 <h2 className="text-xl font-semibold mb-2">2. Arquivos no Storage (Visão do Admin)</h2>
                 <p className="text-sm text-muted-foreground mb-4">
-                    Listando estrutura real do bucket "indicacoes" (bypassing RLS).
+                    Listando estrutura real do bucket &quot;indicacoes&quot; (bypassing RLS).
                 </p>
 
                 {rootError ? (

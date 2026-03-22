@@ -98,7 +98,7 @@ async function getContactAccessContext(): Promise<
   const profile = await getProfile(supabase, user.id)
   const role = profile?.role ?? null
 
-  if (!isAllowedRole(role, CONTACT_VIEW_ALLOWED_ROLES)) {
+  if (!role || !isAllowedRole(role, CONTACT_VIEW_ALLOWED_ROLES)) {
     return { success: false, error: "Você não tem permissão para acessar contatos." }
   }
 

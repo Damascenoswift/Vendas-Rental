@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { FileText, ExternalLink, Loader2 } from "lucide-react"
+import { FileText, Loader2 } from "lucide-react"
 
 import {
     Table,

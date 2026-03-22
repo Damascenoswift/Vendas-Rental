@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { getEnergisaLogs, addEnergisaLog, type EnergisaLog } from "@/services/interactions-service"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -40,16 +40,16 @@ export function EnergisaActions({ indicacaoId, variant = "default", readOnly = f
         ? "border rounded-md max-h-64 overflow-auto"
         : "flex-1 overflow-auto border rounded-md"
 
-    const fetchLogs = async () => {
+    const fetchLogs = useCallback(async () => {
         setRefreshing(true)
         const data = await getEnergisaLogs(indicacaoId)
         setLogs(data)
         setRefreshing(false)
-    }
+    }, [indicacaoId])
 
     useEffect(() => {
         fetchLogs()
-    }, [indicacaoId])
+    }, [fetchLogs])
 
     const handleAddLog = async () => {
         if (!actionType) return

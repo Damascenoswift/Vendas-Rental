@@ -470,13 +470,15 @@ export function WhatsAppInbox({
           return
         }
 
-        setHasMoreMessages(result.data.has_more)
-        setNextBeforeCursor(result.data.next_before)
+        const messagesData = result.data
+
+        setHasMoreMessages(messagesData.has_more)
+        setNextBeforeCursor(messagesData.next_before)
 
         if (options.appendOlder) {
           setMessages((current) => {
             const seen = new Set<string>()
-            const merged = [...result.data.messages, ...current]
+            const merged = [...messagesData.messages, ...current]
 
             return merged.filter((message) => {
               if (seen.has(message.id)) {
@@ -490,7 +492,7 @@ export function WhatsAppInbox({
           return
         }
 
-        setMessages(result.data.messages)
+        setMessages(messagesData.messages)
       } catch {
         showToast({
           variant: "error",
@@ -965,7 +967,7 @@ export function WhatsAppInbox({
     await loadConversations({ preserveSelection: true })
 
     showToast({
-      variant: result.data.failed > 0 ? "warning" : "success",
+      variant: result.data.failed > 0 ? "info" : "success",
       title: "Sincronização concluída",
       description: `${result.data.linked} conversa(s) vinculada(s), ${result.data.failed} falha(s).`,
     })
@@ -1357,16 +1359,17 @@ export function WhatsAppInbox({
     if (!selectedConversation) return
 
     const message = draft.trim()
-    const hasPendingMedia = Boolean(pendingMedia)
+    const mediaToSend = pendingMedia
+    const hasPendingMedia = Boolean(mediaToSend)
 
     if (!message && !hasPendingMedia) return
 
     await withAction(async () => {
       const result = hasPendingMedia
         ? await sendWhatsAppMediaMessage(selectedConversation.id, {
-            mediaType: pendingMedia.mediaType,
-            storagePath: pendingMedia.storagePath,
-            fileName: pendingMedia.fileName,
+            mediaType: mediaToSend!.mediaType,
+            storagePath: mediaToSend!.storagePath,
+            fileName: mediaToSend!.fileName,
             caption: message || null,
           })
         : await sendWhatsAppTextMessage(selectedConversation.id, message)

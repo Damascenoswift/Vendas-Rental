@@ -11,7 +11,6 @@ export default async function InvestorDashboardPage() {
 
     // 1. Get My Usinas
     const { data: usinas } = await supabase.from("usinas").select("id, capacidade_total, status")
-    const myUsinasIds = usinas?.map(u => u.id) || []
 
     // 2. Get Allocations (Active Clients)
     const { count: activeClientsCount } = await supabase

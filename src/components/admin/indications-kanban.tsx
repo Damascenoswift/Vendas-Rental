@@ -13,7 +13,7 @@ import {
     DragOverEvent,
     DragEndEvent,
 } from "@dnd-kit/core"
-import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable"
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { Indication, IndicationCard } from "./indication-card"
 import { KanbanColumn } from "./kanban-column"
 import { updateIndicationStatus } from "@/app/actions/admin-indications"
@@ -66,8 +66,6 @@ export function IndicationsKanban({ items: initialItems, canEdit = true }: Props
 
         // Find the containers
         const activeItem = items.find((i) => i.id === activeId)
-        const overItem = items.find((i) => i.id === overId)
-
         if (!activeItem) return
 
         // If dragging over a column directly
@@ -133,7 +131,7 @@ export function IndicationsKanban({ items: initialItems, canEdit = true }: Props
                 if (res?.error) {
                     throw new Error(res.error)
                 }
-            } catch (error) {
+            } catch {
                 showToast({
                     variant: "error",
                     title: "Erro ao atualizar",

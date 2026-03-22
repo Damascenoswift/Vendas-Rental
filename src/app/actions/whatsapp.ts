@@ -290,6 +290,13 @@ type ContactSearchRow = {
   whatsapp_normalized: string | null
 }
 
+type ConversationContactRow = {
+  id: string
+  full_name: string | null
+  whatsapp: string | null
+  whatsapp_normalized: string | null
+}
+
 type WhatsAppAccessContext = {
   user: {
     id: string
@@ -325,6 +332,20 @@ function normalizeLikelyWhatsAppPhone(raw: string | null | undefined) {
   if (digits.length < 10 || digits.length > 13) return ""
   if (digits.startsWith("0")) return ""
   return digits
+}
+
+function toConversationContactRow(value: unknown): ConversationContactRow | null {
+  if (!value || typeof value !== "object") return null
+  const row = value as Record<string, unknown>
+  if (typeof row.id !== "string") return null
+
+  return {
+    id: row.id,
+    full_name: typeof row.full_name === "string" ? row.full_name : null,
+    whatsapp: typeof row.whatsapp === "string" ? row.whatsapp : null,
+    whatsapp_normalized:
+      typeof row.whatsapp_normalized === "string" ? row.whatsapp_normalized : null,
+  }
 }
 
 async function findOrCreateContactByWhatsapp(params: {
@@ -898,7 +919,7 @@ async function fetchConversationById(
     throw new WhatsAppActionError("Conversa não encontrada.")
   }
 
-  const conversation = toConversationRow(data as Record<string, unknown>)
+  const conversation = toConversationRow(data as unknown as Record<string, unknown>)
 
   if (accessContext) {
     await ensureConversationVisible({
@@ -921,12 +942,7 @@ async function ensureConversationContactLink(params: {
   const fallbackWhatsapp = normalizedCustomerWa || null
   const preferredName = params.preferredName ? normalizeContactFullName(params.preferredName) : null
 
-  let contactRow: {
-    id: string
-    full_name: string | null
-    whatsapp: string | null
-    whatsapp_normalized: string | null
-  } | null = null
+  let contactRow: ConversationContactRow | null = null
 
   if (conversation.contact_id) {
     const { data: existingContactData, error: existingContactError } = await supabaseAdmin
@@ -939,7 +955,7 @@ async function ensureConversationContactLink(params: {
       throw new WhatsAppActionError(existingContactError.message)
     }
 
-    contactRow = (existingContactData as typeof contactRow) ?? null
+    contactRow = toConversationContactRow(existingContactData)
   }
 
   if (!contactRow && normalizedCustomerWa) {
@@ -954,7 +970,7 @@ async function ensureConversationContactLink(params: {
       throw new WhatsAppActionError(matchedContactsError.message)
     }
 
-    contactRow = ((matchedContactsData ?? [])[0] as typeof contactRow) ?? null
+    contactRow = toConversationContactRow((matchedContactsData ?? [])[0])
   }
 
   const nextContactName =
@@ -1017,7 +1033,14 @@ async function ensureConversationContactLink(params: {
       )
     }
 
-    contactRow = insertedContactData as typeof contactRow
+    contactRow = toConversationContactRow(insertedContactData)
+    if (!contactRow) {
+      throw new WhatsAppActionError("Não foi possível interpretar o contato criado para esta conversa.")
+    }
+  }
+
+  if (!contactRow) {
+    throw new WhatsAppActionError("Não foi possível vincular contato à conversa.")
   }
 
   const conversationUpdates: Record<string, unknown> = {}
@@ -1277,7 +1300,7 @@ export async function listWhatsAppConversations(
     }
 
     const conversationRows = (conversationsData ?? []).map((row) =>
-      toConversationRow(row as Record<string, unknown>)
+      toConversationRow(row as unknown as Record<string, unknown>)
     )
     const conversations = await filterConversationsByVisibility({
       supabaseAdmin,
@@ -1925,7 +1948,9 @@ export async function syncWhatsAppConversationContacts(
       throw new WhatsAppActionError(error.message)
     }
 
-    const conversationRows = (data ?? []).map((row) => toConversationRow(row as Record<string, unknown>))
+    const conversationRows = (data ?? []).map((row) =>
+      toConversationRow(row as unknown as Record<string, unknown>)
+    )
     const visibleConversations = await filterConversationsByVisibility({
       supabaseAdmin,
       conversations: conversationRows,
