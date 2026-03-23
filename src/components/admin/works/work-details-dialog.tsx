@@ -72,6 +72,11 @@ import { getProductRealtimeInfo, type ProductRealtimeInfo } from "@/services/pro
 import { formatManualContractProductionEstimateInput } from "@/lib/proposal-contract-estimate"
 import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
 import { resolveWorkCardStatusLabel, type WorkCardCompletionMode } from "@/lib/work-card-status"
+import {
+    parseWorkProjectProcessTitle,
+    WORK_PROJECT_PROCESS_LINKED_LABEL,
+    WORK_PROJECT_PROCESS_PRIMARY_LABEL,
+} from "@/lib/work-project-process"
 
 function processStatusLabel(status: WorkProcessStatus) {
     if (status === "TODO") return "A Fazer"
@@ -628,6 +633,11 @@ type TechnicalSnapshotSection = {
     rows: Array<{ label: string; value: string }>
 }
 
+type ProjectProcessListEntry = {
+    item: WorkProcessItem
+    baseTitle: string
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null
     return value as Record<string, unknown>
@@ -801,6 +811,35 @@ export function WorkDetailsDialog({
         () => processItems.filter((item) => item.phase === "PROJETO"),
         [processItems]
     )
+    const projectItemsByScope = useMemo(() => {
+        const grouped = {
+            PRIMARY: [] as ProjectProcessListEntry[],
+            LINKED: [] as ProjectProcessListEntry[],
+            unscoped: [] as ProjectProcessListEntry[],
+        }
+
+        for (const item of projectItems) {
+            const parsed = parseWorkProjectProcessTitle(item.title)
+            const entry = {
+                item,
+                baseTitle: parsed.baseTitle,
+            } satisfies ProjectProcessListEntry
+
+            if (parsed.scope === "PRIMARY") {
+                grouped.PRIMARY.push(entry)
+                continue
+            }
+
+            if (parsed.scope === "LINKED") {
+                grouped.LINKED.push(entry)
+                continue
+            }
+
+            grouped.unscoped.push(entry)
+        }
+
+        return grouped
+    }, [projectItems])
 
     const executionItems = useMemo(
         () => processItems.filter((item) => item.phase === "EXECUCAO"),
@@ -1480,6 +1519,41 @@ export function WorkDetailsDialog({
         () => buildTechnicalSnapshotSections(work?.technical_snapshot ?? {}),
         [work?.technical_snapshot],
     )
+    const renderProjectProcessEntry = (entry: ProjectProcessListEntry) => (
+        <div key={entry.item.id} className="rounded-md border bg-white p-2">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">{entry.baseTitle}</p>
+                <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={() => handleDeleteProcessItem(entry.item.id)}
+                    disabled={isSaving}
+                >
+                    <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+                <Select
+                    value={entry.item.status}
+                    onValueChange={(value) => handleProcessStatusChange(entry.item.id, value as WorkProcessStatus)}
+                >
+                    <SelectTrigger className="h-8">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="TODO">{processStatusLabel("TODO")}</SelectItem>
+                        <SelectItem value="IN_PROGRESS">{processStatusLabel("IN_PROGRESS")}</SelectItem>
+                        <SelectItem value="BLOCKED">{processStatusLabel("BLOCKED")}</SelectItem>
+                        <SelectItem value="DONE">{processStatusLabel("DONE")}</SelectItem>
+                    </SelectContent>
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                    Concluído: {formatDateTime(entry.item.completed_at)}
+                </span>
+            </div>
+        </div>
+    )
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1667,7 +1741,7 @@ export function WorkDetailsDialog({
                             </div>
                         </div>
 
-                        <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="space-y-4">
                             <div className="space-y-3 rounded-md border p-4">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <p className="text-sm font-semibold">Dados técnicos por orçamento</p>
@@ -2093,7 +2167,7 @@ export function WorkDetailsDialog({
                                     <Input
                                         value={newProjectItem}
                                         onChange={(event) => setNewProjectItem(event.target.value)}
-                                        placeholder="Novo processo de projeto"
+                                        placeholder="Novo processo de projeto (cria principal e vinculado)"
                                     />
                                     <Button
                                         variant="outline"
@@ -2103,46 +2177,49 @@ export function WorkDetailsDialog({
                                         Adicionar
                                     </Button>
                                 </div>
-                                <div className="space-y-2">
-                                    {projectItems.map((item) => (
-                                        <div key={item.id} className="rounded-md border p-2">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <p className="text-sm font-medium">{item.title}</p>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-7 w-7 p-0"
-                                                    onClick={() => handleDeleteProcessItem(item.id)}
-                                                    disabled={isSaving}
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </Button>
-                                            </div>
-                                            <div className="mt-2 flex items-center gap-2">
-                                                <Select
-                                                    value={item.status}
-                                                    onValueChange={(value) => handleProcessStatusChange(item.id, value as WorkProcessStatus)}
-                                                >
-                                                    <SelectTrigger className="h-8">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="TODO">{processStatusLabel("TODO")}</SelectItem>
-                                                        <SelectItem value="IN_PROGRESS">{processStatusLabel("IN_PROGRESS")}</SelectItem>
-                                                        <SelectItem value="BLOCKED">{processStatusLabel("BLOCKED")}</SelectItem>
-                                                        <SelectItem value="DONE">{processStatusLabel("DONE")}</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <span className="text-xs text-muted-foreground">
-                                                    Concluído: {formatDateTime(item.completed_at)}
-                                                </span>
-                                            </div>
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                                                {WORK_PROJECT_PROCESS_PRIMARY_LABEL}
+                                            </p>
                                         </div>
-                                    ))}
-                                    {projectItems.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground">Sem processos de projeto.</p>
-                                    ) : null}
+                                        <div className="space-y-2">
+                                            {projectItemsByScope.PRIMARY.map(renderProjectProcessEntry)}
+                                            {projectItemsByScope.PRIMARY.length === 0 ? (
+                                                <p className="text-xs text-muted-foreground">Sem processos desse orçamento.</p>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/30 p-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-2 w-2 rounded-full bg-blue-400" />
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">
+                                                {WORK_PROJECT_PROCESS_LINKED_LABEL}
+                                            </p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {projectItemsByScope.LINKED.map(renderProjectProcessEntry)}
+                                            {projectItemsByScope.LINKED.length === 0 ? (
+                                                <p className="text-xs text-muted-foreground">Sem processos desse orçamento.</p>
+                                            ) : null}
+                                        </div>
+                                    </div>
                                 </div>
+                                {projectItemsByScope.unscoped.length > 0 ? (
+                                    <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/50 p-3">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                                            Processos sem separação
+                                        </p>
+                                        <div className="space-y-2">
+                                            {projectItemsByScope.unscoped.map(renderProjectProcessEntry)}
+                                        </div>
+                                    </div>
+                                ) : null}
+                                {projectItems.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Sem processos de projeto.</p>
+                                ) : null}
                             </div>
 
                             <div className="space-y-3 rounded-md border p-4">
