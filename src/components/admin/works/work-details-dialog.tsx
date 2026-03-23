@@ -73,7 +73,10 @@ import { formatManualContractProductionEstimateInput } from "@/lib/proposal-cont
 import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
 import { resolveWorkCardStatusLabel, type WorkCardCompletionMode } from "@/lib/work-card-status"
 import {
+    canonicalWorkProjectProcessBaseTitle,
     formatWorkProjectProcessTitle,
+    isWorkProjectProtocolProcess,
+    normalizeWorkProjectProcessBaseTitle,
     parseWorkProjectProcessTitle,
     WORK_PROJECT_PROCESS_LINKED_LABEL,
     WORK_PROJECT_PROCESS_PRIMARY_LABEL,
@@ -85,6 +88,18 @@ function processStatusLabel(status: WorkProcessStatus) {
     if (status === "IN_PROGRESS") return "Em Andamento"
     if (status === "DONE") return "Concluído"
     return "Bloqueado"
+}
+
+function protocolStatusLabel(status: WorkProcessStatus) {
+    if (status === "DONE") return "Aprovado com obra"
+    if (status === "BLOCKED") return "Indeferido"
+    return "Em andamento"
+}
+
+function normalizeProtocolStatusForSelect(status: WorkProcessStatus): WorkProcessStatus {
+    if (status === "DONE") return "DONE"
+    if (status === "BLOCKED") return "BLOCKED"
+    return "IN_PROGRESS"
 }
 
 function formatDateTime(value?: string | null) {
@@ -640,14 +655,6 @@ type ProjectProcessListEntry = {
     baseTitle: string
 }
 
-function normalizeProjectProcessBaseTitle(value: string) {
-    return value
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim()
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null
     return value as Record<string, unknown>
@@ -832,7 +839,7 @@ export function WorkDetailsDialog({
             const parsed = parseWorkProjectProcessTitle(item.title)
             const entry = {
                 item,
-                baseTitle: parsed.baseTitle,
+                baseTitle: canonicalWorkProjectProcessBaseTitle(parsed.baseTitle),
             } satisfies ProjectProcessListEntry
 
             if (parsed.scope === "PRIMARY") {
@@ -859,7 +866,7 @@ export function WorkDetailsDialog({
         for (const item of projectItems) {
             const parsed = parseWorkProjectProcessTitle(item.title)
             if (!parsed.scope) continue
-            if (normalizeProjectProcessBaseTitle(parsed.baseTitle) !== "projeto iniciado") continue
+            if (normalizeWorkProjectProcessBaseTitle(parsed.baseTitle) !== "projeto iniciado") continue
 
             if (!result[parsed.scope]) {
                 result[parsed.scope] = item
@@ -873,6 +880,35 @@ export function WorkDetailsDialog({
         () => processItems.filter((item) => item.phase === "EXECUCAO"),
         [processItems]
     )
+    const executionItemsByScope = useMemo(() => {
+        const grouped = {
+            PRIMARY: [] as ProjectProcessListEntry[],
+            LINKED: [] as ProjectProcessListEntry[],
+            unscoped: [] as ProjectProcessListEntry[],
+        }
+
+        for (const item of executionItems) {
+            const parsed = parseWorkProjectProcessTitle(item.title)
+            const entry = {
+                item,
+                baseTitle: canonicalWorkProjectProcessBaseTitle(parsed.baseTitle),
+            } satisfies ProjectProcessListEntry
+
+            if (parsed.scope === "PRIMARY") {
+                grouped.PRIMARY.push(entry)
+                continue
+            }
+
+            if (parsed.scope === "LINKED") {
+                grouped.LINKED.push(entry)
+                continue
+            }
+
+            grouped.unscoped.push(entry)
+        }
+
+        return grouped
+    }, [executionItems])
     const stakeholderContacts = useMemo(
         () => getProposalStakeholderContacts(work?.technical_snapshot ?? null),
         [work?.technical_snapshot]
@@ -1607,7 +1643,59 @@ export function WorkDetailsDialog({
             setIsSaving(false)
         }
     }
-    const renderProjectProcessEntry = (entry: ProjectProcessListEntry) => (
+    const renderProjectProcessEntry = (entry: ProjectProcessListEntry) => {
+        const protocolProcess = isWorkProjectProtocolProcess(entry.baseTitle)
+        const statusValue = protocolProcess
+            ? normalizeProtocolStatusForSelect(entry.item.status)
+            : entry.item.status
+
+        return (
+            <div key={entry.item.id} className="rounded-md border bg-white p-2">
+                <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">{entry.baseTitle}</p>
+                    <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => handleDeleteProcessItem(entry.item.id)}
+                        disabled={isSaving}
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                    <Select
+                        value={statusValue}
+                        onValueChange={(value) => handleProcessStatusChange(entry.item.id, value as WorkProcessStatus)}
+                    >
+                        <SelectTrigger className="h-8">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {protocolProcess ? (
+                                <>
+                                    <SelectItem value="BLOCKED">{protocolStatusLabel("BLOCKED")}</SelectItem>
+                                    <SelectItem value="DONE">{protocolStatusLabel("DONE")}</SelectItem>
+                                    <SelectItem value="IN_PROGRESS">{protocolStatusLabel("IN_PROGRESS")}</SelectItem>
+                                </>
+                            ) : (
+                                <>
+                                    <SelectItem value="TODO">{processStatusLabel("TODO")}</SelectItem>
+                                    <SelectItem value="IN_PROGRESS">{processStatusLabel("IN_PROGRESS")}</SelectItem>
+                                    <SelectItem value="BLOCKED">{processStatusLabel("BLOCKED")}</SelectItem>
+                                    <SelectItem value="DONE">{processStatusLabel("DONE")}</SelectItem>
+                                </>
+                            )}
+                        </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">
+                        Concluído: {formatDateTime(entry.item.completed_at)}
+                    </span>
+                </div>
+            </div>
+        )
+    }
+    const renderExecutionProcessEntry = (entry: ProjectProcessListEntry) => (
         <div key={entry.item.id} className="rounded-md border bg-white p-2">
             <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-medium">{entry.baseTitle}</p>
@@ -1621,10 +1709,11 @@ export function WorkDetailsDialog({
                     <Trash2 className="h-3.5 w-3.5" />
                 </Button>
             </div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 grid gap-2 xl:grid-cols-[220px_1fr_auto]">
                 <Select
                     value={entry.item.status}
                     onValueChange={(value) => handleProcessStatusChange(entry.item.id, value as WorkProcessStatus)}
+                    disabled={isSaving}
                 >
                     <SelectTrigger className="h-8">
                         <SelectValue />
@@ -1636,10 +1725,38 @@ export function WorkDetailsDialog({
                         <SelectItem value="DONE">{processStatusLabel("DONE")}</SelectItem>
                     </SelectContent>
                 </Select>
-                <span className="text-xs text-muted-foreground">
-                    Concluído: {formatDateTime(entry.item.completed_at)}
-                </span>
+                <Select
+                    value={entry.item.responsible_user_id || "__none__"}
+                    onValueChange={(value) =>
+                        handleProcessResponsibleChange(entry.item.id, value === "__none__" ? "" : value)
+                    }
+                    disabled={isSaving}
+                >
+                    <SelectTrigger className="h-8">
+                        <SelectValue placeholder="Responsável" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="__none__">Sem responsável</SelectItem>
+                        {responsibleUsers.map((user) => (
+                            <SelectItem key={`exec-responsible-${entry.item.id}-${user.id}`} value={user.id}>
+                                {user.name}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                {entry.item.linked_task_id ? (
+                    <Link href={`/admin/tarefas?openTask=${entry.item.linked_task_id}`} className="text-xs underline">
+                        Abrir tarefa
+                    </Link>
+                ) : (
+                    <span className="text-xs text-muted-foreground">Sem tarefa vinculada</span>
+                )}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+                Responsável atual: {entry.item.responsible_user_id
+                    ? (responsibleUserById.get(entry.item.responsible_user_id)?.name ?? "Usuário não encontrado")
+                    : "Sem responsável"}
+            </p>
         </div>
     )
 
@@ -2347,7 +2464,7 @@ export function WorkDetailsDialog({
                                     <Input
                                         value={newExecutionItem}
                                         onChange={(event) => setNewExecutionItem(event.target.value)}
-                                        placeholder="Novo processo de execução"
+                                        placeholder="Novo processo de execução (cria principal e vinculado)"
                                     />
                                     <Select
                                         value={newExecutionResponsibleId || "__none__"}
@@ -2373,75 +2490,49 @@ export function WorkDetailsDialog({
                                         Adicionar
                                     </Button>
                                 </div>
-                                <div className="space-y-2">
-                                    {executionItems.map((item) => (
-                                        <div key={item.id} className="rounded-md border p-2">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <p className="text-sm font-medium">{item.title}</p>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="h-7 w-7 p-0"
-                                                    onClick={() => handleDeleteProcessItem(item.id)}
-                                                    disabled={isSaving}
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </Button>
-                                            </div>
-                                            <div className="mt-2 grid gap-2 md:grid-cols-[220px_1fr_auto]">
-                                                <Select
-                                                    value={item.status}
-                                                    onValueChange={(value) => handleProcessStatusChange(item.id, value as WorkProcessStatus)}
-                                                    disabled={isSaving}
-                                                >
-                                                    <SelectTrigger className="h-8">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="TODO">{processStatusLabel("TODO")}</SelectItem>
-                                                        <SelectItem value="IN_PROGRESS">{processStatusLabel("IN_PROGRESS")}</SelectItem>
-                                                        <SelectItem value="BLOCKED">{processStatusLabel("BLOCKED")}</SelectItem>
-                                                        <SelectItem value="DONE">{processStatusLabel("DONE")}</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                <Select
-                                                    value={item.responsible_user_id || "__none__"}
-                                                    onValueChange={(value) =>
-                                                        handleProcessResponsibleChange(item.id, value === "__none__" ? "" : value)
-                                                    }
-                                                    disabled={isSaving}
-                                                >
-                                                    <SelectTrigger className="h-8">
-                                                        <SelectValue placeholder="Responsável" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="__none__">Sem responsável</SelectItem>
-                                                        {responsibleUsers.map((user) => (
-                                                            <SelectItem key={`exec-responsible-${item.id}-${user.id}`} value={user.id}>
-                                                                {user.name}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                                {item.linked_task_id ? (
-                                                    <Link href={`/admin/tarefas?openTask=${item.linked_task_id}`} className="text-xs underline">
-                                                        Abrir tarefa
-                                                    </Link>
-                                                ) : (
-                                                    <span className="text-xs text-muted-foreground">Sem tarefa vinculada</span>
-                                                )}
-                                            </div>
-                                            <p className="mt-2 text-xs text-muted-foreground">
-                                                Responsável atual: {item.responsible_user_id
-                                                    ? (responsibleUserById.get(item.responsible_user_id)?.name ?? "Usuário não encontrado")
-                                                    : "Sem responsável"}
+                                <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                                                {WORK_PROJECT_PROCESS_PRIMARY_LABEL}
                                             </p>
                                         </div>
-                                    ))}
-                                    {executionItems.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground">Sem processos de execução.</p>
-                                    ) : null}
+                                        <div className="space-y-2">
+                                            {executionItemsByScope.PRIMARY.map(renderExecutionProcessEntry)}
+                                            {executionItemsByScope.PRIMARY.length === 0 ? (
+                                                <p className="text-xs text-muted-foreground">Sem processos desse orçamento.</p>
+                                            ) : null}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/30 p-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="h-2 w-2 rounded-full bg-blue-400" />
+                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">
+                                                {WORK_PROJECT_PROCESS_LINKED_LABEL}
+                                            </p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {executionItemsByScope.LINKED.map(renderExecutionProcessEntry)}
+                                            {executionItemsByScope.LINKED.length === 0 ? (
+                                                <p className="text-xs text-muted-foreground">Sem processos desse orçamento.</p>
+                                            ) : null}
+                                        </div>
+                                    </div>
                                 </div>
+                                {executionItemsByScope.unscoped.length > 0 ? (
+                                    <div className="space-y-2 rounded-md border border-amber-200 bg-amber-50/50 p-3">
+                                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                                            Processos sem separação
+                                        </p>
+                                        <div className="space-y-2">
+                                            {executionItemsByScope.unscoped.map(renderExecutionProcessEntry)}
+                                        </div>
+                                    </div>
+                                ) : null}
+                                {executionItems.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Sem processos de execução.</p>
+                                ) : null}
                             </div>
                         </div>
 

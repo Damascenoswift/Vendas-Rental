@@ -23,7 +23,12 @@ import {
 } from "@/lib/work-card-status"
 import {
     buildWorkProjectProcessTitles,
+    canonicalWorkProjectProcessBaseTitle,
+    formatWorkProjectProcessTitle,
+    isWorkProjectProtocolProcess,
     parseWorkProjectProcessTitle,
+    WORK_PROJECT_PROTOCOL_TITLE,
+    normalizeWorkProjectProcessBaseTitle,
     type WorkProjectProcessScope,
 } from "@/lib/work-project-process"
 import type { WorkCompletionFilter } from "@/lib/work-status-filter"
@@ -211,7 +216,7 @@ const PROJECT_TEMPLATE_BASE = [
     { title: "Validar dados técnicos do orçamento" },
     { title: "Validar documentação técnica" },
     { title: "Registrar parecer Energisa" },
-    { title: "Revisar projeto" },
+    { title: WORK_PROJECT_PROTOCOL_TITLE },
 ] as const
 
 const PROJECT_TEMPLATE = PROJECT_TEMPLATE_BASE.flatMap((item, index) => {
@@ -223,13 +228,29 @@ const PROJECT_TEMPLATE = PROJECT_TEMPLATE_BASE.flatMap((item, index) => {
     ]
 })
 
-const EXECUTION_TEMPLATE = [
-    { sort_order: 1, title: "Planejar execução" },
-    { sort_order: 2, title: "Execução em campo" },
-    { sort_order: 3, title: "Upload foto antes" },
-    { sort_order: 4, title: "Upload foto depois" },
-    { sort_order: 5, title: "Vistoria e encerramento técnico" },
+const EXECUTION_TEMPLATE_BASE = [
+    { title: "Planejar execução" },
+    { title: "Execução em campo" },
+    { title: "Upload foto antes" },
+    { title: "Upload foto depois" },
+    { title: "Vistoria e encerramento técnico" },
 ] as const
+
+const EXECUTION_TEMPLATE = EXECUTION_TEMPLATE_BASE.flatMap((item, index) => {
+    const [primaryTitle, linkedTitle] = buildWorkProjectProcessTitles(item.title)
+    const startSortOrder = (index * 2) + 1
+    return [
+        { sort_order: startSortOrder, title: primaryTitle },
+        { sort_order: startSortOrder + 1, title: linkedTitle },
+    ]
+})
+
+function getProcessDefaultStatus(phase: WorkPhase, baseTitle: string): WorkProcessStatus {
+    if (phase === "PROJETO" && isWorkProjectProtocolProcess(baseTitle)) {
+        return "IN_PROGRESS"
+    }
+    return "TODO"
+}
 
 const FINANCIAL_KEY_TOKENS = [
     "valor",
@@ -1204,7 +1225,7 @@ async function ensureProjectTemplate(obraId: string) {
             phase: "PROJETO",
             title: item.title,
             sort_order: item.sort_order,
-            status: "TODO",
+            status: getProcessDefaultStatus("PROJETO", item.title),
         }))
 
         const { error: insertError } = await supabaseAdmin
@@ -1213,6 +1234,184 @@ async function ensureProjectTemplate(obraId: string) {
 
         if (insertError) {
             console.error("Erro ao inserir template de projeto:", insertError)
+        }
+        return
+    }
+
+    const scopeKey = (baseTitle: string, scope: WorkProjectProcessScope) => `${normalizeWorkProjectProcessBaseTitle(baseTitle)}::${scope}`
+    const existingScopedKeys = new Set<string>()
+    const rowsToUpdate: Array<{ id: string; payload: { title?: string; status?: WorkProcessStatus } }> = []
+
+    for (const row of rows) {
+        const parsed = parseWorkProjectProcessTitle(row.title)
+        const canonicalBaseTitle = canonicalWorkProjectProcessBaseTitle(parsed.baseTitle)
+        if (!parsed.scope) continue
+
+        existingScopedKeys.add(scopeKey(canonicalBaseTitle, parsed.scope))
+
+        const payload: { title?: string; status?: WorkProcessStatus } = {}
+        const canonicalTitle = formatWorkProjectProcessTitle(canonicalBaseTitle, parsed.scope)
+        if (canonicalTitle !== row.title) {
+            payload.title = canonicalTitle
+        }
+        if (isWorkProjectProtocolProcess(canonicalBaseTitle) && row.status === "TODO") {
+            payload.status = "IN_PROGRESS"
+        }
+
+        if (Object.keys(payload).length > 0) {
+            rowsToUpdate.push({ id: row.id, payload })
+        }
+    }
+
+    const rowsToDelete: string[] = []
+    const rowsToInsert: Array<{
+        obra_id: string
+        phase: WorkPhase
+        title: string
+        sort_order: number
+        status: WorkProcessStatus
+        description: string | null
+        due_date: string | null
+        responsible_user_id: string | null
+        started_at: string | null
+        completed_at: string | null
+        completed_by: string | null
+    }> = []
+
+    for (const row of rows) {
+        const parsed = parseWorkProjectProcessTitle(row.title)
+        if (parsed.scope) continue
+
+        const baseTitle = canonicalWorkProjectProcessBaseTitle(parsed.baseTitle)
+        if (!baseTitle) continue
+        const baseSortOrder = Number.isFinite(row.sort_order) && row.sort_order > 0
+            ? row.sort_order
+            : 1
+        const normalizedStatus = row.status === "TODO"
+            ? getProcessDefaultStatus("PROJETO", baseTitle)
+            : row.status
+
+        if (row.linked_task_id) {
+            const payload: { title?: string; status?: WorkProcessStatus } = {}
+            if (row.title !== baseTitle) {
+                payload.title = baseTitle
+            }
+            if (normalizedStatus !== row.status) {
+                payload.status = normalizedStatus
+            }
+            if (Object.keys(payload).length > 0) {
+                rowsToUpdate.push({ id: row.id, payload })
+            }
+            continue
+        }
+
+        rowsToDelete.push(row.id)
+
+        const [primaryTitle, linkedTitle] = buildWorkProjectProcessTitles(baseTitle)
+        const variants: Array<{ scope: WorkProjectProcessScope; title: string; sortOrder: number }> = [
+            { scope: "PRIMARY", title: primaryTitle, sortOrder: (baseSortOrder * 2) - 1 },
+            { scope: "LINKED", title: linkedTitle, sortOrder: baseSortOrder * 2 },
+        ]
+
+        for (const variant of variants) {
+            const key = scopeKey(baseTitle, variant.scope)
+            if (existingScopedKeys.has(key)) continue
+            existingScopedKeys.add(key)
+
+            rowsToInsert.push({
+                obra_id: obraId,
+                phase: "PROJETO",
+                title: variant.title,
+                sort_order: variant.sortOrder,
+                status: normalizedStatus,
+                description: row.description ?? null,
+                due_date: row.due_date ?? null,
+                responsible_user_id: row.responsible_user_id ?? null,
+                started_at: row.started_at ?? null,
+                completed_at: row.completed_at ?? null,
+                completed_by: row.completed_by ?? null,
+            })
+        }
+    }
+
+    if (rowsToInsert.length > 0) {
+        const { error: insertError } = await supabaseAdmin
+            .from("obra_process_items" as string)
+            .insert(rowsToInsert)
+
+        if (insertError) {
+            console.error("Erro ao separar processos de projeto por orçamento:", insertError)
+            return
+        }
+    }
+
+    for (const update of rowsToUpdate) {
+        const { error: updateError } = await supabaseAdmin
+            .from("obra_process_items" as string)
+            .update(update.payload)
+            .eq("id", update.id)
+
+        if (updateError) {
+            console.error("Erro ao atualizar processo de projeto legado:", updateError)
+        }
+    }
+
+    if (rowsToDelete.length > 0) {
+        const { error: deleteError } = await supabaseAdmin
+            .from("obra_process_items" as string)
+            .delete()
+            .in("id", rowsToDelete)
+
+        if (deleteError) {
+            console.error("Erro ao remover processos antigos sem separação por orçamento:", deleteError)
+        }
+    }
+}
+
+async function ensureExecutionTemplate(obraId: string) {
+    const supabaseAdmin = createSupabaseServiceClient()
+
+    const { data: existing, error } = await supabaseAdmin
+        .from("obra_process_items" as string)
+        .select("id, title, sort_order, status, description, due_date, responsible_user_id, started_at, completed_at, completed_by, linked_task_id")
+        .eq("obra_id", obraId)
+        .eq("phase", "EXECUCAO")
+        .order("sort_order", { ascending: true })
+
+    if (error) {
+        console.error("Erro ao verificar template de execução:", error)
+        return
+    }
+
+    const rows = (existing ?? []) as Array<{
+        id: string
+        title: string
+        sort_order: number
+        status: WorkProcessStatus
+        description: string | null
+        due_date: string | null
+        responsible_user_id: string | null
+        started_at: string | null
+        completed_at: string | null
+        completed_by: string | null
+        linked_task_id: string | null
+    }>
+
+    if (rows.length === 0) {
+        const payload = EXECUTION_TEMPLATE.map((item) => ({
+            obra_id: obraId,
+            phase: "EXECUCAO",
+            title: item.title,
+            sort_order: item.sort_order,
+            status: "TODO",
+        }))
+
+        const { error: insertError } = await supabaseAdmin
+            .from("obra_process_items" as string)
+            .insert(payload)
+
+        if (insertError) {
+            console.error("Erro ao inserir template de execução:", insertError)
         }
         return
     }
@@ -1246,19 +1445,40 @@ async function ensureProjectTemplate(obraId: string) {
         completed_at: string | null
         completed_by: string | null
     }> = []
+    const rowsToUpdate: Array<{ id: string; title: string; sort_order: number }> = []
 
     for (const row of rows) {
         const parsed = parseWorkProjectProcessTitle(row.title)
         if (parsed.scope) continue
-        if (row.linked_task_id) continue
 
         const baseTitle = parsed.baseTitle.trim()
         if (!baseTitle) continue
         const baseSortOrder = Number.isFinite(row.sort_order) && row.sort_order > 0
             ? row.sort_order
             : 1
+        const primaryKey = scopeKey(baseTitle, "PRIMARY")
+        const linkedKey = scopeKey(baseTitle, "LINKED")
+        const primaryMissing = !existingScopedKeys.has(primaryKey)
+        const linkedMissing = !existingScopedKeys.has(linkedKey)
 
-        rowsToDelete.push(row.id)
+        if (!row.linked_task_id) {
+            rowsToDelete.push(row.id)
+        } else {
+            const keepScope: WorkProjectProcessScope | null = primaryMissing
+                ? "PRIMARY"
+                : linkedMissing
+                    ? "LINKED"
+                    : null
+
+            if (keepScope) {
+                rowsToUpdate.push({
+                    id: row.id,
+                    title: formatWorkProjectProcessTitle(baseTitle, keepScope),
+                    sort_order: keepScope === "PRIMARY" ? (baseSortOrder * 2) - 1 : baseSortOrder * 2,
+                })
+                existingScopedKeys.add(scopeKey(baseTitle, keepScope))
+            }
+        }
 
         const [primaryTitle, linkedTitle] = buildWorkProjectProcessTitles(baseTitle)
         const variants: Array<{ scope: WorkProjectProcessScope; title: string; sortOrder: number }> = [
@@ -1273,7 +1493,7 @@ async function ensureProjectTemplate(obraId: string) {
 
             rowsToInsert.push({
                 obra_id: obraId,
-                phase: "PROJETO",
+                phase: "EXECUCAO",
                 title: variant.title,
                 sort_order: variant.sortOrder,
                 status: row.status,
@@ -1293,8 +1513,22 @@ async function ensureProjectTemplate(obraId: string) {
             .insert(rowsToInsert)
 
         if (insertError) {
-            console.error("Erro ao separar processos de projeto por orçamento:", insertError)
+            console.error("Erro ao separar processos de execução por orçamento:", insertError)
             return
+        }
+    }
+
+    for (const update of rowsToUpdate) {
+        const { error: updateError } = await supabaseAdmin
+            .from("obra_process_items" as string)
+            .update({
+                title: update.title,
+                sort_order: update.sort_order,
+            })
+            .eq("id", update.id)
+
+        if (updateError) {
+            console.error("Erro ao atualizar processo de execução legado:", updateError)
         }
     }
 
@@ -1305,42 +1539,8 @@ async function ensureProjectTemplate(obraId: string) {
             .in("id", rowsToDelete)
 
         if (deleteError) {
-            console.error("Erro ao remover processos antigos sem separação por orçamento:", deleteError)
+            console.error("Erro ao remover processos de execução antigos sem separação por orçamento:", deleteError)
         }
-    }
-}
-
-async function ensureExecutionTemplate(obraId: string) {
-    const supabaseAdmin = createSupabaseServiceClient()
-
-    const { data: existing, error } = await supabaseAdmin
-        .from("obra_process_items" as string)
-        .select("id")
-        .eq("obra_id", obraId)
-        .eq("phase", "EXECUCAO")
-        .limit(1)
-
-    if (error) {
-        console.error("Erro ao verificar template de execução:", error)
-        return
-    }
-
-    if ((existing?.length ?? 0) > 0) return
-
-    const payload = EXECUTION_TEMPLATE.map((item) => ({
-        obra_id: obraId,
-        phase: "EXECUCAO",
-        title: item.title,
-        sort_order: item.sort_order,
-        status: "TODO",
-    }))
-
-    const { error: insertError } = await supabaseAdmin
-        .from("obra_process_items" as string)
-        .insert(payload)
-
-    if (insertError) {
-        console.error("Erro ao inserir template de execução:", insertError)
     }
 }
 
@@ -2112,6 +2312,7 @@ export async function getWorkProcessItems(workId: string) {
     if (!user || !role) return [] as WorkProcessItem[]
 
     await ensureProjectTemplate(workId)
+    await ensureExecutionTemplate(workId)
 
     const supabaseAdmin = createSupabaseServiceClient()
     const { data, error } = await supabaseAdmin
@@ -2214,15 +2415,21 @@ export async function addWorkProcessItem(input: {
 
     const maxOrder = (maxOrderRows?.[0]?.sort_order as number | undefined) ?? 0
 
-    if (input.phase === "PROJETO") {
+    if (input.phase === "PROJETO" || input.phase === "EXECUCAO") {
         const parsedProjectTitle = parseWorkProjectProcessTitle(title)
         if (!parsedProjectTitle.scope) {
-            const baseTitle = parsedProjectTitle.baseTitle.trim()
+            const baseTitle = input.phase === "PROJETO"
+                ? canonicalWorkProjectProcessBaseTitle(parsedProjectTitle.baseTitle)
+                : parsedProjectTitle.baseTitle.trim()
             if (!baseTitle) {
                 return { error: "Título obrigatório." }
             }
 
             const [primaryTitle, linkedTitle] = buildWorkProjectProcessTitles(baseTitle)
+            const responsibleUserId = input.phase === "EXECUCAO"
+                ? input.responsibleUserId ?? null
+                : null
+            const defaultStatus = getProcessDefaultStatus(input.phase, baseTitle)
             const payload = [
                 {
                     obra_id: input.workId,
@@ -2230,8 +2437,8 @@ export async function addWorkProcessItem(input: {
                     title: primaryTitle,
                     description: input.description?.trim() || null,
                     due_date: input.dueDate || null,
-                    responsible_user_id: null,
-                    status: "TODO",
+                    responsible_user_id: responsibleUserId,
+                    status: defaultStatus,
                     sort_order: maxOrder + 1,
                 },
                 {
@@ -2240,8 +2447,8 @@ export async function addWorkProcessItem(input: {
                     title: linkedTitle,
                     description: input.description?.trim() || null,
                     due_date: input.dueDate || null,
-                    responsible_user_id: null,
-                    status: "TODO",
+                    responsible_user_id: responsibleUserId,
+                    status: defaultStatus,
                     sort_order: maxOrder + 2,
                 },
             ]
@@ -2252,7 +2459,11 @@ export async function addWorkProcessItem(input: {
                 .select("*")
 
             if (error || !data || data.length === 0) {
-                return { error: normalizeWorkCardsError(error?.message ?? "Falha ao criar processos de projeto.") }
+                return {
+                    error: normalizeWorkCardsError(
+                        error?.message ?? `Falha ao criar processos de ${input.phase === "PROJETO" ? "projeto" : "execução"}.`,
+                    ),
+                }
             }
 
             revalidatePath("/admin/obras")

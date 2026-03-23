@@ -2,13 +2,38 @@ export type WorkProjectProcessScope = "PRIMARY" | "LINKED"
 
 export const WORK_PROJECT_PROCESS_PRIMARY_LABEL = "Orçamento principal"
 export const WORK_PROJECT_PROCESS_LINKED_LABEL = "Orçamento vinculado"
+export const WORK_PROJECT_PROTOCOL_TITLE = "Protocolo Energisa"
+export const WORK_PROJECT_PROTOCOL_LEGACY_TITLE = "Revisar projeto"
 
-function normalizeProjectScopeToken(value: string) {
+export function normalizeWorkProjectProcessBaseTitle(value: string) {
     return value
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
         .trim()
+}
+
+export function canonicalWorkProjectProcessBaseTitle(value: string) {
+    const normalized = normalizeWorkProjectProcessBaseTitle(value)
+    const normalizedProtocol = normalizeWorkProjectProcessBaseTitle(WORK_PROJECT_PROTOCOL_TITLE)
+    const normalizedLegacyProtocol = normalizeWorkProjectProcessBaseTitle(WORK_PROJECT_PROTOCOL_LEGACY_TITLE)
+
+    if (normalized === normalizedProtocol || normalized === normalizedLegacyProtocol) {
+        return WORK_PROJECT_PROTOCOL_TITLE
+    }
+
+    return value.trim()
+}
+
+export function isWorkProjectProtocolProcess(value: string) {
+    const normalized = normalizeWorkProjectProcessBaseTitle(value)
+    const normalizedProtocol = normalizeWorkProjectProcessBaseTitle(WORK_PROJECT_PROTOCOL_TITLE)
+    const normalizedLegacyProtocol = normalizeWorkProjectProcessBaseTitle(WORK_PROJECT_PROTOCOL_LEGACY_TITLE)
+    return normalized === normalizedProtocol || normalized === normalizedLegacyProtocol
+}
+
+function normalizeProjectScopeToken(value: string) {
+    return normalizeWorkProjectProcessBaseTitle(value)
 }
 
 function toScope(token: string): WorkProjectProcessScope | null {

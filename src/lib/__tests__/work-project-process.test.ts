@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildWorkProjectProcessTitles,
+  canonicalWorkProjectProcessBaseTitle,
   formatWorkProjectProcessTitle,
+  isWorkProjectProtocolProcess,
+  WORK_PROJECT_PROTOCOL_TITLE,
   parseWorkProjectProcessTitle,
 } from "../work-project-process"
 
@@ -52,5 +55,16 @@ describe("work-project-process", () => {
       baseTitle: "Projeto iniciado",
       scope: null,
     })
+  })
+
+  it("canonicalizes legacy protocol title", () => {
+    expect(canonicalWorkProjectProcessBaseTitle("Revisar projeto")).toBe(WORK_PROJECT_PROTOCOL_TITLE)
+    expect(canonicalWorkProjectProcessBaseTitle("protocolo energisa")).toBe(WORK_PROJECT_PROTOCOL_TITLE)
+  })
+
+  it("detects protocol process label", () => {
+    expect(isWorkProjectProtocolProcess("Revisar projeto")).toBe(true)
+    expect(isWorkProjectProtocolProcess("Protocolo Energisa")).toBe(true)
+    expect(isWorkProjectProtocolProcess("Validar documentação técnica")).toBe(false)
   })
 })
