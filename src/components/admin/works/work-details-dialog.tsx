@@ -1829,7 +1829,7 @@ export function WorkDetailsDialog({
                             </div>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="grid gap-4 lg:grid-cols-2">
                             <div className="space-y-3 rounded-md border p-4">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                     <p className="text-sm font-semibold">Dados técnicos por orçamento</p>
