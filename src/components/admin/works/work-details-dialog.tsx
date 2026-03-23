@@ -1670,7 +1670,7 @@ export function WorkDetailsDialog({
                         <div className="grid gap-4 lg:grid-cols-2">
                             <div className="space-y-3 rounded-md border p-4">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <p className="text-sm font-semibold">Dados técnicos por orçamento (sem valores)</p>
+                                    <p className="text-sm font-semibold">Dados técnicos por orçamento</p>
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -1680,69 +1680,127 @@ export function WorkDetailsDialog({
                                         Reprocessar dados técnicos
                                     </Button>
                                 </div>
-                                {technicalSections.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground">Sem dados técnicos registrados.</p>
-                                ) : (
-                                    <div className="max-h-72 overflow-auto rounded-md border bg-slate-50 p-3">
-                                        <div className="space-y-3">
-                                            {technicalSections.map((section, sectionIndex) => (
-                                                <div key={section.key} className="rounded-md border bg-white p-3">
-                                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                                        <p className="text-xs font-semibold">
-                                                            {section.proposalId
-                                                                ? `Orçamento #${section.proposalId.slice(0, 8)}`
-                                                                : `Orçamento ${sectionIndex + 1}`}
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    {(
+                                        [
+                                            { label: "Projeto Principal", isPrimary: true },
+                                            { label: "Projeto Secundário", isPrimary: false },
+                                        ] as const
+                                    ).map(({ label, isPrimary }) => {
+                                        const section = technicalSections.find((s) => s.isPrimary === isPrimary) ?? null
+                                        return (
+                                            <div
+                                                key={label}
+                                                className={
+                                                    isPrimary
+                                                        ? "rounded-xl border-2 border-emerald-200 bg-emerald-50/40 p-3 space-y-2"
+                                                        : "rounded-xl border-2 border-blue-100 bg-blue-50/30 p-3 space-y-2"
+                                                }
+                                            >
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div
+                                                            className={
+                                                                isPrimary
+                                                                    ? "h-2 w-2 rounded-full bg-emerald-500"
+                                                                    : "h-2 w-2 rounded-full bg-blue-400"
+                                                            }
+                                                        />
+                                                        <p
+                                                            className={
+                                                                isPrimary
+                                                                    ? "text-[11px] font-bold uppercase tracking-wide text-emerald-800"
+                                                                    : "text-[11px] font-bold uppercase tracking-wide text-blue-800"
+                                                            }
+                                                        >
+                                                            {label}
                                                         </p>
-                                                        <Badge variant={section.isPrimary ? "default" : "outline"}>
-                                                            {section.isPrimary ? "Principal" : "Vinculado"}
-                                                        </Badge>
                                                     </div>
-                                                    <div className="mb-2 space-y-2 rounded-md border border-emerald-200 bg-emerald-50/70 p-2">
-                                                        <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">
-                                                            kWh para contrato
-                                                        </p>
-                                                        <div className="rounded-md border border-emerald-300 bg-white px-2 py-1 text-sm font-bold text-emerald-900">
-                                                            {section.manualContractEstimate}
+                                                    {section?.proposalId && (
+                                                        <Link
+                                                            href={`/admin/orcamentos?proposalId=${section.proposalId}`}
+                                                            className="text-[11px] text-muted-foreground underline hover:text-foreground"
+                                                        >
+                                                            #{section.proposalId.slice(0, 8)}
+                                                        </Link>
+                                                    )}
+                                                </div>
+                                                {!section ? (
+                                                    <p className="py-3 text-center text-xs text-muted-foreground">
+                                                        {isPrimary
+                                                            ? "Nenhum orçamento principal vinculado."
+                                                            : "Nenhum orçamento secundário vinculado."}
+                                                    </p>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        <div className="space-y-1 rounded-lg border border-emerald-200 bg-white p-2">
+                                                            <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900">
+                                                                kWh para contrato
+                                                            </p>
+                                                            <div className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-900">
+                                                                {section.manualContractEstimate}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="grid gap-2 sm:grid-cols-2">
-                                                        <div className="rounded-md border bg-white p-2 text-xs">
-                                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Placa selecionada</p>
+                                                        <div className="rounded-lg border bg-white p-2 text-xs">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                                Placa selecionada
+                                                            </p>
                                                             {section.module && section.module.product_id ? (
                                                                 <button
                                                                     type="button"
-                                                                    className="mt-1 w-full rounded-md border border-dashed px-2 py-1 text-left text-sm font-medium text-foreground hover:bg-slate-50"
+                                                                    className="mt-1 w-full rounded border border-dashed px-2 py-1 text-left text-xs font-medium hover:bg-slate-50"
                                                                     onClick={() =>
                                                                         handleOpenTechnicalProduct({
                                                                             product_id: section.module!.product_id!,
-                                                                            title: section.module!.model || section.module!.name || "Placa",
-                                                                            subtitle: formatModuleSelectionLabel(section.module!),
+                                                                            title:
+                                                                                section.module!.model ||
+                                                                                section.module!.name ||
+                                                                                "Placa",
+                                                                            subtitle: formatModuleSelectionLabel(
+                                                                                section.module!,
+                                                                            ),
                                                                         })
                                                                     }
                                                                 >
                                                                     {formatModuleSelectionLabel(section.module!)}
                                                                 </button>
                                                             ) : (
-                                                                <p className="mt-1 text-sm font-medium text-foreground">-</p>
+                                                                <p className="mt-1 text-xs text-muted-foreground">
+                                                                    Não informado no orçamento
+                                                                </p>
                                                             )}
                                                         </div>
-                                                        <div className="rounded-md border bg-white p-2 text-xs">
-                                                            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Inversores selecionados</p>
-                                                            {section.inverters.filter((item) => item.product_id).length > 0 ? (
+                                                        <div className="rounded-lg border bg-white p-2 text-xs">
+                                                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                                Inversores selecionados
+                                                            </p>
+                                                            {section.inverters.filter((item) => item.product_id).length >
+                                                            0 ? (
                                                                 <div className="mt-1 flex flex-wrap gap-1">
                                                                     {section.inverters
-                                                                        .filter((item): item is SnapshotInverter & { product_id: string } => Boolean(item.product_id))
+                                                                        .filter(
+                                                                            (item): item is SnapshotInverter & {
+                                                                                product_id: string
+                                                                            } => Boolean(item.product_id),
+                                                                        )
                                                                         .map((item, index) => (
                                                                             <button
                                                                                 key={`${item.product_id}-${index}`}
                                                                                 type="button"
-                                                                                className="rounded-md border border-dashed px-2 py-1 text-left text-xs font-medium hover:bg-slate-50"
+                                                                                className="rounded border border-dashed px-2 py-0.5 text-left text-xs font-medium hover:bg-slate-50"
                                                                                 onClick={() =>
                                                                                     handleOpenTechnicalProduct({
                                                                                         product_id: item.product_id,
-                                                                                        title: item.model || item.name || "Inversor",
-                                                                                        subtitle: formatInverterSelectionLabel(item),
-                                                                                        purchase_required: item.purchase_required,
+                                                                                        title:
+                                                                                            item.model ||
+                                                                                            item.name ||
+                                                                                            "Inversor",
+                                                                                        subtitle:
+                                                                                            formatInverterSelectionLabel(
+                                                                                                item,
+                                                                                            ),
+                                                                                        purchase_required:
+                                                                                            item.purchase_required,
                                                                                     })
                                                                                 }
                                                                             >
@@ -1751,26 +1809,34 @@ export function WorkDetailsDialog({
                                                                         ))}
                                                                 </div>
                                                             ) : (
-                                                                <p className="mt-1 text-sm font-medium text-foreground">-</p>
+                                                                <p className="mt-1 text-xs text-muted-foreground">
+                                                                    Não informado no orçamento
+                                                                </p>
                                                             )}
                                                         </div>
-                                                    </div>
-                                                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                                                        {section.rows.map((entry) => (
-                                                            <div key={`${section.key}-${entry.label}-${entry.value}`} className="rounded-md border bg-white p-2 text-xs">
-                                                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{entry.label}</p>
-                                                                <p className="mt-1 text-sm font-medium text-foreground">{entry.value}</p>
+                                                        {section.rows.length > 0 && (
+                                                            <div className="grid grid-cols-2 gap-1.5">
+                                                                {section.rows.map((entry) => (
+                                                                    <div
+                                                                        key={`${section.key}-${entry.label}-${entry.value}`}
+                                                                        className="rounded-lg border bg-white p-2 text-xs"
+                                                                    >
+                                                                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                                            {entry.label}
+                                                                        </p>
+                                                                        <p className="mt-0.5 text-xs font-medium text-foreground">
+                                                                            {entry.value}
+                                                                        </p>
+                                                                    </div>
+                                                                ))}
                                                             </div>
-                                                        ))}
+                                                        )}
                                                     </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <p className="mt-3 text-[11px] text-muted-foreground">
-                                            Somente informações técnicas do orçamento são exibidas aqui.
-                                        </p>
-                                    </div>
-                                )}
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
                             </div>
 
                             <div className="space-y-3 rounded-md border p-4">
