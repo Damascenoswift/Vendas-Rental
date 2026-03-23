@@ -73,9 +73,11 @@ import { formatManualContractProductionEstimateInput } from "@/lib/proposal-cont
 import { getProposalStakeholderContacts } from "@/lib/proposal-stakeholders"
 import { resolveWorkCardStatusLabel, type WorkCardCompletionMode } from "@/lib/work-card-status"
 import {
+    formatWorkProjectProcessTitle,
     parseWorkProjectProcessTitle,
     WORK_PROJECT_PROCESS_LINKED_LABEL,
     WORK_PROJECT_PROCESS_PRIMARY_LABEL,
+    type WorkProjectProcessScope,
 } from "@/lib/work-project-process"
 
 function processStatusLabel(status: WorkProcessStatus) {
@@ -638,6 +640,14 @@ type ProjectProcessListEntry = {
     baseTitle: string
 }
 
+function normalizeProjectProcessBaseTitle(value: string) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim()
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null
     return value as Record<string, unknown>
@@ -839,6 +849,24 @@ export function WorkDetailsDialog({
         }
 
         return grouped
+    }, [projectItems])
+    const projectStartItemByScope = useMemo(() => {
+        const result: Record<WorkProjectProcessScope, WorkProcessItem | null> = {
+            PRIMARY: null,
+            LINKED: null,
+        }
+
+        for (const item of projectItems) {
+            const parsed = parseWorkProjectProcessTitle(item.title)
+            if (!parsed.scope) continue
+            if (normalizeProjectProcessBaseTitle(parsed.baseTitle) !== "projeto iniciado") continue
+
+            if (!result[parsed.scope]) {
+                result[parsed.scope] = item
+            }
+        }
+
+        return result
     }, [projectItems])
 
     const executionItems = useMemo(
@@ -1519,6 +1547,66 @@ export function WorkDetailsDialog({
         () => buildTechnicalSnapshotSections(work?.technical_snapshot ?? {}),
         [work?.technical_snapshot],
     )
+    const hasPrimaryTechnicalSection = useMemo(
+        () => technicalSections.some((section) => section.isPrimary),
+        [technicalSections],
+    )
+    const hasLinkedTechnicalSection = useMemo(
+        () => technicalSections.some((section) => !section.isPrimary),
+        [technicalSections],
+    )
+    const hasBothTechnicalSections = hasPrimaryTechnicalSection && hasLinkedTechnicalSection
+    const shouldShowStartButton = (scope: WorkProjectProcessScope) => {
+        if (scope === "PRIMARY") return hasBothTechnicalSections ? true : hasPrimaryTechnicalSection
+        return hasBothTechnicalSections ? true : hasLinkedTechnicalSection
+    }
+
+    async function handleStartProjectByScope(scope: WorkProjectProcessScope) {
+        if (!workId) return
+
+        setIsSaving(true)
+        try {
+            const existingStartItem = projectStartItemByScope[scope]
+            let targetItemId = existingStartItem?.id ?? null
+
+            if (!targetItemId) {
+                const createResult = await addWorkProcessItem({
+                    workId,
+                    phase: "PROJETO",
+                    title: formatWorkProjectProcessTitle("Projeto iniciado", scope),
+                })
+
+                if (createResult.error || !createResult.item) {
+                    showToast({ title: "Erro", description: createResult.error ?? "Falha ao iniciar projeto.", variant: "error" })
+                    return
+                }
+
+                targetItemId = createResult.item.id
+            } else if (existingStartItem?.status === "IN_PROGRESS" || existingStartItem?.status === "DONE") {
+                showToast({
+                    title: existingStartItem.status === "DONE" ? "Projeto já concluído" : "Projeto já iniciado",
+                    variant: "success",
+                })
+                return
+            }
+
+            const statusResult = await setWorkProcessItemStatus({
+                itemId: targetItemId,
+                status: "IN_PROGRESS",
+            })
+
+            if (statusResult.error) {
+                showToast({ title: "Erro", description: statusResult.error, variant: "error" })
+                return
+            }
+
+            showToast({ title: "Projeto iniciado", variant: "success" })
+            await loadData()
+            onChanged?.()
+        } finally {
+            setIsSaving(false)
+        }
+    }
     const renderProjectProcessEntry = (entry: ProjectProcessListEntry) => (
         <div key={entry.item.id} className="rounded-md border bg-white p-2">
             <div className="flex items-center justify-between gap-2">
@@ -1754,7 +1842,7 @@ export function WorkDetailsDialog({
                                         Reprocessar dados técnicos
                                     </Button>
                                 </div>
-                                <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
                                     {(
                                         [
                                             { label: "Projeto Principal", isPrimary: true },
@@ -2179,11 +2267,25 @@ export function WorkDetailsDialog({
                                 </div>
                                 <div className="grid gap-3 md:grid-cols-2">
                                     <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
-                                        <div className="flex items-center gap-2">
-                                            <div className="h-2 w-2 rounded-full bg-emerald-500" />
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                                                {WORK_PROJECT_PROCESS_PRIMARY_LABEL}
-                                            </p>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                                                    {WORK_PROJECT_PROCESS_PRIMARY_LABEL}
+                                                </p>
+                                            </div>
+                                            {shouldShowStartButton("PRIMARY") ? (
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 px-2 text-xs"
+                                                    onClick={() => handleStartProjectByScope("PRIMARY")}
+                                                    disabled={isSaving}
+                                                >
+                                                    Projeto iniciado
+                                                </Button>
+                                            ) : null}
                                         </div>
                                         <div className="space-y-2">
                                             {projectItemsByScope.PRIMARY.map(renderProjectProcessEntry)}
@@ -2193,11 +2295,25 @@ export function WorkDetailsDialog({
                                         </div>
                                     </div>
                                     <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/30 p-3">
-                                        <div className="flex items-center gap-2">
-                                            <div className="h-2 w-2 rounded-full bg-blue-400" />
-                                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">
-                                                {WORK_PROJECT_PROCESS_LINKED_LABEL}
-                                            </p>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <div className="h-2 w-2 rounded-full bg-blue-400" />
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-blue-800">
+                                                    {WORK_PROJECT_PROCESS_LINKED_LABEL}
+                                                </p>
+                                            </div>
+                                            {shouldShowStartButton("LINKED") ? (
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-7 px-2 text-xs"
+                                                    onClick={() => handleStartProjectByScope("LINKED")}
+                                                    disabled={isSaving}
+                                                >
+                                                    Projeto iniciado
+                                                </Button>
+                                            ) : null}
                                         </div>
                                         <div className="space-y-2">
                                             {projectItemsByScope.LINKED.map(renderProjectProcessEntry)}
