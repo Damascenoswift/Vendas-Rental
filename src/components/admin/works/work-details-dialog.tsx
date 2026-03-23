@@ -2248,7 +2248,7 @@ export function WorkDetailsDialog({
                             </div>
                         </div>
 
-                        <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="space-y-4">
                             <div className="space-y-3 rounded-md border p-4">
                                 <p className="text-sm font-semibold">Processos de Projeto</p>
                                 <div className="flex gap-2">
