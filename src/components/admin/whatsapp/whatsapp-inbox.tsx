@@ -19,6 +19,8 @@ import {
   Plus,
   RefreshCcw,
   Send,
+  StickyNote,
+  Trash2,
   Unlock,
   UserRound,
   X,
@@ -368,6 +370,10 @@ export function WhatsAppInbox({
   const [pinnedNotesByConversationId, setPinnedNotesByConversationId] = useState<
     Record<string, ConversationPinnedNote>
   >({})
+  const [hiddenPinnedNotesByConversationId, setHiddenPinnedNotesByConversationId] = useState<
+    Record<string, boolean>
+  >({})
+  const [pinnedNoteEditorOpen, setPinnedNoteEditorOpen] = useState(false)
   const [pinnedNoteDraft, setPinnedNoteDraft] = useState("")
   const [pinnedNoteTargetUserId, setPinnedNoteTargetUserId] = useState("__none")
   const [transferNoteDraft, setTransferNoteDraft] = useState("")
@@ -396,6 +402,11 @@ export function WhatsAppInbox({
     if (!selectedConversationId) return null
     return pinnedNotesByConversationId[selectedConversationId] ?? null
   }, [pinnedNotesByConversationId, selectedConversationId])
+  const isSelectedPinnedNoteHidden = useMemo(() => {
+    if (!selectedConversationId) return false
+    return Boolean(hiddenPinnedNotesByConversationId[selectedConversationId])
+  }, [hiddenPinnedNotesByConversationId, selectedConversationId])
+  const showFloatingPinnedNote = Boolean(selectedConversationPinnedNote && !isSelectedPinnedNoteHidden)
   const resolveAgentLabel = useCallback(
     (agentId: string | null) => {
       if (!agentId) return null
@@ -442,6 +453,20 @@ export function WhatsAppInbox({
     },
     [updatePinnedNotes]
   )
+  const hideConversationPinnedNote = useCallback((conversationId: string) => {
+    setHiddenPinnedNotesByConversationId((current) => ({
+      ...current,
+      [conversationId]: true,
+    }))
+  }, [])
+  const showConversationPinnedNote = useCallback((conversationId: string) => {
+    setHiddenPinnedNotesByConversationId((current) => {
+      if (!current[conversationId]) return current
+      const next = { ...current }
+      delete next[conversationId]
+      return next
+    })
+  }, [])
   const autoStartRequest = useMemo(() => {
     const contactId = (searchParams.get("startContact") || "").trim()
     const phone = normalizeLikelyWhatsAppPhone(searchParams.get("startPhone") || "")
@@ -730,12 +755,14 @@ export function WhatsAppInbox({
 
   useEffect(() => {
     if (!selectedConversationId) {
+      setPinnedNoteEditorOpen(false)
       setPinnedNoteDraft("")
       setPinnedNoteTargetUserId("__none")
       setTransferNoteDraft("")
       return
     }
 
+    setPinnedNoteEditorOpen(false)
     const pinnedNote = pinnedNotesByConversationId[selectedConversationId] ?? null
     setPinnedNoteDraft(pinnedNote?.text ?? "")
     setPinnedNoteTargetUserId(pinnedNote?.targetUserId ?? "__none")
@@ -955,6 +982,8 @@ export function WhatsAppInbox({
       text: noteText,
       targetUserId,
     })
+    showConversationPinnedNote(selectedConversation.id)
+    setPinnedNoteEditorOpen(false)
 
     const targetLabel = resolveAgentLabel(targetUserId)
     showToast({
@@ -969,6 +998,7 @@ export function WhatsAppInbox({
     pinnedNoteTargetUserId,
     resolveAgentLabel,
     selectedConversation,
+    showConversationPinnedNote,
     showToast,
     upsertConversationPinnedNote,
   ])
@@ -976,6 +1006,8 @@ export function WhatsAppInbox({
   const handleClearPinnedNote = useCallback(() => {
     if (!selectedConversation) return
     clearConversationPinnedNote(selectedConversation.id)
+    showConversationPinnedNote(selectedConversation.id)
+    setPinnedNoteEditorOpen(false)
     setPinnedNoteDraft("")
     setPinnedNoteTargetUserId("__none")
     showToast({
@@ -983,7 +1015,7 @@ export function WhatsAppInbox({
       title: "Nota removida",
       description: "A nota fixada desta conversa foi removida.",
     })
-  }, [clearConversationPinnedNote, selectedConversation, showToast])
+  }, [clearConversationPinnedNote, selectedConversation, showConversationPinnedNote, showToast])
 
   const handleAssign = useCallback(
     async (assigneeId: string | null, options?: { transferNote?: string | null }) => {
@@ -1010,6 +1042,8 @@ export function WhatsAppInbox({
             text: transferNote,
             targetUserId: assigneeId,
           })
+          showConversationPinnedNote(selectedConversation.id)
+          setPinnedNoteEditorOpen(false)
           setTransferNoteDraft("")
           showToast({
             variant: "success",
@@ -1027,6 +1061,7 @@ export function WhatsAppInbox({
       loadConversations,
       resolveAgentLabel,
       selectedConversation,
+      showConversationPinnedNote,
       showToast,
       upsertConversationPinnedNote,
       withAction,
@@ -2115,6 +2150,35 @@ export function WhatsAppInbox({
 
                   <div className="flex flex-wrap items-center justify-end gap-1.5">
                     <Button
+                      variant={selectedConversationPinnedNote ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => {
+                        if (!selectedConversationPinnedNote) {
+                          setPinnedNoteEditorOpen(true)
+                          return
+                        }
+
+                        if (isSelectedPinnedNoteHidden) {
+                          showConversationPinnedNote(selectedConversation.id)
+                          return
+                        }
+
+                        setPinnedNoteEditorOpen((current) => !current)
+                      }}
+                      disabled={actionLoading}
+                    >
+                      <StickyNote className="h-3.5 w-3.5" />
+                      {!selectedConversationPinnedNote
+                        ? "Ativar nota fixa"
+                        : isSelectedPinnedNoteHidden
+                          ? "Mostrar nota"
+                          : pinnedNoteEditorOpen
+                            ? "Fechar editor"
+                            : "Editar nota"}
+                    </Button>
+
+                    <Button
                       variant="outline"
                       size="sm"
                       className="h-7 px-2 text-[11px]"
@@ -2203,19 +2267,89 @@ export function WhatsAppInbox({
                   </div>
                 </div>
 
-                <div className="space-y-1">
-                  <Input
-                    value={transferNoteDraft}
-                    onChange={(event) => setTransferNoteDraft(event.target.value)}
-                    placeholder="Nota para próxima transferência de responsável (opcional)"
-                    className="h-8 text-xs"
-                    disabled={actionLoading}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Ao trocar o responsável, a nota acima fica fixada nesta conversa e direcionada ao
-                    novo atendente.
-                  </p>
-                </div>
+                {pinnedNoteEditorOpen ? (
+                  <div className="space-y-2 rounded-md border bg-slate-50/80 p-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Editor de nota fixa
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => setPinnedNoteEditorOpen(false)}
+                        disabled={actionLoading}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Fechar
+                      </Button>
+                    </div>
+
+                    <Textarea
+                      value={pinnedNoteDraft}
+                      onChange={(event) => setPinnedNoteDraft(event.target.value)}
+                      placeholder="Escreva uma nota interna para esta conversa."
+                      rows={2}
+                      className="min-h-0 bg-white"
+                      disabled={actionLoading}
+                    />
+
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                      <Select
+                        value={pinnedNoteTargetUserId}
+                        onValueChange={setPinnedNoteTargetUserId}
+                        disabled={actionLoading}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Direcionar para (opcional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Sem destinatário</SelectItem>
+                          {initialAgents.map((agent) => (
+                            <SelectItem key={agent.id} value={agent.id}>
+                              {agent.name || agent.email || agent.id}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8"
+                        onClick={handleSavePinnedNote}
+                        disabled={actionLoading || !pinnedNoteDraft.trim()}
+                      >
+                        {selectedConversationPinnedNote ? "Atualizar" : "Fixar"}
+                      </Button>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={handleClearPinnedNote}
+                        disabled={actionLoading || !selectedConversationPinnedNote}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Excluir
+                      </Button>
+                    </div>
+
+                    <Input
+                      value={transferNoteDraft}
+                      onChange={(event) => setTransferNoteDraft(event.target.value)}
+                      placeholder="Nota para próxima transferência de responsável (opcional)"
+                      className="h-8 text-xs bg-white"
+                      disabled={actionLoading}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      Ao trocar o responsável, essa nota fica fixada automaticamente e direcionada ao
+                      novo atendente.
+                    </p>
+                  </div>
+                ) : null}
 
                 {conversationInfoOpen ? (
                   <div className="space-y-2 rounded-md border bg-slate-50/80 p-2.5">
@@ -2520,54 +2654,113 @@ export function WhatsAppInbox({
                 </Dialog>
               ) : null}
 
-              <ScrollArea
-                ref={messagesScrollAreaRef}
-                className="min-h-0 flex-1 bg-slate-50/40 p-4 [&_[data-radix-scroll-area-viewport]]:scroll-smooth"
-              >
-                <div className="space-y-3">
-                  {hasMoreMessages ? (
-                    <div className="flex justify-center pb-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          void handleLoadOlderMessages()
-                        }}
-                        disabled={loadingMessages || loadingOlderMessages}
-                      >
-                        {loadingOlderMessages ? "Carregando..." : "Carregar mensagens anteriores"}
-                      </Button>
-                    </div>
-                  ) : null}
-
-                  {messages.map((message) => {
-                    const isOutbound = message.direction === "OUTBOUND"
-                    const hasAudioPlayer = message.message_type === "audio" && Boolean(message.media_url)
-                    const hasDocumentLink = message.message_type === "document" && Boolean(message.media_url)
-                    const hasImageLink = message.message_type === "image" && Boolean(message.media_url)
-                    const hideBodyText = hasAudioPlayer && isAudioPlaceholderText(message.body_text)
-
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-md border px-3 py-2 text-sm ${
-                            isOutbound ? "bg-blue-600 text-white border-blue-600" : "bg-white"
-                          }`}
+              <div className="relative min-h-0 flex-1">
+                {showFloatingPinnedNote && selectedConversationPinnedNote ? (
+                  <div className="absolute right-4 top-4 z-20 w-[min(420px,calc(100%-2rem))] rounded-lg border border-yellow-300 bg-yellow-50/95 p-3 shadow-lg backdrop-blur">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-yellow-900">Nota fixa interna</p>
+                        <p className="text-xs text-yellow-900/80">
+                          Atualizada em {formatDateTime(selectedConversationPinnedNote.updatedAt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-[11px] text-yellow-900 hover:text-yellow-900"
+                          onClick={() => hideConversationPinnedNote(selectedConversation.id)}
+                          disabled={actionLoading}
                         >
-                          {!hideBodyText ? (
-                            <p className="whitespace-pre-wrap">{message.body_text || "(sem conteúdo)"}</p>
-                          ) : null}
-                          {hasAudioPlayer ? (
-                            <>
-                              <audio
-                                controls
-                                preload="none"
-                                src={message.media_url || undefined}
-                                className={hideBodyText ? "" : "mt-2"}
-                              />
+                          <X className="h-3.5 w-3.5" />
+                          Fechar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[11px] border-yellow-300 bg-white text-yellow-900 hover:bg-yellow-100"
+                          onClick={handleClearPinnedNote}
+                          disabled={actionLoading}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Excluir
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="mt-2 rounded-md border border-yellow-200 bg-white px-2.5 py-2 text-sm text-yellow-950">
+                      <p className="whitespace-pre-wrap">{selectedConversationPinnedNote.text}</p>
+                      {selectedConversationPinnedNote.targetUserName ? (
+                        <p className="mt-1 text-xs font-medium text-yellow-900">
+                          Para: {selectedConversationPinnedNote.targetUserName}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                <ScrollArea
+                  ref={messagesScrollAreaRef}
+                  className="h-full bg-slate-50/40 p-4 [&_[data-radix-scroll-area-viewport]]:scroll-smooth"
+                >
+                  <div className="space-y-3">
+                    {hasMoreMessages ? (
+                      <div className="flex justify-center pb-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            void handleLoadOlderMessages()
+                          }}
+                          disabled={loadingMessages || loadingOlderMessages}
+                        >
+                          {loadingOlderMessages ? "Carregando..." : "Carregar mensagens anteriores"}
+                        </Button>
+                      </div>
+                    ) : null}
+
+                    {messages.map((message) => {
+                      const isOutbound = message.direction === "OUTBOUND"
+                      const hasAudioPlayer = message.message_type === "audio" && Boolean(message.media_url)
+                      const hasDocumentLink = message.message_type === "document" && Boolean(message.media_url)
+                      const hasImageLink = message.message_type === "image" && Boolean(message.media_url)
+                      const hideBodyText = hasAudioPlayer && isAudioPlaceholderText(message.body_text)
+
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[80%] rounded-md border px-3 py-2 text-sm ${
+                              isOutbound ? "bg-blue-600 text-white border-blue-600" : "bg-white"
+                            }`}
+                          >
+                            {!hideBodyText ? (
+                              <p className="whitespace-pre-wrap">{message.body_text || "(sem conteúdo)"}</p>
+                            ) : null}
+                            {hasAudioPlayer ? (
+                              <>
+                                <audio
+                                  controls
+                                  preload="none"
+                                  src={message.media_url || undefined}
+                                  className={hideBodyText ? "" : "mt-2"}
+                                />
+                                <a
+                                  href={message.media_url || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={`mt-2 inline-block text-xs underline ${
+                                    isOutbound ? "text-blue-100" : "text-blue-700"
+                                  }`}
+                                >
+                                  Abrir áudio em nova guia
+                                </a>
+                              </>
+                            ) : null}
+                            {hasDocumentLink ? (
                               <a
                                 href={message.media_url || "#"}
                                 target="_blank"
@@ -2576,66 +2769,54 @@ export function WhatsAppInbox({
                                   isOutbound ? "text-blue-100" : "text-blue-700"
                                 }`}
                               >
-                                Abrir áudio em nova guia
+                                {message.media_file_name || "Abrir documento"}
                               </a>
-                            </>
-                          ) : null}
-                          {hasDocumentLink ? (
-                            <a
-                              href={message.media_url || "#"}
-                              target="_blank"
-                              rel="noreferrer"
-                              className={`mt-2 inline-block text-xs underline ${
-                                isOutbound ? "text-blue-100" : "text-blue-700"
+                            ) : null}
+                            {hasImageLink ? (
+                              <a
+                                href={message.media_url || "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`mt-2 inline-block text-xs underline ${
+                                  isOutbound ? "text-blue-100" : "text-blue-700"
+                                }`}
+                              >
+                                Abrir imagem
+                              </a>
+                            ) : null}
+                            <div
+                              className={`mt-2 flex items-center justify-between gap-2 text-xs ${
+                                isOutbound ? "text-blue-100" : "text-muted-foreground"
                               }`}
                             >
-                              {message.media_file_name || "Abrir documento"}
-                            </a>
-                          ) : null}
-                          {hasImageLink ? (
-                            <a
-                              href={message.media_url || "#"}
-                              target="_blank"
-                              rel="noreferrer"
-                              className={`mt-2 inline-block text-xs underline ${
-                                isOutbound ? "text-blue-100" : "text-blue-700"
-                              }`}
-                            >
-                              Abrir imagem
-                            </a>
-                          ) : null}
-                          <div
-                            className={`mt-2 flex items-center justify-between gap-2 text-xs ${
-                              isOutbound ? "text-blue-100" : "text-muted-foreground"
-                            }`}
-                          >
-                            <span>
-                              {isOutbound ? `Por ${message.sender_user_name || "Atendente"} • ` : ""}
-                              {formatDateTime(message.created_at)}
-                            </span>
-                            {isOutbound ? (
-                              <span>{MESSAGE_STATUS_LABELS[message.status] || message.status}</span>
-                            ) : (
-                              <span>{message.message_type}</span>
-                            )}
+                              <span>
+                                {isOutbound ? `Por ${message.sender_user_name || "Atendente"} • ` : ""}
+                                {formatDateTime(message.created_at)}
+                              </span>
+                              {isOutbound ? (
+                                <span>{MESSAGE_STATUS_LABELS[message.status] || message.status}</span>
+                              ) : (
+                                <span>{message.message_type}</span>
+                              )}
+                            </div>
+                            {message.error_message ? (
+                              <p className="mt-1 text-xs text-red-200">{message.error_message}</p>
+                            ) : null}
                           </div>
-                          {message.error_message ? (
-                            <p className="mt-1 text-xs text-red-200">{message.error_message}</p>
-                          ) : null}
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
 
-                  {loadingMessages ? (
-                    <div className="text-sm text-muted-foreground">Carregando mensagens...</div>
-                  ) : null}
+                    {loadingMessages ? (
+                      <div className="text-sm text-muted-foreground">Carregando mensagens...</div>
+                    ) : null}
 
-                  {!loadingMessages && messages.length === 0 ? (
-                    <div className="text-sm text-muted-foreground">Sem mensagens nesta conversa.</div>
-                  ) : null}
-                </div>
-              </ScrollArea>
+                    {!loadingMessages && messages.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">Sem mensagens nesta conversa.</div>
+                    ) : null}
+                  </div>
+                </ScrollArea>
+              </div>
 
               <div className="shrink-0 space-y-2 border-t p-4">
                 {!canSend.allowed ? (
@@ -2662,88 +2843,6 @@ export function WhatsAppInbox({
                     ) : null}
                   </div>
                 ) : null}
-
-                {canSend.code === "unsafe_window_bypass" ? (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                    {canSend.reason}
-                  </div>
-                ) : null}
-
-                <div className="space-y-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-yellow-900">Nota fixada interna</p>
-                    {selectedConversationPinnedNote ? (
-                      <span className="text-xs text-yellow-900/80">
-                        Atualizada em {formatDateTime(selectedConversationPinnedNote.updatedAt)}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {selectedConversationPinnedNote ? (
-                    <div className="rounded-md border border-yellow-200 bg-white px-2.5 py-2 text-sm text-yellow-950">
-                      <p className="whitespace-pre-wrap">{selectedConversationPinnedNote.text}</p>
-                      {selectedConversationPinnedNote.targetUserName ? (
-                        <p className="mt-1 text-xs font-medium text-yellow-900">
-                          Para: {selectedConversationPinnedNote.targetUserName}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-yellow-900/80">
-                      Sem nota fixada para esta conversa.
-                    </p>
-                  )}
-
-                  <Textarea
-                    value={pinnedNoteDraft}
-                    onChange={(event) => setPinnedNoteDraft(event.target.value)}
-                    placeholder="Escreva uma nota interna (visível apenas na operação)."
-                    rows={2}
-                    className="min-h-0 bg-white"
-                    disabled={actionLoading}
-                  />
-
-                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-                    <Select
-                      value={pinnedNoteTargetUserId}
-                      onValueChange={setPinnedNoteTargetUserId}
-                      disabled={actionLoading}
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="Direcionar para (opcional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none">Sem destinatário</SelectItem>
-                        {initialAgents.map((agent) => (
-                          <SelectItem key={agent.id} value={agent.id}>
-                            {agent.name || agent.email || agent.id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-8"
-                      onClick={handleSavePinnedNote}
-                      disabled={actionLoading || !pinnedNoteDraft.trim()}
-                    >
-                      Fixar nota
-                    </Button>
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      onClick={handleClearPinnedNote}
-                      disabled={actionLoading || !selectedConversationPinnedNote}
-                    >
-                      Limpar
-                    </Button>
-                  </div>
-                </div>
 
                 <input
                   ref={mediaFileInputRef}
