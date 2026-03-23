@@ -84,6 +84,16 @@ export type WhatsAppConversationListItem = {
   is_restricted: boolean
 }
 
+export type WhatsAppConversationPinnedNote = {
+  conversation_id: string
+  note_text: string
+  target_user_id: string | null
+  target_user_name: string | null
+  updated_at: string
+  updated_by_user_id: string | null
+  updated_by_user_name: string | null
+}
+
 export type WhatsAppMessage = {
   id: string
   conversation_id: string
@@ -477,6 +487,64 @@ function toConversationRow(row: Record<string, unknown>): ConversationRow {
     updated_at: String(row.updated_at),
     is_restricted: Boolean(row.is_restricted),
   }
+}
+
+async function fetchConversationPinnedNote(params: {
+  supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+  conversationId: string
+}) {
+  const { data, error } = await params.supabaseAdmin
+    .from("whatsapp_conversation_pinned_notes")
+    .select("conversation_id, note_text, target_user_id, updated_at, updated_by_user_id")
+    .eq("conversation_id", params.conversationId)
+    .maybeSingle()
+
+  if (error) {
+    if (isMissingRelationError(error, "whatsapp_conversation_pinned_notes")) {
+      return null
+    }
+    throw new WhatsAppActionError(error.message)
+  }
+
+  if (!data) return null
+
+  const row = data as {
+    conversation_id: string
+    note_text: string
+    target_user_id: string | null
+    updated_at: string
+    updated_by_user_id: string | null
+  }
+
+  const lookupUserIds = Array.from(
+    new Set([row.target_user_id, row.updated_by_user_id].filter((value): value is string => Boolean(value)))
+  )
+  let usersById = new Map<string, string | null>()
+
+  if (lookupUserIds.length > 0) {
+    const { data: usersData, error: usersError } = await params.supabaseAdmin
+      .from("users")
+      .select("id, name")
+      .in("id", lookupUserIds)
+
+    if (usersError) {
+      throw new WhatsAppActionError(usersError.message)
+    }
+
+    usersById = new Map(
+      ((usersData ?? []) as Array<{ id: string; name: string | null }>).map((user) => [user.id, user.name])
+    )
+  }
+
+  return {
+    conversation_id: row.conversation_id,
+    note_text: row.note_text,
+    target_user_id: row.target_user_id,
+    target_user_name: row.target_user_id ? usersById.get(row.target_user_id) ?? null : null,
+    updated_at: row.updated_at,
+    updated_by_user_id: row.updated_by_user_id,
+    updated_by_user_name: row.updated_by_user_id ? usersById.get(row.updated_by_user_id) ?? null : null,
+  } satisfies WhatsAppConversationPinnedNote
 }
 
 async function hasConversationExplicitAccess(params: {
@@ -1993,6 +2061,145 @@ export async function syncWhatsAppConversationContacts(
     return {
       success: false,
       error: error instanceof Error ? error.message : "Falha ao sincronizar contatos das conversas.",
+    }
+  }
+}
+
+export async function getWhatsAppConversationPinnedNote(
+  conversationId: string
+): Promise<ActionResult<WhatsAppConversationPinnedNote | null>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    await fetchConversationById(conversationId, accessContext)
+
+    const note = await fetchConversationPinnedNote({
+      supabaseAdmin,
+      conversationId,
+    })
+
+    return {
+      success: true,
+      data: note,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao carregar nota fixa da conversa.",
+    }
+  }
+}
+
+export async function upsertWhatsAppConversationPinnedNote(input: {
+  conversationId: string
+  noteText: string
+  targetUserId?: string | null
+}): Promise<ActionResult<WhatsAppConversationPinnedNote | null>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const { user } = accessContext
+    const supabaseAdmin = createSupabaseServiceClient()
+    const conversationId = input.conversationId.trim()
+    const noteText = input.noteText.trim()
+    const targetUserId = input.targetUserId?.trim() || null
+
+    if (!conversationId) {
+      throw new WhatsAppActionError("Conversa inválida para salvar nota fixa.")
+    }
+
+    if (!noteText) {
+      throw new WhatsAppActionError("Digite uma nota para fixar na conversa.")
+    }
+
+    if (noteText.length > 2000) {
+      throw new WhatsAppActionError("A nota fixa deve ter no máximo 2000 caracteres.")
+    }
+
+    await fetchConversationById(conversationId, accessContext)
+
+    if (targetUserId) {
+      const { data: targetUserData, error: targetUserError } = await supabaseAdmin
+        .from("users")
+        .select("id")
+        .eq("id", targetUserId)
+        .maybeSingle()
+
+      if (targetUserError || !targetUserData) {
+        throw new WhatsAppActionError("Usuário de destino não encontrado para a nota fixa.")
+      }
+    }
+
+    const { error: upsertError } = await supabaseAdmin.from("whatsapp_conversation_pinned_notes").upsert(
+      {
+        conversation_id: conversationId,
+        note_text: noteText,
+        target_user_id: targetUserId,
+        updated_by_user_id: user.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "conversation_id" }
+    )
+
+    if (upsertError) {
+      if (isMissingRelationError(upsertError, "whatsapp_conversation_pinned_notes")) {
+        throw new WhatsAppActionError(
+          "Tabela de nota fixa não encontrada. Execute a migration de pinned notes no Supabase."
+        )
+      }
+      throw new WhatsAppActionError(upsertError.message)
+    }
+
+    const note = await fetchConversationPinnedNote({
+      supabaseAdmin,
+      conversationId,
+    })
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: note,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao salvar nota fixa da conversa.",
+    }
+  }
+}
+
+export async function clearWhatsAppConversationPinnedNote(
+  conversationId: string
+): Promise<ActionResult<{ conversation_id: string }>> {
+  try {
+    const accessContext = await requireWhatsAppAccess()
+    const supabaseAdmin = createSupabaseServiceClient()
+    await fetchConversationById(conversationId, accessContext)
+
+    const { error } = await supabaseAdmin
+      .from("whatsapp_conversation_pinned_notes")
+      .delete()
+      .eq("conversation_id", conversationId)
+
+    if (error) {
+      if (isMissingRelationError(error, "whatsapp_conversation_pinned_notes")) {
+        throw new WhatsAppActionError(
+          "Tabela de nota fixa não encontrada. Execute a migration de pinned notes no Supabase."
+        )
+      }
+      throw new WhatsAppActionError(error.message)
+    }
+
+    revalidatePath("/admin/whatsapp")
+
+    return {
+      success: true,
+      data: { conversation_id: conversationId },
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Falha ao remover nota fixa da conversa.",
     }
   }
 }

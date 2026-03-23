@@ -1563,6 +1563,52 @@ export interface Database {
           }
         ]
       }
+      whatsapp_conversation_pinned_notes: {
+        Row: {
+          conversation_id: string
+          note_text: string
+          target_user_id: string | null
+          updated_by_user_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          conversation_id: string
+          note_text: string
+          target_user_id?: string | null
+          updated_by_user_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          conversation_id?: string
+          note_text?: string
+          target_user_id?: string | null
+          updated_by_user_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversation_pinned_notes_conversation_id_fkey"
+            columns: ["conversation_id"]
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversation_pinned_notes_target_user_id_fkey"
+            columns: ["target_user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversation_pinned_notes_updated_by_user_id_fkey"
+            columns: ["updated_by_user_id"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

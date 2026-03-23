@@ -29,8 +29,10 @@ import {
 import {
   assignWhatsAppConversation,
   closeWhatsAppConversation,
+  clearWhatsAppConversationPinnedNote,
   deleteWhatsAppConversation,
   ensureWhatsAppConversationContact,
+  getWhatsAppConversationPinnedNote,
   getWhatsAppConversationRestrictionSettings,
   getWhatsAppConversationMessages,
   listWhatsAppConversations,
@@ -44,10 +46,12 @@ import {
   syncWhatsAppConversationContacts,
   startWhatsAppConversationFromContact,
   setWhatsAppConversationBrand,
+  upsertWhatsAppConversationPinnedNote,
   updateWhatsAppConversationContactName,
   type WhatsAppAgent,
   type WhatsAppContactOption,
   type WhatsAppConversationListItem,
+  type WhatsAppConversationPinnedNote as PersistedWhatsAppConversationPinnedNote,
   type WhatsAppMessage,
 } from "@/app/actions/whatsapp"
 import { Badge } from "@/components/ui/badge"
@@ -178,8 +182,6 @@ const KANBAN_COLUMN_LABELS: Record<KanbanColumnKey, string> = {
   diversos: "Diversos",
 }
 
-const PINNED_NOTE_STORAGE_KEY = "whatsapp-inbox:pinned-notes:v1"
-
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-"
 
@@ -261,66 +263,14 @@ function conversationDisplayName(conversation: WhatsAppConversationListItem) {
   )
 }
 
-function parsePinnedNote(value: unknown): ConversationPinnedNote | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null
-  const payload = value as Record<string, unknown>
-  const text = typeof payload.text === "string" ? payload.text.trim() : ""
-  if (!text) return null
-
-  const targetUserId =
-    typeof payload.targetUserId === "string" && payload.targetUserId.trim()
-      ? payload.targetUserId.trim()
-      : null
-  const targetUserName =
-    typeof payload.targetUserName === "string" && payload.targetUserName.trim()
-      ? payload.targetUserName.trim()
-      : null
-  const updatedAt =
-    typeof payload.updatedAt === "string" && payload.updatedAt.trim()
-      ? payload.updatedAt
-      : new Date().toISOString()
-
+function toConversationPinnedNote(
+  note: PersistedWhatsAppConversationPinnedNote
+): ConversationPinnedNote {
   return {
-    text,
-    targetUserId,
-    targetUserName,
-    updatedAt,
-  }
-}
-
-function readPinnedNotesFromStorage(): Record<string, ConversationPinnedNote> {
-  if (typeof window === "undefined") return {}
-
-  try {
-    const rawValue = window.localStorage.getItem(PINNED_NOTE_STORAGE_KEY)
-    if (!rawValue) return {}
-    const parsed = JSON.parse(rawValue)
-
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {}
-    }
-
-    const notes: Record<string, ConversationPinnedNote> = {}
-    for (const [conversationId, value] of Object.entries(parsed)) {
-      if (!conversationId.trim()) continue
-      const note = parsePinnedNote(value)
-      if (!note) continue
-      notes[conversationId] = note
-    }
-
-    return notes
-  } catch {
-    return {}
-  }
-}
-
-function persistPinnedNotesToStorage(notes: Record<string, ConversationPinnedNote>) {
-  if (typeof window === "undefined") return
-
-  try {
-    window.localStorage.setItem(PINNED_NOTE_STORAGE_KEY, JSON.stringify(notes))
-  } catch {
-    // Ignore write errors to avoid blocking inbox usage.
+    text: note.note_text,
+    targetUserId: note.target_user_id,
+    targetUserName: note.target_user_name,
+    updatedAt: note.updated_at,
   }
 }
 
@@ -417,30 +367,18 @@ export function WhatsAppInbox({
   )
   const updatePinnedNotes = useCallback(
     (updater: (current: Record<string, ConversationPinnedNote>) => Record<string, ConversationPinnedNote>) => {
-      setPinnedNotesByConversationId((current) => {
-        const next = updater(current)
-        persistPinnedNotesToStorage(next)
-        return next
-      })
+      setPinnedNotesByConversationId((current) => updater(current))
     },
     []
   )
-  const upsertConversationPinnedNote = useCallback(
-    (input: { conversationId: string; text: string; targetUserId: string | null }) => {
-      const trimmedText = input.text.trim()
-      if (!trimmedText) return
-
+  const setConversationPinnedNote = useCallback(
+    (conversationId: string, note: PersistedWhatsAppConversationPinnedNote) => {
       updatePinnedNotes((current) => ({
         ...current,
-        [input.conversationId]: {
-          text: trimmedText,
-          targetUserId: input.targetUserId,
-          targetUserName: resolveAgentLabel(input.targetUserId),
-          updatedAt: new Date().toISOString(),
-        },
+        [conversationId]: toConversationPinnedNote(note),
       }))
     },
-    [resolveAgentLabel, updatePinnedNotes]
+    [updatePinnedNotes]
   )
   const clearConversationPinnedNote = useCallback(
     (conversationId: string) => {
@@ -452,6 +390,31 @@ export function WhatsAppInbox({
       })
     },
     [updatePinnedNotes]
+  )
+  const loadConversationPinnedNote = useCallback(
+    async (conversationId: string) => {
+      const result = await getWhatsAppConversationPinnedNote(conversationId)
+
+      if (!result.success) {
+        showToast({
+          variant: "error",
+          title: "Falha ao carregar nota fixa",
+          description: result.error || "Não foi possível carregar a nota fixa da conversa.",
+        })
+        return
+      }
+
+      if (selectedConversationIdRef.current !== conversationId) return
+
+      const note = result.data
+      if (!note) {
+        clearConversationPinnedNote(conversationId)
+        return
+      }
+
+      setConversationPinnedNote(conversationId, note)
+    },
+    [clearConversationPinnedNote, setConversationPinnedNote, showToast]
   )
   const hideConversationPinnedNote = useCallback((conversationId: string) => {
     setHiddenPinnedNotesByConversationId((current) => ({
@@ -750,10 +713,6 @@ export function WhatsAppInbox({
   }, [selectedConversationId])
 
   useEffect(() => {
-    setPinnedNotesByConversationId(readPinnedNotesFromStorage())
-  }, [])
-
-  useEffect(() => {
     if (!selectedConversationId) {
       setPinnedNoteEditorOpen(false)
       setPinnedNoteDraft("")
@@ -768,6 +727,11 @@ export function WhatsAppInbox({
     setPinnedNoteTargetUserId(pinnedNote?.targetUserId ?? "__none")
     setTransferNoteDraft("")
   }, [pinnedNotesByConversationId, selectedConversationId])
+
+  useEffect(() => {
+    if (!selectedConversationId) return
+    void loadConversationPinnedNote(selectedConversationId)
+  }, [loadConversationPinnedNote, selectedConversationId])
 
   useEffect(() => {
     if (!selectedConversationId) return
@@ -942,12 +906,24 @@ export function WhatsAppInbox({
           void loadConversations({ preserveSelection: true })
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "whatsapp_conversation_pinned_notes" },
+        (payload) => {
+          const row = (payload.new || payload.old || {}) as { conversation_id?: string }
+          const selectedId = selectedConversationIdRef.current
+
+          if (selectedId && row.conversation_id === selectedId) {
+            void loadConversationPinnedNote(selectedId)
+          }
+        }
+      )
       .subscribe()
 
     return () => {
       void supabase.removeChannel(channel)
     }
-  }, [loadConversations, loadMessages])
+  }, [loadConversationPinnedNote, loadConversations, loadMessages])
 
   const withAction = useCallback(
     async (callback: () => Promise<void>) => {
@@ -963,7 +939,7 @@ export function WhatsAppInbox({
     [actionLoading]
   )
 
-  const handleSavePinnedNote = useCallback(() => {
+  const handleSavePinnedNote = useCallback(async () => {
     if (!selectedConversation) return
 
     const noteText = pinnedNoteDraft.trim()
@@ -976,46 +952,79 @@ export function WhatsAppInbox({
       return
     }
 
-    const targetUserId = pinnedNoteTargetUserId === "__none" ? null : pinnedNoteTargetUserId
-    upsertConversationPinnedNote({
-      conversationId: selectedConversation.id,
-      text: noteText,
-      targetUserId,
-    })
-    showConversationPinnedNote(selectedConversation.id)
-    setPinnedNoteEditorOpen(false)
+    await withAction(async () => {
+      const targetUserId = pinnedNoteTargetUserId === "__none" ? null : pinnedNoteTargetUserId
+      const result = await upsertWhatsAppConversationPinnedNote({
+        conversationId: selectedConversation.id,
+        noteText,
+        targetUserId,
+      })
 
-    const targetLabel = resolveAgentLabel(targetUserId)
-    showToast({
-      variant: "success",
-      title: "Nota fixada",
-      description: targetLabel
-        ? `Nota direcionada para ${targetLabel}.`
-        : "Nota fixada para esta conversa.",
+      if (!result.success) {
+        showToast({
+          variant: "error",
+          title: "Falha ao salvar nota fixa",
+          description: result.error || "Não foi possível salvar a nota fixa desta conversa.",
+        })
+        return
+      }
+
+      if (result.data) {
+        setConversationPinnedNote(selectedConversation.id, result.data)
+      } else {
+        clearConversationPinnedNote(selectedConversation.id)
+      }
+
+      showConversationPinnedNote(selectedConversation.id)
+      setPinnedNoteEditorOpen(false)
+
+      const targetLabel = result.data?.target_user_name || resolveAgentLabel(targetUserId)
+      showToast({
+        variant: "success",
+        title: "Nota fixada",
+        description: targetLabel
+          ? `Nota direcionada para ${targetLabel}.`
+          : "Nota fixada para esta conversa.",
+      })
     })
   }, [
+    clearConversationPinnedNote,
     pinnedNoteDraft,
     pinnedNoteTargetUserId,
     resolveAgentLabel,
     selectedConversation,
+    setConversationPinnedNote,
     showConversationPinnedNote,
     showToast,
-    upsertConversationPinnedNote,
+    withAction,
   ])
 
-  const handleClearPinnedNote = useCallback(() => {
+  const handleClearPinnedNote = useCallback(async () => {
     if (!selectedConversation) return
-    clearConversationPinnedNote(selectedConversation.id)
-    showConversationPinnedNote(selectedConversation.id)
-    setPinnedNoteEditorOpen(false)
-    setPinnedNoteDraft("")
-    setPinnedNoteTargetUserId("__none")
-    showToast({
-      variant: "success",
-      title: "Nota removida",
-      description: "A nota fixada desta conversa foi removida.",
+
+    await withAction(async () => {
+      const result = await clearWhatsAppConversationPinnedNote(selectedConversation.id)
+      if (!result.success) {
+        showToast({
+          variant: "error",
+          title: "Falha ao remover nota fixa",
+          description: result.error || "Não foi possível remover a nota fixa desta conversa.",
+        })
+        return
+      }
+
+      clearConversationPinnedNote(selectedConversation.id)
+      showConversationPinnedNote(selectedConversation.id)
+      setPinnedNoteEditorOpen(false)
+      setPinnedNoteDraft("")
+      setPinnedNoteTargetUserId("__none")
+      showToast({
+        variant: "success",
+        title: "Nota removida",
+        description: "A nota fixada desta conversa foi removida.",
+      })
     })
-  }, [clearConversationPinnedNote, selectedConversation, showConversationPinnedNote, showToast])
+  }, [clearConversationPinnedNote, selectedConversation, showConversationPinnedNote, showToast, withAction])
 
   const handleAssign = useCallback(
     async (assigneeId: string | null, options?: { transferNote?: string | null }) => {
@@ -1037,21 +1046,37 @@ export function WhatsAppInbox({
         }
 
         if (transferNote && previousAssigneeId !== assigneeId) {
-          upsertConversationPinnedNote({
+          const pinnedNoteResult = await upsertWhatsAppConversationPinnedNote({
             conversationId: selectedConversation.id,
-            text: transferNote,
+            noteText: transferNote,
             targetUserId: assigneeId,
           })
+
+          if (pinnedNoteResult.success && pinnedNoteResult.data) {
+            setConversationPinnedNote(selectedConversation.id, pinnedNoteResult.data)
+          }
+
           showConversationPinnedNote(selectedConversation.id)
           setPinnedNoteEditorOpen(false)
           setTransferNoteDraft("")
-          showToast({
-            variant: "success",
-            title: "Nota da transferência salva",
-            description: assigneeId
-              ? `Nota direcionada para ${resolveAgentLabel(assigneeId) || "novo responsável"}.`
-              : "Nota salva para esta conversa.",
-          })
+
+          if (pinnedNoteResult.success) {
+            showToast({
+              variant: "success",
+              title: "Nota da transferência salva",
+              description: assigneeId
+                ? `Nota direcionada para ${resolveAgentLabel(assigneeId) || "novo responsável"}.`
+                : "Nota salva para esta conversa.",
+            })
+          } else {
+            showToast({
+              variant: "error",
+              title: "Responsável atualizado com alerta",
+              description:
+                pinnedNoteResult.error ||
+                "O responsável foi alterado, mas não foi possível salvar a nota da transferência.",
+            })
+          }
         }
 
         await loadConversations({ preserveSelection: true })
@@ -1061,9 +1086,9 @@ export function WhatsAppInbox({
       loadConversations,
       resolveAgentLabel,
       selectedConversation,
+      setConversationPinnedNote,
       showConversationPinnedNote,
       showToast,
-      upsertConversationPinnedNote,
       withAction,
     ]
   )
