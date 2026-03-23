@@ -116,6 +116,13 @@ type PendingOutgoingMedia = {
   fileName: string
 }
 
+type ConversationPinnedNote = {
+  text: string
+  targetUserId: string | null
+  targetUserName: string | null
+  updatedAt: string
+}
+
 type SendAvailabilityCode =
   | "no_conversation"
   | "missing_brand"
@@ -168,6 +175,8 @@ const KANBAN_COLUMN_LABELS: Record<KanbanColumnKey, string> = {
   rental: "Rental",
   diversos: "Diversos",
 }
+
+const PINNED_NOTE_STORAGE_KEY = "whatsapp-inbox:pinned-notes:v1"
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-"
@@ -250,6 +259,69 @@ function conversationDisplayName(conversation: WhatsAppConversationListItem) {
   )
 }
 
+function parsePinnedNote(value: unknown): ConversationPinnedNote | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const payload = value as Record<string, unknown>
+  const text = typeof payload.text === "string" ? payload.text.trim() : ""
+  if (!text) return null
+
+  const targetUserId =
+    typeof payload.targetUserId === "string" && payload.targetUserId.trim()
+      ? payload.targetUserId.trim()
+      : null
+  const targetUserName =
+    typeof payload.targetUserName === "string" && payload.targetUserName.trim()
+      ? payload.targetUserName.trim()
+      : null
+  const updatedAt =
+    typeof payload.updatedAt === "string" && payload.updatedAt.trim()
+      ? payload.updatedAt
+      : new Date().toISOString()
+
+  return {
+    text,
+    targetUserId,
+    targetUserName,
+    updatedAt,
+  }
+}
+
+function readPinnedNotesFromStorage(): Record<string, ConversationPinnedNote> {
+  if (typeof window === "undefined") return {}
+
+  try {
+    const rawValue = window.localStorage.getItem(PINNED_NOTE_STORAGE_KEY)
+    if (!rawValue) return {}
+    const parsed = JSON.parse(rawValue)
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {}
+    }
+
+    const notes: Record<string, ConversationPinnedNote> = {}
+    for (const [conversationId, value] of Object.entries(parsed)) {
+      if (!conversationId.trim()) continue
+      const note = parsePinnedNote(value)
+      if (!note) continue
+      notes[conversationId] = note
+    }
+
+    return notes
+  } catch {
+    return {}
+  }
+}
+
+function persistPinnedNotesToStorage(notes: Record<string, ConversationPinnedNote>) {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.setItem(PINNED_NOTE_STORAGE_KEY, JSON.stringify(notes))
+  } catch {
+    // Ignore write errors to avoid blocking inbox usage.
+  }
+}
+
 export function WhatsAppInbox({
   currentUserId,
   initialAgents,
@@ -293,6 +365,12 @@ export function WhatsAppInbox({
   const [savingRestrictionSettings, setSavingRestrictionSettings] = useState(false)
   const [restrictionDraftEnabled, setRestrictionDraftEnabled] = useState(false)
   const [restrictionDraftAllowedUserIds, setRestrictionDraftAllowedUserIds] = useState<string[]>([])
+  const [pinnedNotesByConversationId, setPinnedNotesByConversationId] = useState<
+    Record<string, ConversationPinnedNote>
+  >({})
+  const [pinnedNoteDraft, setPinnedNoteDraft] = useState("")
+  const [pinnedNoteTargetUserId, setPinnedNoteTargetUserId] = useState("__none")
+  const [transferNoteDraft, setTransferNoteDraft] = useState("")
 
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
@@ -313,6 +391,56 @@ export function WhatsAppInbox({
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId]
+  )
+  const selectedConversationPinnedNote = useMemo(() => {
+    if (!selectedConversationId) return null
+    return pinnedNotesByConversationId[selectedConversationId] ?? null
+  }, [pinnedNotesByConversationId, selectedConversationId])
+  const resolveAgentLabel = useCallback(
+    (agentId: string | null) => {
+      if (!agentId) return null
+      const agent = initialAgents.find((item) => item.id === agentId)
+      return agent?.name || agent?.email || agentId
+    },
+    [initialAgents]
+  )
+  const updatePinnedNotes = useCallback(
+    (updater: (current: Record<string, ConversationPinnedNote>) => Record<string, ConversationPinnedNote>) => {
+      setPinnedNotesByConversationId((current) => {
+        const next = updater(current)
+        persistPinnedNotesToStorage(next)
+        return next
+      })
+    },
+    []
+  )
+  const upsertConversationPinnedNote = useCallback(
+    (input: { conversationId: string; text: string; targetUserId: string | null }) => {
+      const trimmedText = input.text.trim()
+      if (!trimmedText) return
+
+      updatePinnedNotes((current) => ({
+        ...current,
+        [input.conversationId]: {
+          text: trimmedText,
+          targetUserId: input.targetUserId,
+          targetUserName: resolveAgentLabel(input.targetUserId),
+          updatedAt: new Date().toISOString(),
+        },
+      }))
+    },
+    [resolveAgentLabel, updatePinnedNotes]
+  )
+  const clearConversationPinnedNote = useCallback(
+    (conversationId: string) => {
+      updatePinnedNotes((current) => {
+        if (!current[conversationId]) return current
+        const next = { ...current }
+        delete next[conversationId]
+        return next
+      })
+    },
+    [updatePinnedNotes]
   )
   const autoStartRequest = useMemo(() => {
     const contactId = (searchParams.get("startContact") || "").trim()
@@ -597,6 +725,24 @@ export function WhatsAppInbox({
   }, [selectedConversationId])
 
   useEffect(() => {
+    setPinnedNotesByConversationId(readPinnedNotesFromStorage())
+  }, [])
+
+  useEffect(() => {
+    if (!selectedConversationId) {
+      setPinnedNoteDraft("")
+      setPinnedNoteTargetUserId("__none")
+      setTransferNoteDraft("")
+      return
+    }
+
+    const pinnedNote = pinnedNotesByConversationId[selectedConversationId] ?? null
+    setPinnedNoteDraft(pinnedNote?.text ?? "")
+    setPinnedNoteTargetUserId(pinnedNote?.targetUserId ?? "__none")
+    setTransferNoteDraft("")
+  }, [pinnedNotesByConversationId, selectedConversationId])
+
+  useEffect(() => {
     if (!selectedConversationId) return
     shouldScrollMessagesToBottomRef.current = true
 
@@ -790,9 +936,61 @@ export function WhatsAppInbox({
     [actionLoading]
   )
 
+  const handleSavePinnedNote = useCallback(() => {
+    if (!selectedConversation) return
+
+    const noteText = pinnedNoteDraft.trim()
+    if (!noteText) {
+      showToast({
+        variant: "error",
+        title: "Nota vazia",
+        description: "Digite uma nota para fixar nesta conversa.",
+      })
+      return
+    }
+
+    const targetUserId = pinnedNoteTargetUserId === "__none" ? null : pinnedNoteTargetUserId
+    upsertConversationPinnedNote({
+      conversationId: selectedConversation.id,
+      text: noteText,
+      targetUserId,
+    })
+
+    const targetLabel = resolveAgentLabel(targetUserId)
+    showToast({
+      variant: "success",
+      title: "Nota fixada",
+      description: targetLabel
+        ? `Nota direcionada para ${targetLabel}.`
+        : "Nota fixada para esta conversa.",
+    })
+  }, [
+    pinnedNoteDraft,
+    pinnedNoteTargetUserId,
+    resolveAgentLabel,
+    selectedConversation,
+    showToast,
+    upsertConversationPinnedNote,
+  ])
+
+  const handleClearPinnedNote = useCallback(() => {
+    if (!selectedConversation) return
+    clearConversationPinnedNote(selectedConversation.id)
+    setPinnedNoteDraft("")
+    setPinnedNoteTargetUserId("__none")
+    showToast({
+      variant: "success",
+      title: "Nota removida",
+      description: "A nota fixada desta conversa foi removida.",
+    })
+  }, [clearConversationPinnedNote, selectedConversation, showToast])
+
   const handleAssign = useCallback(
-    async (assigneeId: string | null) => {
+    async (assigneeId: string | null, options?: { transferNote?: string | null }) => {
       if (!selectedConversation) return
+
+      const previousAssigneeId = selectedConversation.assigned_user_id
+      const transferNote = options?.transferNote?.trim() || ""
 
       await withAction(async () => {
         const result = await assignWhatsAppConversation(selectedConversation.id, assigneeId)
@@ -806,10 +1004,33 @@ export function WhatsAppInbox({
           return
         }
 
+        if (transferNote && previousAssigneeId !== assigneeId) {
+          upsertConversationPinnedNote({
+            conversationId: selectedConversation.id,
+            text: transferNote,
+            targetUserId: assigneeId,
+          })
+          setTransferNoteDraft("")
+          showToast({
+            variant: "success",
+            title: "Nota da transferência salva",
+            description: assigneeId
+              ? `Nota direcionada para ${resolveAgentLabel(assigneeId) || "novo responsável"}.`
+              : "Nota salva para esta conversa.",
+          })
+        }
+
         await loadConversations({ preserveSelection: true })
       })
     },
-    [loadConversations, selectedConversation, showToast, withAction]
+    [
+      loadConversations,
+      resolveAgentLabel,
+      selectedConversation,
+      showToast,
+      upsertConversationPinnedNote,
+      withAction,
+    ]
   )
 
   const handleSetBrand = useCallback(
@@ -1956,7 +2177,10 @@ export function WhatsAppInbox({
                   <Select
                     value={selectedConversation.assigned_user_id || "__none"}
                     onValueChange={(value) => {
-                      void handleAssign(value === "__none" ? null : value)
+                      const nextAssigneeId = value === "__none" ? null : value
+                      void handleAssign(nextAssigneeId, {
+                        transferNote: transferNoteDraft,
+                      })
                     }}
                     disabled={actionLoading}
                   >
@@ -1977,6 +2201,20 @@ export function WhatsAppInbox({
                     <Clock3 className="h-3.5 w-3.5" />
                     <span>Janela até: {formatDateTime(selectedConversation.window_expires_at)}</span>
                   </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Input
+                    value={transferNoteDraft}
+                    onChange={(event) => setTransferNoteDraft(event.target.value)}
+                    placeholder="Nota para próxima transferência de responsável (opcional)"
+                    className="h-8 text-xs"
+                    disabled={actionLoading}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Ao trocar o responsável, a nota acima fica fixada nesta conversa e direcionada ao
+                    novo atendente.
+                  </p>
                 </div>
 
                 {conversationInfoOpen ? (
@@ -2430,6 +2668,82 @@ export function WhatsAppInbox({
                     {canSend.reason}
                   </div>
                 ) : null}
+
+                <div className="space-y-2 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-yellow-900">Nota fixada interna</p>
+                    {selectedConversationPinnedNote ? (
+                      <span className="text-xs text-yellow-900/80">
+                        Atualizada em {formatDateTime(selectedConversationPinnedNote.updatedAt)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {selectedConversationPinnedNote ? (
+                    <div className="rounded-md border border-yellow-200 bg-white px-2.5 py-2 text-sm text-yellow-950">
+                      <p className="whitespace-pre-wrap">{selectedConversationPinnedNote.text}</p>
+                      {selectedConversationPinnedNote.targetUserName ? (
+                        <p className="mt-1 text-xs font-medium text-yellow-900">
+                          Para: {selectedConversationPinnedNote.targetUserName}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-yellow-900/80">
+                      Sem nota fixada para esta conversa.
+                    </p>
+                  )}
+
+                  <Textarea
+                    value={pinnedNoteDraft}
+                    onChange={(event) => setPinnedNoteDraft(event.target.value)}
+                    placeholder="Escreva uma nota interna (visível apenas na operação)."
+                    rows={2}
+                    className="min-h-0 bg-white"
+                    disabled={actionLoading}
+                  />
+
+                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
+                    <Select
+                      value={pinnedNoteTargetUserId}
+                      onValueChange={setPinnedNoteTargetUserId}
+                      disabled={actionLoading}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Direcionar para (opcional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">Sem destinatário</SelectItem>
+                        {initialAgents.map((agent) => (
+                          <SelectItem key={agent.id} value={agent.id}>
+                            {agent.name || agent.email || agent.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8"
+                      onClick={handleSavePinnedNote}
+                      disabled={actionLoading || !pinnedNoteDraft.trim()}
+                    >
+                      Fixar nota
+                    </Button>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      onClick={handleClearPinnedNote}
+                      disabled={actionLoading || !selectedConversationPinnedNote}
+                    >
+                      Limpar
+                    </Button>
+                  </div>
+                </div>
 
                 <input
                   ref={mediaFileInputRef}
