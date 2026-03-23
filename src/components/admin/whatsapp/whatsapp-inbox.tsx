@@ -908,6 +908,13 @@ export function WhatsAppInbox({
       )
       .on(
         "postgres_changes",
+        { event: "*", schema: "public", table: "whatsapp_conversation_events" },
+        () => {
+          void loadConversations({ preserveSelection: true })
+        }
+      )
+      .on(
+        "postgres_changes",
         { event: "*", schema: "public", table: "whatsapp_conversation_pinned_notes" },
         (payload) => {
           const row = (payload.new || payload.old || {}) as { conversation_id?: string }
