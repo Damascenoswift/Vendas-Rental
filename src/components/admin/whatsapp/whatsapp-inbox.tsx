@@ -1208,6 +1208,34 @@ export function WhatsAppInbox({
     })
   }, [loadConversations, selectedConversation, showToast, withAction])
 
+  const handleCreateProposalFromConversation = useCallback(() => {
+    if (!selectedConversation) return
+
+    const whatsapp = conversationWhatsappNumber(selectedConversation)
+    if (!whatsapp) {
+      showToast({
+        variant: "error",
+        title: "Número inválido",
+        description: "Essa conversa não possui um número de WhatsApp válido para iniciar orçamento.",
+      })
+      return
+    }
+
+    const inferredName =
+      selectedConversation.contact_name?.trim() ||
+      selectedConversation.customer_name?.trim() ||
+      `Contato ${formatWhatsAppNumber(whatsapp)}`
+
+    const params = new URLSearchParams()
+    params.set("whatsapp", whatsapp)
+    if (inferredName) {
+      params.set("name", inferredName)
+    }
+
+    if (typeof window === "undefined") return
+    window.location.assign(`/admin/orcamentos/novo?${params.toString()}`)
+  }, [selectedConversation, showToast])
+
   const handleDeleteConversation = useCallback(async () => {
     if (!selectedConversation) return
 
@@ -2531,6 +2559,17 @@ export function WhatsAppInbox({
                             : "Restringir"}
                         </Button>
                       ) : null}
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        disabled={actionLoading}
+                        onClick={handleCreateProposalFromConversation}
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        Novo orçamento
+                      </Button>
 
                       <Button
                         variant="outline"

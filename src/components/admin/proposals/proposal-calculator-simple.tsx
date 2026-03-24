@@ -45,7 +45,10 @@ import { Loader2, Calculator } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import { LeadSelect } from "@/components/admin/tasks/lead-select"
-import type { ProposalMergeCandidate } from "@/components/admin/proposals/proposal-calculator"
+import type {
+    ProposalClientPrefill,
+    ProposalMergeCandidate,
+} from "@/components/admin/proposals/proposal-calculator"
 
 interface ProposalCalculatorProps {
     products: Product[]
@@ -56,6 +59,7 @@ interface ProposalCalculatorProps {
     canAssignSeller?: boolean
     currentUserId?: string | null
     mergedProposal?: ProposalMergeCandidate | null
+    initialClientPrefill?: ProposalClientPrefill | null
 }
 
 type RuleMap = Record<string, number>
@@ -240,6 +244,7 @@ export function ProposalCalculatorSimple({
     canAssignSeller = false,
     currentUserId = null,
     mergedProposal = null,
+    initialClientPrefill = null,
 }: ProposalCalculatorProps) {
     const rules = useMemo(() => buildRuleMap(pricingRules), [pricingRules])
     const defaultModulePower = rules.potencia_modulo_w ?? 700
@@ -279,6 +284,11 @@ export function ProposalCalculatorSimple({
         defaultIndex: defaultProductionIndex,
         totalModules: Number(initialInput?.dimensioning?.qtd_modulos ?? 0),
     })
+    const normalizedPrefillName = (initialClientPrefill?.name ?? "").trim()
+    const prefillNameParts = normalizedPrefillName.split(" ").filter(Boolean)
+    const prefillFirstName = prefillNameParts[0] ?? ""
+    const prefillLastName = prefillNameParts.slice(1).join(" ")
+    const prefillWhatsapp = (initialClientPrefill?.whatsapp ?? "").trim()
 
     const [selectedIndicacaoId, setSelectedIndicacaoId] = useState<string | null>(initialProposal?.client_id ?? null)
     const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(() => {
@@ -300,16 +310,16 @@ export function ProposalCalculatorSimple({
         first_name:
             initialProposal?.contact?.first_name ??
             initialProposal?.client_name?.split(" ")[0] ??
-            "",
+            prefillFirstName,
         last_name:
             initialProposal?.contact?.last_name ??
             initialProposal?.client_name?.split(" ").slice(1).join(" ") ??
-            "",
+            prefillLastName,
         whatsapp:
             initialProposal?.contact?.whatsapp ??
             initialProposal?.contact?.phone ??
             initialProposal?.contact?.mobile ??
-            "",
+            prefillWhatsapp,
     }))
     const [manualContractEstimate, setManualContractEstimate] = useState(initialManualContractEstimate)
     const [workOwnerName, setWorkOwnerName] = useState(initialStakeholders.owner.name)

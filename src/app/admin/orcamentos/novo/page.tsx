@@ -8,12 +8,20 @@ export const dynamic = "force-dynamic"
 interface NewProposalPageProps {
     searchParams: Promise<{
         duplicar?: string
+        whatsapp?: string
+        name?: string
     }>
 }
 
 export default async function NewProposalPage({ searchParams }: NewProposalPageProps) {
-    const { duplicar } = await searchParams
+    const { duplicar, whatsapp, name } = await searchParams
     const duplicateId = duplicar?.trim() || null
+    const prefillWhatsappDigits = (whatsapp ?? "").replace(/\D/g, "")
+    const prefillWhatsapp =
+        prefillWhatsappDigits.length >= 10 && prefillWhatsappDigits.length <= 13
+            ? prefillWhatsappDigits
+            : null
+    const prefillName = (name ?? "").trim().replace(/\s+/g, " ") || null
 
     let products: Awaited<ReturnType<typeof getProducts>> = []
     let pricingRules: Awaited<ReturnType<typeof getPricingRules>> = []
@@ -83,6 +91,10 @@ export default async function NewProposalPage({ searchParams }: NewProposalPageP
                 sellerOptions={sellerAssignment?.sellers ?? []}
                 canAssignSeller={sellerAssignment?.canAssignToOthers ?? false}
                 currentUserId={sellerAssignment?.currentUserId ?? null}
+                initialClientPrefill={{
+                    name: prefillName,
+                    whatsapp: prefillWhatsapp,
+                }}
             />
         </div>
     )

@@ -28,6 +28,11 @@ export type ProposalMergeCandidate = {
     updated_at: string | null
 }
 
+export type ProposalClientPrefill = {
+    name?: string | null
+    whatsapp?: string | null
+}
+
 interface ProposalCalculatorProps {
     products: Product[]
     pricingRules?: PricingRule[]
@@ -39,6 +44,7 @@ interface ProposalCalculatorProps {
     canAssignSeller?: boolean
     currentUserId?: string | null
     mergeCandidates?: ProposalMergeCandidate[]
+    initialClientPrefill?: ProposalClientPrefill | null
 }
 
 type ProposalMode = "simple" | "complete"
@@ -78,6 +84,7 @@ export function ProposalCalculator({
     canAssignSeller = false,
     currentUserId = null,
     mergeCandidates = [],
+    initialClientPrefill = null,
 }: ProposalCalculatorProps) {
     const [mode, setMode] = useState<ProposalMode>(initialMode)
     const initialMergedProposalId = useMemo(
@@ -207,6 +214,7 @@ export function ProposalCalculator({
                     canAssignSeller={canAssignSeller}
                     currentUserId={currentUserId}
                     mergedProposal={selectedMergedProposal}
+                    initialClientPrefill={initialClientPrefill}
                 />
             ) : (
                 <ProposalCalculatorComplete
@@ -218,6 +226,7 @@ export function ProposalCalculator({
                     canAssignSeller={canAssignSeller}
                     currentUserId={currentUserId}
                     mergedProposal={selectedMergedProposal}
+                    initialClientPrefill={initialClientPrefill}
                 />
             )}
         </div>
