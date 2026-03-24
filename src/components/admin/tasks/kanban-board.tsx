@@ -65,10 +65,20 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
     const selectedTask = tasks.find(t => t.id === selectedTaskId) ?? null
 
     const handleChecklistSummaryChange = useCallback((taskId: string, total: number, done: number) => {
-        setTasks(prev => prev.map(task => task.id === taskId
-            ? { ...task, checklist_total: total, checklist_done: done }
-            : task
-        ))
+        setTasks((prev) => {
+            let changed = false
+            const next = prev.map((task) => {
+                if (task.id !== taskId) return task
+                const currentTotal = task.checklist_total ?? 0
+                const currentDone = task.checklist_done ?? 0
+                if (currentTotal === total && currentDone === done) {
+                    return task
+                }
+                changed = true
+                return { ...task, checklist_total: total, checklist_done: done }
+            })
+            return changed ? next : prev
+        })
     }, [])
 
     const handleDeleteTask = useCallback((taskId: string) => {

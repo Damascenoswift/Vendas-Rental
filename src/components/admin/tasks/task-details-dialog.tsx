@@ -388,9 +388,20 @@ export function TaskDetailsDialog({
     }, [comments, task])
 
     const currentUserId = session?.user.id ?? null
+    const taskId = task?.id ?? null
+    const taskBrand = task?.brand ?? null
+    const taskAssigneeId = task?.assignee_id ?? ""
+    const taskTitle = task?.title ?? ""
+    const taskPriority = task?.priority ?? "MEDIUM"
+    const taskClientName = task?.client_name ?? ""
+    const taskCodigoInstalacao = task?.codigo_instalacao ?? ""
+    const taskIndicacaoId = task?.indicacao_id ?? ""
+    const taskContactId = task?.contact_id ?? ""
+    const taskProposalId = task?.proposal_id ?? ""
+    const taskDueDate = task?.due_date ?? null
 
     useEffect(() => {
-        if (!open || !task) return
+        if (!open || !taskId) return
 
         setChecklists([])
         setObservers([])
@@ -407,17 +418,17 @@ export function TaskDetailsDialog({
         if (attachmentInputRef.current) {
             attachmentInputRef.current.value = ""
         }
-        setEditAssigneeId(task.assignee_id ?? "")
-        setEditTitle(task.title ?? "")
-        setEditPriority(task.priority ?? "MEDIUM")
-        setEditClientName(task.client_name ?? "")
-        setEditCodigoInstalacao(task.codigo_instalacao ?? "")
-        setEditIndicacaoId(task.indicacao_id ?? "")
-        setEditContactId(task.contact_id ?? "")
-        setEditProposalId(task.proposal_id ?? "")
+        setEditAssigneeId(taskAssigneeId)
+        setEditTitle(taskTitle)
+        setEditPriority(taskPriority)
+        setEditClientName(taskClientName)
+        setEditCodigoInstalacao(taskCodigoInstalacao)
+        setEditIndicacaoId(taskIndicacaoId)
+        setEditContactId(taskContactId)
+        setEditProposalId(taskProposalId)
         setIsClientLinkExpanded(false)
-        if (task.due_date) {
-            const parsed = new Date(task.due_date)
+        if (taskDueDate) {
+            const parsed = new Date(taskDueDate)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
         } else {
             setEditDueDate("")
@@ -426,10 +437,10 @@ export function TaskDetailsDialog({
         const load = async () => {
             setIsLoading(true)
             const [checklistResult, observerResult, commentResult, attachmentResult] = await Promise.allSettled([
-                getTaskChecklists(task.id),
-                getTaskObservers(task.id),
-                getTaskComments(task.id),
-                listTaskAttachments(task.id),
+                getTaskChecklists(taskId),
+                getTaskObservers(taskId),
+                getTaskComments(taskId),
+                listTaskAttachments(taskId),
             ])
 
             if (checklistResult.status === "fulfilled") {
@@ -466,18 +477,30 @@ export function TaskDetailsDialog({
         }
 
         load()
-    }, [open, task])
+    }, [
+        open,
+        taskAssigneeId,
+        taskClientName,
+        taskCodigoInstalacao,
+        taskContactId,
+        taskDueDate,
+        taskId,
+        taskIndicacaoId,
+        taskPriority,
+        taskProposalId,
+        taskTitle,
+    ])
 
     useEffect(() => {
         setHighlightedMentionIndex(0)
     }, [activeMentionContext?.query, isMentionMenuOpen])
 
     useEffect(() => {
-        if (!open || !task) return
+        if (!open || !taskId) return
         const fetchDependencies = async () => {
             const [userData, proposalData] = await Promise.all([
                 getTaskAssignableUsers(),
-                getTaskProposalOptions(task.brand),
+                getTaskProposalOptions(taskBrand ?? undefined),
             ])
 
             setUsers(
@@ -493,12 +516,12 @@ export function TaskDetailsDialog({
         }
 
         fetchDependencies()
-    }, [open, task])
+    }, [open, taskBrand, taskId])
 
     useEffect(() => {
-        if (!task) return
-        onChecklistSummaryChange?.(task.id, checklistSummary.total, checklistSummary.done)
-    }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, task])
+        if (!taskId) return
+        onChecklistSummaryChange?.(taskId, checklistSummary.total, checklistSummary.done)
+    }, [checklistSummary.total, checklistSummary.done, onChecklistSummaryChange, taskId])
 
     const handleAddChecklist = async () => {
         if (!task) return
