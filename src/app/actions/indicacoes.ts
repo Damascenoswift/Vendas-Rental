@@ -1,35 +1,97 @@
-'use server'
+ 'use server'
 
 import { createSupabaseServiceClient } from '@/lib/supabase-server'
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { ensureCrmCardForIndication } from '@/services/crm-card-service'
-import { createIndicationNotificationEvent } from '@/services/notification-service'
-import { createRentalTasksForIndication } from '@/services/task-service'
-import { assertSupervisorCanAssignInternalVendor } from '@/lib/supervisor-scope'
-import { hasFullAccess, type UserProfile, type UserRole } from '@/lib/auth'
-import { hasSalesAccess } from '@/lib/sales-access'
 
-function parseMissingColumnError(message?: string | null) {
-    if (!message) return null
+async function createDorataCrmCard(params: {
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    indicacaoId: string
+    title: string | null
+    assigneeId: string | null
+    createdBy: string
+}) {
+    const { supabaseAdmin, indicacaoId, title, assigneeId, createdBy } = params
 
-    const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
-    if (!match) return null
+    const { data: pipeline, error: pipelineError } = await supabaseAdmin
+        .from('crm_pipelines')
+        .select('id')
+        .eq('brand', 'dorata')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true })
+        .limit(1)
+        .maybeSingle()
 
-    return { column: match[1], table: match[2] }
+    if (pipelineError || !pipeline) {
+        console.error('CRM Pipeline Error:', pipelineError)
+        return { error: pipelineError?.message ?? 'Pipeline Dorata não encontrado' }
+    }
+
+    const { data: stage, error: stageError } = await supabaseAdmin
+        .from('crm_stages')
+        .select('id')
+        .eq('pipeline_id', pipeline.id)
+        .order('sort_order', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+    if (stageError || !stage) {
+        console.error('CRM Stage Error:', stageError)
+        return { error: stageError?.message ?? 'Etapa inicial não encontrada' }
+    }
+
+    const { data: existingCard, error: existingError } = await supabaseAdmin
+        .from('crm_cards')
+        .select('id')
+        .eq('pipeline_id', pipeline.id)
+        .eq('indicacao_id', indicacaoId)
+        .limit(1)
+        .maybeSingle()
+
+    if (existingError) {
+        console.error('CRM Card Lookup Error:', existingError)
+        return { error: existingError.message }
+    }
+
+    if (existingCard) {
+        return { success: true, skipped: true }
+    }
+
+    const { data: card, error: insertError } = await supabaseAdmin
+        .from('crm_cards')
+        .insert({
+            pipeline_id: pipeline.id,
+            stage_id: stage.id,
+            indicacao_id: indicacaoId,
+            title,
+            created_by: createdBy,
+            assignee_id: assigneeId,
+        })
+        .select('id')
+        .single()
+
+    if (insertError) {
+        console.error('CRM Card Insert Error:', insertError)
+        return { error: insertError.message }
+    }
+
+    const { error: historyError } = await supabaseAdmin
+        .from('crm_stage_history')
+        .insert({
+            card_id: card.id,
+            from_stage_id: null,
+            to_stage_id: stage.id,
+            changed_by: createdBy,
+        })
+
+    if (historyError) {
+        console.error('CRM Stage History Error:', historyError)
+    }
+
+    return { success: true }
 }
 
-type IndicationActionPayload = {
-    user_id?: string
-    codigo_instalacao?: string
-    marca?: string
-    nome?: string
-    status?: string
-    created_by_supervisor_id?: string
-    [key: string]: unknown
-}
-
-export async function createIndicationAction(payload: IndicationActionPayload) {
+export async function createIndicationAction(payload: any) {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
@@ -42,162 +104,63 @@ export async function createIndicationAction(payload: IndicationActionPayload) {
     // Get current user profile to check if they are a supervisor
     const { data: profile } = await supabaseAdmin
         .from('users')
-        .select('role, department')
+        .select('role')
         .eq('id', user.id)
         .single()
-    const role = profile?.role as UserRole | undefined
-    const department = (profile as { department?: UserProfile['department'] | null } | null)?.department ?? null
 
-    const finalPayload: IndicationActionPayload = { ...payload }
-    const targetUserId = typeof finalPayload.user_id === 'string' ? finalPayload.user_id : ''
-    if (!targetUserId) {
-        return { success: false, message: 'Vendedor da indicação é obrigatório.' }
-    }
+    const finalPayload = { ...payload }
 
-    let { data: targetUserProfile, error: targetUserError } = await supabaseAdmin
-        .from('users')
-        .select('id, role, status, sales_access')
-        .eq('id', targetUserId)
-        .maybeSingle()
-
-    const targetMissingColumn = parseMissingColumnError(targetUserError?.message)
-    if (targetUserError && targetMissingColumn?.table === 'users' && targetMissingColumn.column === 'sales_access') {
-        const fallback = await supabaseAdmin
+    // If the actor is a supervisor and they are attributing to someone else
+    if (profile?.role === 'supervisor' && payload.user_id !== user.id) {
+        // Double check if the target user is actually their subordinate
+        const { data: targetUser } = await supabaseAdmin
             .from('users')
-            .select('id, role, status')
-            .eq('id', targetUserId)
-            .maybeSingle()
-        targetUserProfile = fallback.data as typeof targetUserProfile
-        targetUserError = fallback.error
-    }
-
-    if (targetUserError) {
-        return { success: false, message: 'Não foi possível validar o vendedor da indicação.' }
-    }
-
-    if (!targetUserProfile?.id) {
-        return { success: false, message: 'Vendedor selecionado não encontrado.' }
-    }
-
-    if (!hasSalesAccess(targetUserProfile as { role?: string | null; sales_access?: boolean | null })) {
-        return { success: false, message: 'Usuário sem acesso a vendas (indicações/comissão).' }
-    }
-
-    const canManageOthers =
-        hasFullAccess(role ?? null, department) ||
-        ['funcionario_n1', 'funcionario_n2'].includes(role ?? '')
-
-    // Regular sellers can only create on their own user id.
-    if (profile?.role !== 'supervisor' && !canManageOthers && targetUserId !== user.id) {
-        return { success: false, message: 'Você só pode criar indicações no seu próprio usuário.' }
-    }
-
-    // Supervisor can assign only to internal subordinates.
-    if (profile?.role === 'supervisor' && targetUserId !== user.id) {
-        const permission = await assertSupervisorCanAssignInternalVendor(user.id, targetUserId)
-        if (!permission.allowed) {
-            return { success: false, message: permission.message }
-        }
-
-        finalPayload.created_by_supervisor_id = user.id
-    }
-
-    const insertPayload: IndicationActionPayload = { ...finalPayload }
-    if (typeof insertPayload.codigo_instalacao === 'string') {
-        const trimmedInstallationCode = insertPayload.codigo_instalacao.trim()
-        if (trimmedInstallationCode.length === 0) {
-            delete insertPayload.codigo_instalacao
-        } else {
-            insertPayload.codigo_instalacao = trimmedInstallationCode
-        }
-    }
-
-    const insertIndication = async (candidatePayload: IndicationActionPayload) =>
-        supabaseAdmin
-            .from('indicacoes')
-            .insert(candidatePayload)
-            .select('id')
+            .select('supervisor_id')
+            .eq('id', payload.user_id)
             .single()
 
-    let { data, error } = await insertIndication(insertPayload)
-    const droppedColumns: string[] = []
-
-    while (error) {
-        const missingColumn = parseMissingColumnError(error.message)
-        if (!missingColumn || missingColumn.table !== 'indicacoes') break
-        if (!(missingColumn.column in insertPayload)) break
-
-        droppedColumns.push(missingColumn.column)
-        delete insertPayload[missingColumn.column]
-
-        const retry = await insertIndication(insertPayload)
-        data = retry.data
-        error = retry.error
+        if (targetUser?.supervisor_id === user.id) {
+            finalPayload.created_by_supervisor_id = user.id
+        } else {
+            // If they are trying to attribute to someone NOT their subordinate,
+            // we might want to block this or just ignore the attribution.
+            // For now, let's allow if they are admin, but the prompt says
+            // supervisors manage THEIR salespeople.
+            if (!['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(profile.role)) {
+                return { success: false, message: 'Você só pode atribuir indicações para seus subordinados.' }
+            }
+        }
     }
 
-    if (droppedColumns.length > 0) {
-        console.warn(
-            `[createIndicationAction] Insert fallback for missing indicacoes columns: ${droppedColumns.join(', ')}`
-        )
-    }
+    // Insert the indication
+    const { data, error } = await supabaseAdmin
+        .from('indicacoes')
+        .insert(finalPayload)
+        .select('id')
+        .single()
 
     if (error) {
         console.error('Erro ao criar indicação:', error)
         return { success: false, message: error.message }
     }
 
-    const indicationId = data?.id
-    if (!indicationId) {
-        return { success: false, message: 'Não foi possível criar indicação.' }
-    }
-
-    const brand = String(finalPayload.marca ?? '').toLowerCase()
-    if (brand === 'dorata' || brand === 'rental') {
-        const crmResult = await ensureCrmCardForIndication({
-            indicacaoId: indicationId,
-            title: typeof finalPayload.nome === 'string' ? finalPayload.nome : null,
-            assigneeId: typeof finalPayload.user_id === 'string' ? finalPayload.user_id : null,
+    if (String(finalPayload.marca).toLowerCase() === 'dorata') {
+        const crmResult = await createDorataCrmCard({
+            supabaseAdmin,
+            indicacaoId: data.id,
+            title: finalPayload.nome ?? null,
+            assigneeId: finalPayload.user_id ?? null,
             createdBy: user.id,
-            brand,
-            status: typeof finalPayload.status === 'string' ? finalPayload.status : null,
         })
         if (crmResult?.error) {
             console.error('CRM Auto Create Error:', crmResult.error)
+        } else {
+            revalidatePath('/admin/crm')
         }
-    }
-
-    if (brand === 'rental') {
-        const taskResult = await createRentalTasksForIndication({
-            indicacaoId: indicationId,
-            nome: typeof finalPayload.nome === 'string' ? finalPayload.nome : null,
-            codigoInstalacao: typeof finalPayload.codigo_instalacao === 'string' ? finalPayload.codigo_instalacao : null,
-            creatorId: user.id,
-        })
-        if (taskResult && 'error' in taskResult && taskResult.error) {
-            console.error('Rental task auto-create error:', taskResult.error)
-        }
-    }
-
-    try {
-        await createIndicationNotificationEvent({
-            eventKey: 'INDICATION_CREATED',
-            indicacaoId: indicationId,
-            actorUserId: user.id,
-            title: 'Nova indicação criada',
-            message: `A indicação de ${typeof finalPayload.nome === 'string' && finalPayload.nome.trim().length > 0 ? finalPayload.nome : 'cliente sem nome'} foi criada.`,
-            dedupeToken: `create:${indicationId}`,
-            metadata: {
-                source: 'create_indication_action',
-                brand: brand || null,
-                initial_status: typeof finalPayload.status === 'string' ? finalPayload.status : null,
-            },
-        })
-    } catch (notificationError) {
-        console.error('Erro ao criar notificação da indicação criada:', notificationError)
     }
 
     revalidatePath('/indicacoes')
     revalidatePath('/admin/indicacoes')
 
-    return { success: true, id: indicationId }
+    return { success: true, id: data.id }
 }

@@ -9,6 +9,7 @@ import {
   type ContactDedupeCandidate,
   type ContactDuplicateGroup,
 } from "@/lib/contact-dedupe"
+import { buildContactNameUpdatePayload, normalizeContactNameInput } from "@/lib/contact-name"
 import { getProfile } from "@/lib/auth"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
@@ -25,6 +26,7 @@ const CONTACT_VIEW_ALLOWED_ROLES = new Set([
 
 const CONTACT_SYNC_ALLOWED_ROLES = new Set(["adm_mestre", "adm_dorata"])
 const CONTACT_DELETE_ALLOWED_ROLES = new Set(["adm_mestre", "adm_dorata"])
+const CONTACT_EDIT_ALLOWED_ROLES = new Set(CONTACT_VIEW_ALLOWED_ROLES)
 const CONTACT_FETCH_BATCH_SIZE = 1000
 
 type ContactForeignKeyTable = "proposals" | "tasks" | "obra_cards" | "whatsapp_conversations"
@@ -76,6 +78,21 @@ export type DeleteContactResult = {
   success: boolean
   error?: string
   message?: string
+}
+
+type UpdateContactNameSummary = {
+  indicacoes: number
+  obra_cards: number
+  tasks_client_name: number
+  tasks_titles: number
+  whatsapp_conversations: number
+}
+
+export type UpdateContactNameResult = {
+  success: boolean
+  error?: string
+  message?: string
+  data?: UpdateContactNameSummary
 }
 
 function isAllowedRole(role: string | null | undefined, allowed: Set<string>) {
@@ -194,6 +211,28 @@ function countContactsWithNumbers(contacts: ContactDedupeCandidate[]) {
     )
     return count + (hasAnyNumber ? 1 : 0)
   }, 0)
+}
+
+function buildWorkTaskTitleWithRenamedWork(params: {
+  title: string
+  previousWorkTitles: Set<string>
+  nextWorkTitle: string
+}) {
+  const prefix = "[Obra] "
+  const separator = " - "
+
+  if (!params.title.startsWith(prefix)) return null
+
+  const separatorIndex = params.title.indexOf(separator, prefix.length)
+  if (separatorIndex <= prefix.length) return null
+
+  const currentWorkTitle = params.title.slice(prefix.length, separatorIndex).trim()
+  if (!params.previousWorkTitles.has(currentWorkTitle)) return null
+
+  const suffix = params.title.slice(separatorIndex + separator.length)
+  if (!suffix.trim()) return null
+
+  return `[Obra] ${params.nextWorkTitle} - ${suffix}`
 }
 
 export async function getContactDuplicateOverview(limitGroups = 12): Promise<ContactDuplicateOverviewResult> {
@@ -347,6 +386,256 @@ export async function syncDuplicateContactsByPhoneAction(): Promise<SyncDuplicat
     return {
       success: false,
       error: message,
+    }
+  }
+}
+
+export async function updateContactNameAction(params: {
+  contactId: string
+  fullName: string
+}): Promise<UpdateContactNameResult> {
+  try {
+    const accessResult = await getContactAccessContext()
+    if (!accessResult.success) {
+      return { success: false, error: accessResult.error }
+    }
+
+    if (!isAllowedRole(accessResult.data.role, CONTACT_EDIT_ALLOWED_ROLES)) {
+      return {
+        success: false,
+        error: "Você não tem permissão para editar contatos.",
+      }
+    }
+
+    const normalizedContactId = params.contactId.trim()
+    if (!normalizedContactId) {
+      return {
+        success: false,
+        error: "Contato inválido para atualização.",
+      }
+    }
+
+    const normalizedFullName = normalizeContactNameInput(params.fullName ?? "")
+    if (!normalizedFullName) {
+      return {
+        success: false,
+        error: "Informe um nome válido para o contato.",
+      }
+    }
+
+    const supabaseAdmin = createSupabaseServiceClient()
+    const nowIso = new Date().toISOString()
+
+    const { data: contactData, error: contactError } = await supabaseAdmin
+      .from("contacts")
+      .select("id")
+      .eq("id", normalizedContactId)
+      .maybeSingle()
+
+    if (contactError) {
+      return {
+        success: false,
+        error: contactError.message,
+      }
+    }
+
+    if (!contactData) {
+      return {
+        success: false,
+        error: "Contato não encontrado.",
+      }
+    }
+
+    const contactPatch = buildContactNameUpdatePayload(normalizedFullName)
+    if (!contactPatch.full_name) {
+      return {
+        success: false,
+        error: "Não foi possível interpretar o nome informado.",
+      }
+    }
+
+    const { error: updateContactError } = await supabaseAdmin
+      .from("contacts")
+      .update({
+        ...contactPatch,
+        updated_by: accessResult.data.userId,
+        updated_at: nowIso,
+      })
+      .eq("id", normalizedContactId)
+
+    if (updateContactError) {
+      return {
+        success: false,
+        error: updateContactError.message,
+      }
+    }
+
+    const summary: UpdateContactNameSummary = {
+      indicacoes: 0,
+      obra_cards: 0,
+      tasks_client_name: 0,
+      tasks_titles: 0,
+      whatsapp_conversations: 0,
+    }
+
+    const { data: linkedClientRows, error: linkedClientRowsError } = await supabaseAdmin
+      .from("proposals")
+      .select("client_id")
+      .eq("contact_id", normalizedContactId)
+      .not("client_id", "is", null)
+
+    if (linkedClientRowsError) {
+      return {
+        success: false,
+        error: `Falha ao buscar vínculos do contato: ${linkedClientRowsError.message}`,
+      }
+    }
+
+    const linkedClientIds = Array.from(
+      new Set(
+        (linkedClientRows ?? [])
+          .map((row) => (typeof row.client_id === "string" ? row.client_id : null))
+          .filter((id): id is string => Boolean(id))
+      )
+    )
+
+    if (linkedClientIds.length > 0) {
+      const { data: updatedIndications, error: updateIndicationsError } = await supabaseAdmin
+        .from("indicacoes")
+        .update({
+          nome: normalizedFullName,
+          updated_at: nowIso,
+        })
+        .in("id", linkedClientIds)
+        .select("id")
+
+      if (updateIndicationsError) {
+        return {
+          success: false,
+          error: `Falha ao sincronizar nome em indicações: ${updateIndicationsError.message}`,
+        }
+      }
+
+      summary.indicacoes = (updatedIndications ?? []).length
+    }
+
+    const { data: workRows, error: workRowsError } = await supabaseAdmin
+      .from("obra_cards")
+      .select("id, title")
+      .eq("contact_id", normalizedContactId)
+
+    if (workRowsError) {
+      return {
+        success: false,
+        error: `Falha ao buscar obras vinculadas: ${workRowsError.message}`,
+      }
+    }
+
+    const previousWorkTitles = new Set(
+      (workRows ?? [])
+        .map((row) => (typeof row.title === "string" ? row.title.trim() : ""))
+        .filter(Boolean)
+    )
+
+    if ((workRows ?? []).length > 0) {
+      const { data: updatedWorks, error: updateWorksError } = await supabaseAdmin
+        .from("obra_cards")
+        .update({
+          title: normalizedFullName,
+          updated_at: nowIso,
+        })
+        .eq("contact_id", normalizedContactId)
+        .select("id")
+
+      if (updateWorksError) {
+        return {
+          success: false,
+          error: `Falha ao sincronizar nome em obras: ${updateWorksError.message}`,
+        }
+      }
+
+      summary.obra_cards = (updatedWorks ?? []).length
+    }
+
+    const { data: updatedTasks, error: updateTasksError } = await supabaseAdmin
+      .from("tasks")
+      .update({
+        client_name: normalizedFullName,
+      })
+      .eq("contact_id", normalizedContactId)
+      .select("id, title")
+
+    if (updateTasksError) {
+      return {
+        success: false,
+        error: `Falha ao sincronizar nome em tarefas: ${updateTasksError.message}`,
+      }
+    }
+
+    const taskRows = (updatedTasks ?? []) as Array<{ id?: string; title?: string | null }>
+    summary.tasks_client_name = taskRows.length
+
+    if (previousWorkTitles.size > 0) {
+      for (const task of taskRows) {
+        if (typeof task.id !== "string" || typeof task.title !== "string") continue
+
+        const nextTaskTitle = buildWorkTaskTitleWithRenamedWork({
+          title: task.title,
+          previousWorkTitles,
+          nextWorkTitle: normalizedFullName,
+        })
+
+        if (!nextTaskTitle || nextTaskTitle === task.title) continue
+
+        const { error: updateTaskTitleError } = await supabaseAdmin
+          .from("tasks")
+          .update({ title: nextTaskTitle })
+          .eq("id", task.id)
+
+        if (updateTaskTitleError) {
+          return {
+            success: false,
+            error: `Falha ao atualizar título de tarefa vinculada: ${updateTaskTitleError.message}`,
+          }
+        }
+
+        summary.tasks_titles += 1
+      }
+    }
+
+    const { data: updatedConversations, error: updateConversationsError } = await supabaseAdmin
+      .from("whatsapp_conversations")
+      .update({ customer_name: normalizedFullName })
+      .eq("contact_id", normalizedContactId)
+      .select("id")
+
+    if (updateConversationsError) {
+      return {
+        success: false,
+        error: `Falha ao sincronizar nome no WhatsApp: ${updateConversationsError.message}`,
+      }
+    }
+
+    summary.whatsapp_conversations = (updatedConversations ?? []).length
+
+    revalidatePath("/admin/contatos")
+    revalidatePath("/admin/contatos/[contactId]", "page")
+    revalidatePath("/admin/whatsapp")
+    revalidatePath("/admin/tarefas")
+    revalidatePath("/admin/obras")
+    revalidatePath("/admin/orcamentos")
+    revalidatePath("/admin/crm")
+
+    return {
+      success: true,
+      message:
+        "Nome atualizado e sincronizado com módulos relacionados.",
+      data: summary,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Erro ao atualizar nome do contato.",
     }
   }
 }

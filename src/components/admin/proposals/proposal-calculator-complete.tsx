@@ -30,6 +30,10 @@ import {
     withProposalStakeholderContacts,
     type ProposalStakeholderBillingSource,
 } from "@/lib/proposal-stakeholders"
+import {
+    buildEditProposalClientLinkPatch,
+    validateProposalClientCreation,
+} from "@/lib/proposal-client-binding"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -1248,33 +1252,18 @@ export function ProposalCalculatorComplete({
         const manualFirstName = manualContact.first_name.trim()
         const manualLastName = manualContact.last_name.trim()
         const manualWhatsapp = manualContact.whatsapp.trim()
-        const selectedPhone = selectedContact?.whatsapp || selectedContact?.phone || selectedContact?.mobile || ""
-        const hasIndicacao = Boolean(selectedIndicacaoId)
 
         if (!isEditMode) {
-            if (!hasIndicacao && !selectedContact && !manualFirstName && !manualWhatsapp) {
+            const clientValidationError = validateProposalClientCreation({
+                selectedIndicacaoId,
+                selectedContactId: selectedContact?.id ?? null,
+                manualFirstName,
+            })
+            if (clientValidationError) {
                 showToast({
                     variant: "error",
-                    title: "Cliente obrigatório",
-                    description: "Selecione um contato ou informe nome e WhatsApp para criar um cliente.",
-                })
-                return
-            }
-
-            if (!hasIndicacao && !selectedContact && (!manualFirstName || !manualWhatsapp)) {
-                showToast({
-                    variant: "error",
-                    title: "Dados do cliente incompletos",
-                    description: "Informe pelo menos nome e WhatsApp para criar o cliente.",
-                })
-                return
-            }
-
-            if (!hasIndicacao && selectedContact && !selectedPhone && !manualWhatsapp) {
-                showToast({
-                    variant: "error",
-                    title: "Contato sem WhatsApp",
-                    description: "O contato selecionado não possui WhatsApp/telefone. Preencha manualmente.",
+                    title: clientValidationError.title,
+                    description: clientValidationError.description,
                 })
                 return
             }
@@ -1449,6 +1438,14 @@ export function ProposalCalculatorComplete({
                     billingSource: workBillingContactSource,
                 }
             )
+            const editClientLinkPatch = isEditMode
+                ? buildEditProposalClientLinkPatch({
+                    initialClientId: initialProposal?.client_id ?? null,
+                    initialContactId: initialProposal?.contact_id ?? initialProposal?.contact?.id ?? null,
+                    selectedIndicacaoId,
+                    selectedContactId: selectedContact?.id ?? null,
+                })
+                : {}
 
             const proposalData: ProposalInsert & { source_mode: "complete" } = {
                 status: isStatusLocked ? (initialProposal?.status ?? proposalStatus) : proposalStatus,
@@ -1459,6 +1456,7 @@ export function ProposalCalculatorComplete({
                 total_power: unifiedTotalPower,
                 calculation: calculationWithStakeholders as ProposalInsert["calculation"],
                 source_mode: "complete",
+                ...editClientLinkPatch,
                 ...(sellerIdForSave ? { seller_id: sellerIdForSave } : {}),
             }
 
@@ -1541,7 +1539,7 @@ export function ProposalCalculatorComplete({
                         {isEditMode ? (
                             <div className="space-y-2 rounded-md border p-3 text-sm">
                                 <p>
-                                    <span className="font-medium">Cliente:</span>{" "}
+                                    <span className="font-medium">Cliente atual:</span>{" "}
                                     {initialProposal?.client_name || initialProposal?.contact_name || "Não informado"}
                                 </p>
                                 <p>
@@ -1549,11 +1547,10 @@ export function ProposalCalculatorComplete({
                                     {toStatusLabel(initialProposal?.status)}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                    Para alterar vínculo de cliente/contato, crie um novo orçamento.
+                                    Você pode alterar ou limpar o vínculo deste orçamento abaixo.
                                 </p>
                             </div>
-                        ) : (
-                            <>
+                        ) : null}
                         <div className="space-y-2">
                             <Label>Buscar cliente (contatos ou indicações)</Label>
                             <div className="flex items-center gap-2">
@@ -1588,50 +1585,54 @@ export function ProposalCalculatorComplete({
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Selecione um contato/indicação existente ou preencha abaixo para criar um novo.
+                                {isEditMode
+                                    ? "Selecione uma indicação/contato para atualizar o vínculo deste orçamento."
+                                    : "Selecione um contato/indicação ou informe somente o nome para criar o cliente."}
                             </p>
                         </div>
 
-                        <Separator />
+                        {!isEditMode ? (
+                            <>
+                                <Separator />
 
-                        <div className="grid gap-4 md:grid-cols-3">
-                            <div className="space-y-2">
-                                <Label>Nome</Label>
-                                <Input
-                                    type="text"
-                                    value={manualContact.first_name}
-                                    onChange={(e) => updateManualContact({ first_name: e.target.value })}
-                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Sobrenome</Label>
-                                <Input
-                                    type="text"
-                                    value={manualContact.last_name}
-                                    onChange={(e) => updateManualContact({ last_name: e.target.value })}
-                                    disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>WhatsApp</Label>
-                                <Input
-                                    type="text"
-                                    value={manualContact.whatsapp}
-                                    onChange={(e) => updateManualContact({ whatsapp: e.target.value })}
-                                    disabled={Boolean(selectedIndicacaoId) || isContactPhoneLocked}
-                                />
-                            </div>
-                        </div>
-                        {(selectedContact || selectedIndicacaoId) && (
-                            <p className="text-xs text-muted-foreground">
-                                {selectedContact
-                                    ? "Contato selecionado dos importados."
-                                    : "Indicação selecionada no CRM Dorata."}
-                            </p>
-                        )}
+                                <div className="grid gap-4 md:grid-cols-3">
+                                    <div className="space-y-2">
+                                        <Label>Nome</Label>
+                                        <Input
+                                            type="text"
+                                            value={manualContact.first_name}
+                                            onChange={(e) => updateManualContact({ first_name: e.target.value })}
+                                            disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Sobrenome</Label>
+                                        <Input
+                                            type="text"
+                                            value={manualContact.last_name}
+                                            onChange={(e) => updateManualContact({ last_name: e.target.value })}
+                                            disabled={Boolean(selectedContact) || Boolean(selectedIndicacaoId)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>WhatsApp</Label>
+                                        <Input
+                                            type="text"
+                                            value={manualContact.whatsapp}
+                                            onChange={(e) => updateManualContact({ whatsapp: e.target.value })}
+                                            disabled={Boolean(selectedIndicacaoId) || isContactPhoneLocked}
+                                        />
+                                    </div>
+                                </div>
+                                {(selectedContact || selectedIndicacaoId) && (
+                                    <p className="text-xs text-muted-foreground">
+                                        {selectedContact
+                                            ? "Contato selecionado dos importados."
+                                            : "Indicação selecionada no CRM Dorata."}
+                                    </p>
+                                )}
                             </>
-                        )}
+                        ) : null}
                     </CardContent>
                 </Card>
 

@@ -6,6 +6,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { ContactNameEditor } from "@/components/admin/contacts/contact-name-editor"
 import { DeleteContactButton } from "@/components/admin/contacts/delete-contact-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -234,6 +235,7 @@ export default async function ContactDetailsPage({
     const profile = await getProfile(supabase, user.id)
     const role = profile?.role
     const canDeleteContacts = role === "adm_mestre" || role === "adm_dorata"
+    const canEditContacts = Boolean(role && allowedRoles.includes(role))
 
     if (!role || !allowedRoles.includes(role)) {
         return (
@@ -537,6 +539,12 @@ export default async function ContactDetailsPage({
                 <div className="space-y-1">
                     <h1 className="text-3xl font-bold">Contato 360</h1>
                     <p className="text-muted-foreground">{contactName}</p>
+                    {canEditContacts ? (
+                        <ContactNameEditor
+                            contactId={contact.id}
+                            initialName={contactName}
+                        />
+                    ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                     <Button asChild variant="outline">

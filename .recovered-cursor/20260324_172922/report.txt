@@ -1,0 +1,10 @@
+-3048aa57	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/088_work_cards_service_role_grants.sql	0
+-44295c53	written	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/.env.local	300
+-4dbddbef	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/scripts/setup-zapi-webhook.sh	0
+-4df20b97	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/098_task_checklist_responsible_user.sql	0
+-5bc607b5	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/087_work_cards_core.sql	0
+5cb48a71	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/docs/comissao-fechamento-financeiro.md	0
+62fe0b1a	skip_outside_project	/Users/guilhermedamasceno/01	1
+6a1e5b71	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/080_financial_commission_closures.sql	0
+6b3d4ab0	empty_body	/Users/guilhermedamasceno/01 DEV/rental-v2-clean/supabase/migrations/092_sales_ai_knowledge_base.sql	0
+NOTE	.env.local_restored_from	.env.local.cursorbak_20260324_172922
