@@ -30,6 +30,17 @@ function parseMissingColumnError(message?: string | null) {
 
 type JsonObject = Record<string, unknown>
 
+type ProposalContactRow = {
+    id?: string
+    full_name?: string | null
+    first_name?: string | null
+    last_name?: string | null
+    email?: string | null
+    whatsapp?: string | null
+    phone?: string | null
+    mobile?: string | null
+}
+
 type ProposalQueryRow = {
     id: string
     created_at: string
@@ -47,6 +58,7 @@ type ProposalQueryRow = {
         | { id?: string; nome?: string | null }
         | Array<{ id?: string; nome?: string | null }>
         | null
+    contato?: ProposalContactRow | ProposalContactRow[] | null
     [key: string]: unknown
 }
 
@@ -74,6 +86,31 @@ function getSourceModeLabel(mode: "simple" | "complete" | "legacy") {
     if (mode === "simple") return "Simples"
     if (mode === "complete") return "Completo"
     return "Legado"
+}
+
+function getContactDisplayName(contato: ProposalContactRow | null | undefined) {
+    if (!contato) return null
+    const fullName = (contato.full_name ?? "").trim()
+    if (fullName) return fullName
+
+    const firstName = (contato.first_name ?? "").trim()
+    const lastName = (contato.last_name ?? "").trim()
+    const byParts = [firstName, lastName].filter(Boolean).join(" ").trim()
+    if (byParts) return byParts
+
+    const email = (contato.email ?? "").trim()
+    if (email) return email
+
+    const whatsapp = (contato.whatsapp ?? "").trim()
+    if (whatsapp) return whatsapp
+
+    const phone = (contato.phone ?? "").trim()
+    if (phone) return phone
+
+    const mobile = (contato.mobile ?? "").trim()
+    if (mobile) return mobile
+
+    return null
 }
 
 interface ProposalsPageProps {
@@ -150,7 +187,8 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                 .select(`
                     *,
                     seller:users(name, email),
-                    cliente:indicacoes!proposals_client_id_fkey(id, nome)
+                    cliente:indicacoes!proposals_client_id_fkey(id, nome),
+                    contato:contacts!proposals_contact_id_fkey(id, full_name, first_name, last_name, email, whatsapp, phone, mobile)
                 `)
                 .order(orderColumn, { ascending: false })
                 .order('created_at', { ascending: false })
@@ -184,11 +222,18 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
     const normalizedProposals = proposals.map((proposal) => {
         const seller = Array.isArray(proposal.seller) ? (proposal.seller[0] ?? null) : proposal.seller
         const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
+        const contato = Array.isArray(proposal.contato) ? (proposal.contato[0] ?? null) : proposal.contato
+        const clientName = (cliente?.nome ?? "").trim()
+        const contactName = getContactDisplayName(contato)
+        const displayClientName = clientName || contactName || null
 
         return {
             ...proposal,
             seller,
             cliente,
+            contato,
+            contact_name: contactName,
+            client_display_name: displayClientName,
             estimated_kwh: getEstimatedKwh(proposal.calculation),
             source_mode: normalizeSourceMode(proposal.source_mode),
         }
@@ -247,7 +292,13 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                     <TableCell className="hidden lg:table-cell text-muted-foreground">
                                         {format(new Date(proposal.updated_at ?? proposal.created_at), 'dd/MM/yyyy', { locale: ptBR })}
                                     </TableCell>
-                                    <TableCell className="max-w-[180px] truncate font-medium">{proposal.cliente?.nome || '-'}</TableCell>
+                                    <TableCell className="max-w-[220px] truncate font-medium">
+                                        {proposal.cliente?.nome
+                                            ? proposal.cliente.nome
+                                            : proposal.contact_name
+                                                ? `Contato: ${proposal.contact_name}`
+                                                : "-"}
+                                    </TableCell>
                                     <TableCell className="hidden xl:table-cell max-w-[160px] truncate">
                                         {proposal.seller?.name || proposal.seller?.email || 'Sistema'}
                                     </TableCell>
@@ -275,11 +326,11 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                                         <ProposalRowActions
                                             proposalId={proposal.id}
                                             sourceMode={proposal.source_mode}
-                                            clientName={proposal.cliente?.nome ?? null}
+                                            clientName={proposal.client_display_name}
                                             canDelete={canDeleteProposals}
                                             previewData={{
                                                 id: proposal.id,
-                                                clientName: proposal.cliente?.nome ?? null,
+                                                clientName: proposal.client_display_name,
                                                 sellerName: proposal.seller?.name ?? proposal.seller?.email ?? null,
                                                 status: proposal.status ?? null,
                                                 totalValue: Number(proposal.total_value ?? 0),
