@@ -525,7 +525,7 @@ export function NotificationsCenter({
             </TabsList>
 
             <TabsContent value="inbox" className="m-0">
-                <div className="grid min-h-[70vh] grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
+                <div className="grid min-h-[70vh] grid-cols-1 gap-4 lg:grid-cols-[minmax(420px,30%)_minmax(0,1fr)]">
                     <section className="rounded-xl border bg-white">
                         <div className="space-y-3 border-b px-4 py-3">
                             <div className="flex items-center justify-between gap-3">
