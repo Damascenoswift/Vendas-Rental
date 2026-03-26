@@ -135,6 +135,7 @@ export interface WorkComment {
     id: string
     obra_id: string
     user_id: string | null
+    parent_comment_id: string | null
     comment_type: WorkCommentType
     phase: WorkPhase | null
     content: string
@@ -319,6 +320,11 @@ function isMissingWorkCommentAttachmentsColumn(message?: string | null) {
     return missing?.table === "obra_comments" && missing.column === "attachments"
 }
 
+function isMissingWorkCommentParentColumn(message?: string | null) {
+    const missing = parseMissingColumnError(message)
+    return missing?.table === "obra_comments" && missing.column === "parent_comment_id"
+}
+
 function normalizeWorkCardsError(message?: string | null) {
     const raw = (message ?? "").trim()
     if (!raw) return "Falha ao processar card de obra."
@@ -365,6 +371,13 @@ function normalizeWorkCardsError(message?: string | null) {
         normalized.includes("attachments")
     ) {
         return "Banco desatualizado: execute a migração 094_work_comments_attachments.sql."
+    }
+
+    if (
+        normalized.includes("obra_comments") &&
+        normalized.includes("parent_comment_id")
+    ) {
+        return "Banco desatualizado: execute a migração 117_work_comments_parent_reply.sql."
     }
 
     if (
@@ -2995,6 +3008,7 @@ type WorkCommentRow = {
     id: string
     obra_id: string
     user_id: string | null
+    parent_comment_id?: string | null
     comment_type: WorkCommentType
     phase: WorkPhase | null
     content: string
@@ -3065,6 +3079,7 @@ async function mapWorkCommentRow(
         id: row.id,
         obra_id: row.obra_id,
         user_id: row.user_id ?? null,
+        parent_comment_id: row.parent_comment_id ?? null,
         comment_type: row.comment_type,
         phase: row.phase ?? null,
         content: row.content,
@@ -3084,61 +3099,67 @@ export async function getWorkComments(workId: string) {
     if (!user || !role) return [] as WorkComment[]
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const selectWithAttachments = `
-            id,
-            obra_id,
-            user_id,
-            comment_type,
-            phase,
-            content,
-            attachments,
-            created_at,
-            user:users(name, email)
-        `
-    const selectWithoutAttachments = `
-            id,
-            obra_id,
-            user_id,
-            comment_type,
-            phase,
-            content,
-            created_at,
-            user:users(name, email)
-        `
+    let includeAttachments = true
+    let includeParentCommentId = true
+    let rows: WorkCommentRow[] = []
+    let queryError: { message?: string | null } | null = null
 
-    const { data, error: initialError } = await supabaseAdmin
-        .from("obra_comments" as string)
-        .select(selectWithAttachments)
-        .eq("obra_id", workId)
-        .order("created_at", { ascending: false })
+    const buildSelect = (params: { includeAttachments: boolean; includeParentCommentId: boolean }) => {
+        const columns = [
+            "id",
+            "obra_id",
+            "user_id",
+            "comment_type",
+            "phase",
+            "content",
+            "created_at",
+            "user:users(name, email)",
+        ]
+        if (params.includeParentCommentId) columns.splice(3, 0, "parent_comment_id")
+        if (params.includeAttachments) columns.splice(7, 0, "attachments")
+        return columns.join(", ")
+    }
 
-    let error = initialError
-    let rows: WorkCommentRow[] = (data ?? []) as WorkCommentRow[]
-
-    if (error && isMissingWorkCommentAttachmentsColumn(error.message)) {
-        const fallbackResult = await supabaseAdmin
+    while (true) {
+        const queryResult = await supabaseAdmin
             .from("obra_comments" as string)
-            .select(selectWithoutAttachments)
+            .select(buildSelect({ includeAttachments, includeParentCommentId }))
             .eq("obra_id", workId)
             .order("created_at", { ascending: false })
 
-        error = fallbackResult.error
-        const fallbackRows = (fallbackResult.data ?? []) as Array<
-            Omit<WorkCommentRow, "attachments"> & { attachments?: unknown }
-        >
-        rows = fallbackRows.map((row) => ({
-            ...row,
-            attachments: row.attachments ?? [],
-        }))
+        const error = queryResult.error
+        if (!error) {
+            const queryRows = (queryResult.data ?? []) as unknown as Array<
+                Omit<WorkCommentRow, "attachments" | "parent_comment_id"> & {
+                    attachments?: unknown
+                    parent_comment_id?: string | null
+                }
+            >
+            rows = queryRows.map((row) => ({
+                ...row,
+                attachments: row.attachments ?? [],
+                parent_comment_id: row.parent_comment_id ?? null,
+            }))
+            break
+        }
+
+        if (includeAttachments && isMissingWorkCommentAttachmentsColumn(error.message)) {
+            includeAttachments = false
+            continue
+        }
+
+        if (includeParentCommentId && isMissingWorkCommentParentColumn(error.message)) {
+            includeParentCommentId = false
+            continue
+        }
+
+        queryError = error
+        break
     }
 
-    if (error) {
-        console.error("Erro ao buscar comentários da obra:", error)
+    if (queryError) {
+        console.error("Erro ao buscar comentários da obra:", queryError)
         return [] as WorkComment[]
-    }
-
-    if (!rows.length) {
-        rows = (data ?? []) as WorkCommentRow[]
     }
     const mapped = await Promise.all(rows.map((row) => mapWorkCommentRow(supabaseAdmin, row)))
     return mapped
@@ -3149,6 +3170,7 @@ export async function addWorkComment(input: {
     content: string
     commentType?: WorkCommentType
     phase?: WorkPhase | null
+    parentCommentId?: string | null
     attachments?: Array<{
         path: string
         name: string
@@ -3163,70 +3185,93 @@ export async function addWorkComment(input: {
     if (!content) return { error: "Comentário obrigatório." }
 
     const commentType = input.commentType ?? "GERAL"
+    const parentCommentId = input.parentCommentId?.trim() || null
     const attachments = normalizeStoredWorkCommentAttachments(input.attachments ?? [])
 
     const supabaseAdmin = createSupabaseServiceClient()
-    const insertPayload = {
+    const insertPayload: Record<string, unknown> = {
         obra_id: input.workId,
         user_id: user.id,
         comment_type: commentType,
         phase: input.phase ?? null,
         content,
     }
-    const selectWithAttachments = `
-            id,
-            obra_id,
-            user_id,
-            comment_type,
-            phase,
-            content,
-            attachments,
-            created_at,
-            user:users(name, email)
-        `
-    const selectWithoutAttachments = `
-            id,
-            obra_id,
-            user_id,
-            comment_type,
-            phase,
-            content,
-            created_at,
-            user:users(name, email)
-        `
 
-    let data: WorkCommentRow | null = null
-    let error: { message?: string | null } | null = null
-
-    if (attachments.length > 0) {
-        const insertResult = await supabaseAdmin
+    if (parentCommentId) {
+        const { data: parentComment, error: parentCommentError } = await supabaseAdmin
             .from("obra_comments" as string)
-            .insert({
-                ...insertPayload,
-                attachments,
-            })
-            .select(selectWithAttachments)
-            .single()
+            .select("id")
+            .eq("id", parentCommentId)
+            .eq("obra_id", input.workId)
+            .maybeSingle()
 
-        data = (insertResult.data as WorkCommentRow | null) ?? null
-        error = insertResult.error
-
-        if (error && isMissingWorkCommentAttachmentsColumn(error.message)) {
-            return { error: normalizeWorkCardsError(error.message) }
+        if (parentCommentError) {
+            return { error: normalizeWorkCardsError(parentCommentError.message) }
         }
-    } else {
-        const insertResult = await supabaseAdmin
-            .from("obra_comments" as string)
-            .insert(insertPayload)
-            .select(selectWithoutAttachments)
-            .single()
-
-        data = (insertResult.data as WorkCommentRow | null) ?? null
-        error = insertResult.error
+        if (!parentComment) {
+            return { error: "Comentário original não encontrado para resposta." }
+        }
     }
 
-    if (error || !data) {
-        return { error: normalizeWorkCardsError(error?.message ?? "Falha ao criar comentário.") }
+    const buildSelect = (params: { includeAttachments: boolean; includeParentCommentId: boolean }) => {
+        const columns = [
+            "id",
+            "obra_id",
+            "user_id",
+            "comment_type",
+            "phase",
+            "content",
+            "created_at",
+            "user:users(name, email)",
+        ]
+        if (params.includeParentCommentId) columns.splice(3, 0, "parent_comment_id")
+        if (params.includeAttachments) columns.splice(7, 0, "attachments")
+        return columns.join(", ")
+    }
+
+    const includeAttachments = attachments.length > 0
+    let includeParentCommentId = true
+    let data: WorkCommentRow | null = null
+    let insertError: { message?: string | null } | null = null
+
+    while (true) {
+        const payload: Record<string, unknown> = { ...insertPayload }
+        if (includeAttachments) {
+            payload.attachments = attachments
+        }
+        if (includeParentCommentId && parentCommentId) {
+            payload.parent_comment_id = parentCommentId
+        }
+
+        const insertResult = await supabaseAdmin
+            .from("obra_comments" as string)
+            .insert(payload)
+            .select(buildSelect({ includeAttachments, includeParentCommentId }))
+            .single()
+
+        insertError = insertResult.error
+        if (!insertError && insertResult.data) {
+            data = insertResult.data as unknown as WorkCommentRow
+            break
+        }
+
+        if (insertError && includeAttachments && isMissingWorkCommentAttachmentsColumn(insertError.message)) {
+            return { error: normalizeWorkCardsError(insertError.message) }
+        }
+
+        if (insertError && includeParentCommentId && isMissingWorkCommentParentColumn(insertError.message)) {
+            if (parentCommentId) {
+                return { error: normalizeWorkCardsError(insertError.message) }
+            }
+            includeParentCommentId = false
+            continue
+        }
+
+        break
+    }
+
+    if (insertError || !data) {
+        return { error: normalizeWorkCardsError(insertError?.message ?? "Falha ao criar comentário.") }
     }
 
     if (commentType === "ENERGISA_RESPOSTA") {

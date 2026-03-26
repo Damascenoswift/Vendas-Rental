@@ -801,6 +801,7 @@ export function WorkDetailsDialog({
     const [newExecutionResponsibleId, setNewExecutionResponsibleId] = useState("")
     const [newEnergisaComment, setNewEnergisaComment] = useState("")
     const [newGeneralComment, setNewGeneralComment] = useState("")
+    const [replyTargetCommentId, setReplyTargetCommentId] = useState<string | null>(null)
     const [newExpenseDescription, setNewExpenseDescription] = useState("")
     const [newExpenseAmount, setNewExpenseAmount] = useState("")
     const [newExpenseFile, setNewExpenseFile] = useState<File | null>(null)
@@ -809,6 +810,7 @@ export function WorkDetailsDialog({
     const [uploadType, setUploadType] = useState<WorkImageType>("ANTES")
     const [uploadCaption, setUploadCaption] = useState("")
     const [uploadFile, setUploadFile] = useState<File | null>(null)
+    const generalCommentInputRef = useRef<HTMLTextAreaElement>(null)
     const commentAttachmentInputRef = useRef<HTMLInputElement>(null)
     const expenseAttachmentInputRef = useRef<HTMLInputElement>(null)
 
@@ -993,6 +995,43 @@ export function WorkDetailsDialog({
         () => comments.filter((item) => item.comment_type === "GERAL"),
         [comments]
     )
+    const generalCommentThreads = useMemo(() => {
+        const byId = new Map<string, WorkComment>()
+        generalComments.forEach((comment) => {
+            byId.set(comment.id, comment)
+        })
+
+        const topLevel: WorkComment[] = []
+        const repliesByParent = new Map<string, WorkComment[]>()
+
+        generalComments.forEach((comment) => {
+            const parentId = comment.parent_comment_id
+            if (parentId && byId.has(parentId)) {
+                const current = repliesByParent.get(parentId) ?? []
+                current.push(comment)
+                repliesByParent.set(parentId, current)
+                return
+            }
+            topLevel.push(comment)
+        })
+
+        const sortByDateAsc = (left: WorkComment, right: WorkComment) =>
+            new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+
+        const sortByDateDesc = (left: WorkComment, right: WorkComment) =>
+            new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+
+        topLevel.sort(sortByDateDesc)
+
+        return topLevel.map((comment) => ({
+            comment,
+            replies: (repliesByParent.get(comment.id) ?? []).sort(sortByDateAsc),
+        }))
+    }, [generalComments])
+    const replyTargetComment = useMemo(
+        () => generalComments.find((comment) => comment.id === replyTargetCommentId) ?? null,
+        [generalComments, replyTargetCommentId]
+    )
 
     const responsibleUserById = useMemo(
         () => new Map(responsibleUsers.map((user) => [user.id, user] as const)),
@@ -1037,6 +1076,12 @@ export function WorkDetailsDialog({
         if (!open || !workId) return
         void loadData()
     }, [open, workId, loadData])
+
+    useEffect(() => {
+        if (!replyTargetCommentId) return
+        if (replyTargetComment) return
+        setReplyTargetCommentId(null)
+    }, [replyTargetComment, replyTargetCommentId])
 
     async function handleReleaseProject() {
         if (!workId) return
@@ -1345,6 +1390,26 @@ export function WorkDetailsDialog({
         setCommentAttachmentFiles(Array.from(event.target.files ?? []))
     }
 
+    function getCommentAuthorLabel(comment: WorkComment) {
+        return comment.user?.name || comment.user?.email || "Usuário interno"
+    }
+
+    function getCommentPreview(comment: WorkComment) {
+        const normalized = comment.content.replace(/\s+/g, " ").trim()
+        if (!normalized) return "Sem conteúdo"
+        if (normalized.length <= 120) return normalized
+        return `${normalized.slice(0, 120)}...`
+    }
+
+    function handleStartReply(comment: WorkComment) {
+        setReplyTargetCommentId(comment.id)
+        generalCommentInputRef.current?.focus()
+    }
+
+    function clearReplyTarget() {
+        setReplyTargetCommentId(null)
+    }
+
     async function handleAddGeneralComment() {
         if (!workId) return
         if (!newGeneralComment.trim()) return
@@ -1386,6 +1451,7 @@ export function WorkDetailsDialog({
                 content: newGeneralComment,
                 commentType: "GERAL",
                 phase: work?.projeto_liberado_at ? "EXECUCAO" : "PROJETO",
+                parentCommentId: replyTargetCommentId,
                 attachments: uploadedAttachments,
             })
 
@@ -1395,6 +1461,7 @@ export function WorkDetailsDialog({
             }
 
             setNewGeneralComment("")
+            setReplyTargetCommentId(null)
             setCommentAttachmentFiles([])
             if (commentAttachmentInputRef.current) {
                 commentAttachmentInputRef.current.value = ""
@@ -2180,10 +2247,35 @@ export function WorkDetailsDialog({
 
                         <div className="space-y-3 rounded-md border p-4">
                             <p className="text-sm font-semibold">Comentários da obra</p>
+                            {replyTargetComment ? (
+                                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
+                                    <div className="space-y-0.5">
+                                        <p className="font-semibold text-amber-900">
+                                            Respondendo {getCommentAuthorLabel(replyTargetComment)}
+                                        </p>
+                                        <p className="text-amber-800">{getCommentPreview(replyTargetComment)}</p>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-amber-900 hover:text-amber-900"
+                                        onClick={clearReplyTarget}
+                                        disabled={isSaving}
+                                    >
+                                        Cancelar resposta
+                                    </Button>
+                                </div>
+                            ) : null}
                             <Textarea
+                                ref={generalCommentInputRef}
                                 value={newGeneralComment}
                                 onChange={(event) => setNewGeneralComment(event.target.value)}
-                                placeholder="Escreva um comentário técnico, atualização de andamento ou observação da obra."
+                                placeholder={
+                                    replyTargetComment
+                                        ? "Escreva sua resposta para este comentário."
+                                        : "Escreva um comentário técnico, atualização de andamento ou observação da obra."
+                                }
                             />
                             <div className="grid gap-2 md:grid-cols-[1fr_auto]">
                                 <Input
@@ -2198,7 +2290,7 @@ export function WorkDetailsDialog({
                                     onClick={handleAddGeneralComment}
                                     disabled={isSaving || !newGeneralComment.trim()}
                                 >
-                                    Salvar comentário
+                                    {replyTargetComment ? "Salvar resposta" : "Salvar comentário"}
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground">
@@ -2213,8 +2305,8 @@ export function WorkDetailsDialog({
                                 </div>
                             ) : null}
                             <div className="max-h-64 space-y-2 overflow-auto rounded-md border p-2">
-                                {generalComments.map((comment) => {
-                                    const author = comment.user?.name || comment.user?.email || "Usuário interno"
+                                {generalCommentThreads.map(({ comment, replies }) => {
+                                    const author = getCommentAuthorLabel(comment)
                                     const isOwnComment = Boolean(comment.user_id && comment.user_id === currentUserId)
                                     return (
                                         <div key={comment.id} className="rounded-md bg-slate-50 p-2">
@@ -2222,19 +2314,32 @@ export function WorkDetailsDialog({
                                                 <p className="text-xs text-muted-foreground">
                                                     {author} • {formatDateTime(comment.created_at)}
                                                 </p>
-                                                {isOwnComment ? (
+                                                <div className="flex items-center gap-1">
                                                     <Button
                                                         type="button"
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                                                        onClick={() => handleDeleteComment(comment)}
+                                                        className="h-7 px-2 text-xs"
+                                                        onClick={() => handleStartReply(comment)}
                                                         disabled={isSaving}
                                                     >
-                                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
-                                                        Excluir
+                                                        <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                                                        Responder
                                                     </Button>
-                                                ) : null}
+                                                    {isOwnComment ? (
+                                                        <Button
+                                                            type="button"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                                                            onClick={() => handleDeleteComment(comment)}
+                                                            disabled={isSaving}
+                                                        >
+                                                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                            Excluir
+                                                        </Button>
+                                                    ) : null}
+                                                </div>
                                             </div>
                                             <p className="mt-1 text-sm whitespace-pre-wrap">{comment.content}</p>
                                             {comment.attachments.length > 0 ? (
@@ -2267,10 +2372,85 @@ export function WorkDetailsDialog({
                                                     ))}
                                                 </div>
                                             ) : null}
+
+                                            {replies.length > 0 ? (
+                                                <div className="mt-3 space-y-2 border-l-2 border-slate-200 pl-3">
+                                                    {replies.map((reply) => {
+                                                        const replyAuthor = getCommentAuthorLabel(reply)
+                                                        const isOwnReply = Boolean(reply.user_id && reply.user_id === currentUserId)
+                                                        return (
+                                                            <div key={reply.id} className="rounded-md border bg-white p-2">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <p className="text-xs text-muted-foreground">
+                                                                        {replyAuthor} • {formatDateTime(reply.created_at)}
+                                                                    </p>
+                                                                    <div className="flex items-center gap-1">
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-7 px-2 text-xs"
+                                                                            onClick={() => handleStartReply(reply)}
+                                                                            disabled={isSaving}
+                                                                        >
+                                                                            <MessageCircle className="mr-1 h-3.5 w-3.5" />
+                                                                            Responder
+                                                                        </Button>
+                                                                        {isOwnReply ? (
+                                                                            <Button
+                                                                                type="button"
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                                                                                onClick={() => handleDeleteComment(reply)}
+                                                                                disabled={isSaving}
+                                                                            >
+                                                                                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                                                                Excluir
+                                                                            </Button>
+                                                                        ) : null}
+                                                                    </div>
+                                                                </div>
+                                                                <p className="mt-1 text-sm whitespace-pre-wrap">{reply.content}</p>
+                                                                {reply.attachments.length > 0 ? (
+                                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                                        {reply.attachments.map((attachment) => (
+                                                                            attachment.signed_url ? (
+                                                                                <a
+                                                                                    key={attachment.path}
+                                                                                    href={attachment.signed_url}
+                                                                                    target="_blank"
+                                                                                    rel="noreferrer"
+                                                                                    className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+                                                                                >
+                                                                                    <Paperclip className="h-3.5 w-3.5" />
+                                                                                    <span>{attachment.name}</span>
+                                                                                    <span className="text-muted-foreground">
+                                                                                        ({formatAttachmentSize(attachment.size)})
+                                                                                    </span>
+                                                                                </a>
+                                                                            ) : (
+                                                                                <span
+                                                                                    key={attachment.path}
+                                                                                    className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-1 text-xs text-muted-foreground"
+                                                                                >
+                                                                                    <Paperclip className="h-3.5 w-3.5" />
+                                                                                    <span>{attachment.name}</span>
+                                                                                    <span>({formatAttachmentSize(attachment.size)})</span>
+                                                                                </span>
+                                                                            )
+                                                                        ))}
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            ) : null}
                                         </div>
                                     )
                                 })}
-                                {generalComments.length === 0 ? (
+                                {generalCommentThreads.length === 0 ? (
                                     <p className="text-xs text-muted-foreground">Nenhum comentário registrado.</p>
                                 ) : null}
                             </div>
