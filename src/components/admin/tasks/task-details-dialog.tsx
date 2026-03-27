@@ -314,6 +314,7 @@ export function TaskDetailsDialog({
     const [isSavingBlocker, setIsSavingBlocker] = useState(false)
     const [resolvingBlockerId, setResolvingBlockerId] = useState<string | null>(null)
     const [resolutionNotesByBlockerId, setResolutionNotesByBlockerId] = useState<Record<string, string>>({})
+    const [resumeToOriginalByBlockerId, setResumeToOriginalByBlockerId] = useState<Record<string, boolean>>({})
     const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -499,6 +500,7 @@ export function TaskDetailsDialog({
         setNewBlockerReason("")
         setNewBlockerExpectedAt("")
         setResolutionNotesByBlockerId({})
+        setResumeToOriginalByBlockerId({})
         if (taskDueDate) {
             const parsed = new Date(taskDueDate)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
@@ -1093,10 +1095,12 @@ export function TaskDetailsDialog({
         if (!task) return
         setResolvingBlockerId(blocker.id)
         const resolutionNote = resolutionNotesByBlockerId[blocker.id]?.trim() || null
+        const resumeToOriginalAssignee = resumeToOriginalByBlockerId[blocker.id] === true
 
         const result = await resolveTaskBlocker({
             blockerId: blocker.id,
             resolutionNote,
+            resumeToOriginalAssignee,
         })
 
         if (result?.error) {
@@ -1111,7 +1115,31 @@ export function TaskDetailsDialog({
             delete next[blocker.id]
             return next
         })
-        showToast({ title: "Bloqueio resolvido", variant: "success" })
+        setResumeToOriginalByBlockerId((prev) => {
+            const next = { ...prev }
+            delete next[blocker.id]
+            return next
+        })
+
+        if (result?.resumedAssignee && result?.originalAssigneeId) {
+            const resumedUser = users.find((user) => user.id === result.originalAssigneeId)
+            const assigneeName = resumedUser?.name || resumedUser?.email || usersById.get(result.originalAssigneeId) || "responsável original"
+            onTaskUpdated?.(task.id, {
+                assignee_id: result.originalAssigneeId,
+                assignee: resumedUser
+                    ? { name: resumedUser.name, email: resumedUser.email ?? "" }
+                    : { name: assigneeName, email: "" },
+            })
+            showToast({
+                title: "Bloqueio resolvido",
+                description: `Responsabilidade retomada para ${assigneeName}.`,
+                variant: "success",
+            })
+            setEditAssigneeId(result.originalAssigneeId)
+            setTransferTargetUserId(result.originalAssigneeId)
+        } else {
+            showToast({ title: "Bloqueio resolvido", variant: "success" })
+        }
         setResolvingBlockerId(null)
     }
 
@@ -1907,6 +1935,21 @@ export function TaskDetailsDialog({
                                                 <p className="text-xs"><span className="font-medium">Dependência:</span> {ownerLabel}</p>
                                                 <p className="text-xs"><span className="font-medium">Motivo:</span> {blocker.reason}</p>
                                                 <p className="text-xs"><span className="font-medium">Previsão:</span> {formatDateTime(blocker.expected_unblock_at)}</p>
+                                                {blocker.original_assignee_id ? (
+                                                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                        <Checkbox
+                                                            checked={resumeToOriginalByBlockerId[blocker.id] === true}
+                                                            onChange={(event) =>
+                                                                setResumeToOriginalByBlockerId((prev) => ({
+                                                                    ...prev,
+                                                                    [blocker.id]: event.currentTarget.checked,
+                                                                }))
+                                                            }
+                                                        />
+                                                        Retomar para responsável original ao resolver
+                                                        ({usersById.get(blocker.original_assignee_id) ?? "usuário original"})
+                                                    </label>
+                                                ) : null}
                                                 <Textarea
                                                     rows={2}
                                                     placeholder="Nota de resolução (opcional)"

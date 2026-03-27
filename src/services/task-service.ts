@@ -352,6 +352,7 @@ export interface TaskBlocker {
     task_id: string
     status: TaskBlockerStatus
     owner_type: TaskBlockerOwnerType
+    original_assignee_id: string | null
     owner_user_id: string | null
     owner_department: Department | null
     reason: string
@@ -1725,6 +1726,7 @@ type TaskBlockerRow = {
     task_id: string
     status: string
     owner_type: string
+    original_assignee_id: string | null
     owner_user_id: string | null
     owner_department: string | null
     reason: string
@@ -1760,6 +1762,7 @@ export async function getTaskBlockers(taskId: string): Promise<TaskBlocker[]> {
             task_id,
             status,
             owner_type,
+            original_assignee_id,
             owner_user_id,
             owner_department,
             reason,
@@ -1786,6 +1789,7 @@ export async function getTaskBlockers(taskId: string): Promise<TaskBlocker[]> {
         task_id: item.task_id,
         status: normalizeTaskBlockerStatus(item.status),
         owner_type: normalizeTaskBlockerOwnerType(item.owner_type),
+        original_assignee_id: item.original_assignee_id ?? null,
         owner_user_id: item.owner_user_id ?? null,
         owner_department: normalizeDepartmentValue(item.owner_department),
         reason: item.reason ?? '',
@@ -1901,7 +1905,7 @@ export async function openTaskBlocker(params: {
 
     const { data: taskRow, error: taskError } = await supabase
         .from('tasks')
-        .select('id, status')
+        .select('id, status, assignee_id')
         .eq('id', taskId)
         .maybeSingle()
 
@@ -1909,6 +1913,7 @@ export async function openTaskBlocker(params: {
     if (!taskRow) return { error: 'Tarefa não encontrada ou sem acesso.' }
 
     const currentStatus = ((taskRow as { status?: string | null }).status ?? '').trim()
+    const originalAssigneeId = (taskRow as { assignee_id?: string | null }).assignee_id ?? null
     if (currentStatus === 'DONE') {
         return { error: 'Não é possível abrir bloqueio em tarefa concluída.' }
     }
@@ -1919,6 +1924,7 @@ export async function openTaskBlocker(params: {
             task_id: taskId,
             status: 'OPEN',
             owner_type: ownerType,
+            original_assignee_id: originalAssigneeId,
             owner_user_id: ownerType === 'USER' ? ownerUserId : null,
             owner_department: ownerType === 'DEPARTMENT' ? ownerDepartment : null,
             reason,
@@ -1964,6 +1970,7 @@ export async function openTaskBlocker(params: {
         payload: {
             blocker_id: insertedBlocker?.id ?? null,
             owner_type: ownerType,
+            original_assignee_id: originalAssigneeId,
             owner_user_id: ownerType === 'USER' ? ownerUserId : null,
             owner_department: ownerType === 'DEPARTMENT' ? ownerDepartment : null,
             reason,
@@ -1981,9 +1988,11 @@ export async function openTaskBlocker(params: {
 export async function resolveTaskBlocker(params: {
     blockerId: string
     resolutionNote?: string | null
+    resumeToOriginalAssignee?: boolean
 }) {
     const blockerId = params.blockerId.trim()
     const resolutionNote = params.resolutionNote?.trim() || null
+    const resumeToOriginalAssignee = params.resumeToOriginalAssignee === true
     if (!blockerId) return { error: 'Bloqueio inválido.' }
 
     const supabase = await createClient()
@@ -1997,6 +2006,7 @@ export async function resolveTaskBlocker(params: {
             task_id,
             status,
             owner_type,
+            original_assignee_id,
             owner_user_id,
             owner_department,
             reason,
@@ -2032,13 +2042,66 @@ export async function resolveTaskBlocker(params: {
 
     if (resolveError) return { error: resolveError.message }
 
+    const taskId = (blocker as { task_id: string }).task_id
+    const originalAssigneeId = (blocker as { original_assignee_id?: string | null }).original_assignee_id ?? null
+    let resumedAssignee = false
+
+    if (resumeToOriginalAssignee && originalAssigneeId) {
+        const { data: taskData, error: taskDataError } = await supabase
+            .from('tasks')
+            .select('assignee_id')
+            .eq('id', taskId)
+            .maybeSingle()
+
+        if (!taskDataError && taskData) {
+            const currentAssigneeId = (taskData as { assignee_id?: string | null }).assignee_id ?? null
+            if (currentAssigneeId !== originalAssigneeId) {
+                const { error: restoreAssigneeError } = await supabase
+                    .from('tasks')
+                    .update({ assignee_id: originalAssigneeId })
+                    .eq('id', taskId)
+
+                if (!restoreAssigneeError) {
+                    resumedAssignee = true
+                    await recordTaskActivityEvent({
+                        eventType: 'TASK_ASSIGNEE_TRANSFERRED',
+                        taskId,
+                        actorUserId: user.id,
+                        payload: {
+                            old_assignee_id: currentAssigneeId,
+                            new_assignee_id: originalAssigneeId,
+                            source: 'resolveTaskBlocker',
+                            reason: 'Retomada automática para responsável original após desbloqueio.',
+                            blocker_id: blockerId,
+                        },
+                    })
+
+                    await recordTaskActivityEvent({
+                        eventType: 'TASK_ASSIGNEE_CHANGED',
+                        taskId,
+                        actorUserId: user.id,
+                        payload: {
+                            old_assignee_id: currentAssigneeId,
+                            new_assignee_id: originalAssigneeId,
+                            source: 'resolveTaskBlocker',
+                            blocker_id: blockerId,
+                        },
+                    })
+                } else {
+                    console.error('Error restoring original assignee on blocker resolve:', restoreAssigneeError)
+                }
+            }
+        }
+    }
+
     await recordTaskActivityEvent({
         eventType: 'TASK_BLOCKER_RESOLVED',
-        taskId: (blocker as { task_id: string }).task_id,
+        taskId,
         actorUserId: user.id,
         payload: {
             blocker_id: blockerId,
             owner_type: (blocker as { owner_type?: string | null }).owner_type ?? null,
+            original_assignee_id: originalAssigneeId,
             owner_user_id: (blocker as { owner_user_id?: string | null }).owner_user_id ?? null,
             owner_department: (blocker as { owner_department?: string | null }).owner_department ?? null,
             reason: (blocker as { reason?: string | null }).reason ?? null,
@@ -2046,11 +2109,17 @@ export async function resolveTaskBlocker(params: {
             opened_at: (blocker as { opened_at?: string | null }).opened_at ?? null,
             resolved_at: resolvedAt,
             resolution_note: resolutionNote,
+            resume_to_original_assignee: resumeToOriginalAssignee,
+            resumed_assignee: resumedAssignee,
         },
     })
 
     revalidatePath('/admin/tarefas')
-    return { success: true }
+    return {
+        success: true,
+        resumedAssignee,
+        originalAssigneeId,
+    }
 }
 
 export async function deleteTask(taskId: string) {

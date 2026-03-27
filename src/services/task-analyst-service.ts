@@ -82,6 +82,8 @@ type AnalystConfigRow = {
   base_reminder_hours: number
   base_escalation_hours: number
   slow_sector_hours: number
+  feedback_required_days?: number | null
+  feedback_escalation_days?: number | null
   learning_enabled: boolean
 }
 
@@ -215,6 +217,9 @@ const PROGRESS_EVENT_TYPES = new Set<TaskActivityEventType>([
 ])
 
 const INACTIVE_USER_STATUSES = new Set(["inativo", "inactive", "suspended"])
+const DEFAULT_FEEDBACK_REQUIRED_DAYS = 5
+const DEFAULT_FEEDBACK_ESCALATION_DAYS = 1
+const FEEDBACK_REQUIRED_FLOW_KEY = "feedback_required_days"
 
 function normalizeStatus(value?: string | null) {
   return (value ?? "").trim().toLowerCase()
@@ -290,21 +295,75 @@ function isMissingRelationError(error?: { code?: string | null; message?: string
   return message.includes(relation.toLowerCase())
 }
 
+function parseMissingColumnError(message?: string | null) {
+  if (!message) return null
+  const match = message.match(/Could not find the '([^']+)' column of '([^']+)'/i)
+  if (!match) return null
+  return {
+    column: match[1],
+    table: match[2],
+  }
+}
+
+function clampDays(value: number | null | undefined, min: number, max: number, fallback: number) {
+  const safe = typeof value === "number" ? value : fallback
+  return clampHours(safe, min, max)
+}
+
+function daysToHours(days: number) {
+  return Math.max(1, days) * 24
+}
+
+function formatDurationDaysAndHours(hours: number) {
+  if (!Number.isFinite(hours) || hours <= 0) return "0h"
+  const wholeHours = Math.floor(hours)
+  const days = Math.floor(wholeHours / 24)
+  const remainingHours = wholeHours % 24
+
+  if (days <= 0) return `${wholeHours}h`
+  if (remainingHours === 0) return `${days} dia(s) (${wholeHours}h)`
+  return `${days} dia(s) e ${remainingHours}h (${wholeHours}h)`
+}
+
 async function loadAnalystConfig() {
   const supabaseAdmin = createSupabaseServiceClient()
 
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from("task_analyst_config")
-    .select("id, enabled, bot_user_id, history_window_days, base_reminder_hours, base_escalation_hours, slow_sector_hours, learning_enabled")
+    .select("id, enabled, bot_user_id, history_window_days, base_reminder_hours, base_escalation_hours, slow_sector_hours, feedback_required_days, feedback_escalation_days, learning_enabled")
     .eq("id", 1)
     .maybeSingle()
+
+  const missingColumn = parseMissingColumnError(error?.message)
+  if (
+    error &&
+    missingColumn &&
+    missingColumn.table === "task_analyst_config" &&
+    (missingColumn.column === "feedback_required_days" || missingColumn.column === "feedback_escalation_days")
+  ) {
+    const fallback = await supabaseAdmin
+      .from("task_analyst_config")
+      .select("id, enabled, bot_user_id, history_window_days, base_reminder_hours, base_escalation_hours, slow_sector_hours, learning_enabled")
+      .eq("id", 1)
+      .maybeSingle()
+
+    data = fallback.data as typeof data
+    error = fallback.error
+  }
 
   if (error) {
     if (isMissingRelationError(error, "task_analyst_config")) return null
     throw new Error(error.message)
   }
 
-  return (data as AnalystConfigRow | null) ?? null
+  const row = (data as AnalystConfigRow | null) ?? null
+  if (!row) return null
+
+  return {
+    ...row,
+    feedback_required_days: clampDays(row.feedback_required_days, 1, 30, DEFAULT_FEEDBACK_REQUIRED_DAYS),
+    feedback_escalation_days: clampDays(row.feedback_escalation_days, 1, 14, DEFAULT_FEEDBACK_ESCALATION_DAYS),
+  }
 }
 
 async function loadDepartmentThresholds(fallback: DepartmentThreshold) {
@@ -609,6 +668,39 @@ async function findLatestMessageLog(params: {
   return ((data ?? []) as MessageLogRow[])[0] ?? null
 }
 
+async function findLatestMessageLogByFlow(params: {
+  recipientUserId: string
+  taskId?: string | null
+  kind: TaskAnalystMessageKind
+  flow: string
+}) {
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  let query = supabaseAdmin
+    .from("task_analyst_message_log")
+    .select("recipient_user_id, task_id, kind, sent_at, metadata")
+    .eq("recipient_user_id", params.recipientUserId)
+    .eq("kind", params.kind)
+    .eq("metadata->>flow", params.flow)
+    .order("sent_at", { ascending: false })
+    .limit(1)
+
+  if (params.taskId) {
+    query = query.eq("task_id", params.taskId)
+  } else {
+    query = query.is("task_id", null)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    if (isMissingRelationError(error, "task_analyst_message_log")) return null
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as MessageLogRow[])[0] ?? null
+}
+
 async function findLatestBlockerReminderByDependency(params: {
   taskId: string
   dependencyKey: string
@@ -759,6 +851,24 @@ function buildReminderMessage(params: {
   ].join("\n")
 }
 
+function buildFeedbackRequiredMessage(params: {
+  task: TaskRow
+  hoursWithoutProgress: number
+  feedbackRequiredDays: number
+  feedbackEscalationDays: number
+}) {
+  return [
+    `Ação obrigatória do Analista IA (${params.feedbackRequiredDays} dia(s) sem avanço).`,
+    `A tarefa \"${taskTitle(params.task)}\" está há ${formatDurationDaysAndHours(params.hoursWithoutProgress)} sem atividade.`,
+    `Status atual: ${params.task.status}. Prazo: ${renderDueDateLabel(params.task.due_date)}.`,
+    "Registre um feedback agora com uma destas opções:",
+    "1) atualizar prazo (ETA) da tarefa,",
+    "2) transferir responsabilidade com justificativa,",
+    "3) abrir bloqueio formal por pessoa/setor.",
+    `Se não houver avanço em ${params.feedbackEscalationDays} dia(s) após este aviso, haverá escalonamento para gestão.`,
+  ].join("\n")
+}
+
 function buildEscalationMessage(params: {
   task: TaskRow
   assigneeName: string
@@ -769,6 +879,22 @@ function buildEscalationMessage(params: {
     `A tarefa \"${taskTitle(params.task)}\" (responsável: ${params.assigneeName}) está sem avanço há ${params.hoursWithoutProgress}h.`,
     `Status atual: ${params.task.status}. Prazo: ${renderDueDateLabel(params.task.due_date)}.`,
     "Sugerido: revisar prioridade, bloqueio e responsável.",
+  ].join("\n")
+}
+
+function buildFeedbackEscalationMessage(params: {
+  task: TaskRow
+  assigneeName: string
+  hoursWithoutProgress: number
+  feedbackRequestedAt: string
+  feedbackEscalationDays: number
+}) {
+  return [
+    "Escalonamento de feedback pendente (Analista IA).",
+    `A tarefa \"${taskTitle(params.task)}\" está sem avanço há ${formatDurationDaysAndHours(params.hoursWithoutProgress)}.`,
+    `Responsável atual: ${params.assigneeName}.`,
+    `Feedback obrigatório enviado em ${renderDueDateLabel(params.feedbackRequestedAt)} e sem reação operacional após ${params.feedbackEscalationDays} dia(s).`,
+    "Sugerido: alinhar ETA real, decidir transferência ou formalizar bloqueio.",
   ].join("\n")
 }
 
@@ -1113,6 +1239,10 @@ export async function runTaskAnalyst(params: {
     }
 
     const now = new Date()
+    const feedbackRequiredDays = clampDays(config.feedback_required_days, 1, 30, DEFAULT_FEEDBACK_REQUIRED_DAYS)
+    const feedbackEscalationDays = clampDays(config.feedback_escalation_days, 1, 14, DEFAULT_FEEDBACK_ESCALATION_DAYS)
+    const feedbackRequiredHours = daysToHours(feedbackRequiredDays)
+    const feedbackEscalationDelayHours = daysToHours(feedbackEscalationDays)
 
     // Safety gate for scheduled calls (hourly trigger, active windows at 08:00 and 14:00 local).
     if (params.trigger === "scheduled") {
@@ -1181,6 +1311,7 @@ export async function runTaskAnalyst(params: {
 
     const reminderCandidates: Array<{ task: TaskRow; recipientId: string; hours: number; threshold: DepartmentThreshold }> = []
     const escalationCandidates: Array<{ task: TaskRow; recipientId: string; hours: number; assigneeName: string; threshold: DepartmentThreshold }> = []
+    const feedbackRequiredCandidates: Array<{ task: TaskRow; recipientId: string; assigneeName: string; hours: number }> = []
     const unassignedCandidates: Array<{ task: TaskRow; hours: number }> = []
     const slowSectorAccumulator = new Map<string, { total: number; stagnant: number; thresholdHours: number }>()
     const blockerReminderCandidates = new Map<string, {
@@ -1287,6 +1418,19 @@ export async function runTaskAnalyst(params: {
         return
       }
 
+      const assignee = usersById.get(task.assignee_id)
+      const assigneeName = assignee?.name?.trim() || assignee?.email?.trim() || "Sem nome"
+
+      if (hoursWithoutProgress >= feedbackRequiredHours) {
+        feedbackRequiredCandidates.push({
+          task,
+          recipientId: task.assignee_id,
+          assigneeName,
+          hours: hoursWithoutProgress,
+        })
+        return
+      }
+
       reminderCandidates.push({
         task,
         recipientId: task.assignee_id,
@@ -1294,12 +1438,11 @@ export async function runTaskAnalyst(params: {
         threshold,
       })
 
-      const assignee = usersById.get(task.assignee_id)
       escalationCandidates.push({
         task,
         recipientId: task.assignee_id,
         hours: hoursWithoutProgress,
-        assigneeName: assignee?.name?.trim() || assignee?.email?.trim() || "Sem nome",
+        assigneeName,
         threshold,
       })
     })
@@ -1311,6 +1454,170 @@ export async function runTaskAnalyst(params: {
       const dueDate = parseDate(task.due_date)
       return Boolean(dueDate && dueDate.getTime() < now.getTime())
     }).length
+
+    // feedback required (5+ days without activity)
+    for (const candidate of feedbackRequiredCandidates) {
+      const recentFeedback = await findLatestMessageLogByFlow({
+        recipientUserId: candidate.recipientId,
+        taskId: candidate.task.id,
+        kind: "REMINDER",
+        flow: FEEDBACK_REQUIRED_FLOW_KEY,
+      })
+
+      if (!shouldSendByCooldown({
+        lastSentAt: recentFeedback?.sent_at ?? null,
+        now,
+        cooldownHours: 24,
+      })) {
+        continue
+      }
+
+      if (dryRun) continue
+
+      const hashKey = [
+        "REMINDER",
+        candidate.recipientId,
+        candidate.task.id,
+        FEEDBACK_REQUIRED_FLOW_KEY,
+        toISODateUTC(now),
+      ].join(":")
+
+      const inserted = await insertMessageLog({
+        recipientUserId: candidate.recipientId,
+        taskId: candidate.task.id,
+        kind: "REMINDER",
+        hashKey,
+        metadata: {
+          flow: FEEDBACK_REQUIRED_FLOW_KEY,
+          feedback_deadline_days: feedbackEscalationDays,
+          feedback_deadline_hours: feedbackEscalationDelayHours,
+        },
+      })
+
+      if (!inserted) continue
+
+      const sendResult = await sendSystemDirectMessage({
+        senderUserId: config.bot_user_id,
+        recipientUserId: candidate.recipientId,
+        body: buildFeedbackRequiredMessage({
+          task: candidate.task,
+          hoursWithoutProgress: candidate.hours,
+          feedbackRequiredDays,
+          feedbackEscalationDays,
+        }),
+        dedupeToken: hashKey,
+      })
+
+      if (sendResult.success) {
+        stats.remindersSent += 1
+        await markMessageLogDelivered({
+          hashKey,
+          conversationId: sendResult.data.conversationId,
+          messageId: sendResult.data.messageId,
+        })
+      } else {
+        await rollbackMessageLog(hashKey)
+        console.error("Task analyst feedback-required reminder send failed:", sendResult.error)
+      }
+    }
+
+    // feedback pending escalation (24h without reaction after required feedback request)
+    for (const candidate of feedbackRequiredCandidates) {
+      const lastFeedbackRequest = await findLatestMessageLogByFlow({
+        recipientUserId: candidate.recipientId,
+        taskId: candidate.task.id,
+        kind: "REMINDER",
+        flow: FEEDBACK_REQUIRED_FLOW_KEY,
+      })
+
+      if (!lastFeedbackRequest?.sent_at) continue
+
+      if (!shouldSendByCooldown({
+        lastSentAt: lastFeedbackRequest.sent_at,
+        now,
+        cooldownHours: feedbackEscalationDelayHours,
+      })) {
+        continue
+      }
+
+      const feedbackSentAtDate = parseDate(lastFeedbackRequest.sent_at)
+      const latestProgressAt = progressSnapshot.latestByTask.get(candidate.task.id) ?? candidate.task.updated_at
+      const latestProgressDate = parseDate(latestProgressAt)
+
+      const stillWithoutReaction = Boolean(
+        feedbackSentAtDate &&
+        latestProgressDate &&
+        latestProgressDate.getTime() <= feedbackSentAtDate.getTime()
+      )
+
+      if (!stillWithoutReaction) continue
+
+      for (const manager of managerUsers) {
+        const recentEscalation = await findLatestMessageLogByFlow({
+          recipientUserId: manager.id,
+          taskId: candidate.task.id,
+          kind: "ESCALATION",
+          flow: FEEDBACK_REQUIRED_FLOW_KEY,
+        })
+
+        if (!shouldSendByCooldown({
+          lastSentAt: recentEscalation?.sent_at ?? null,
+          now,
+          cooldownHours: 24,
+        })) {
+          continue
+        }
+
+        if (dryRun) continue
+
+        const hashKey = [
+          "ESCALATION",
+          manager.id,
+          candidate.task.id,
+          FEEDBACK_REQUIRED_FLOW_KEY,
+          toISODateUTC(now),
+        ].join(":")
+
+        const inserted = await insertMessageLog({
+          recipientUserId: manager.id,
+          taskId: candidate.task.id,
+          kind: "ESCALATION",
+          hashKey,
+          metadata: {
+            flow: FEEDBACK_REQUIRED_FLOW_KEY,
+            assignee_user_id: candidate.recipientId,
+            feedback_requested_at: lastFeedbackRequest.sent_at,
+          },
+        })
+
+        if (!inserted) continue
+
+        const sendResult = await sendSystemDirectMessage({
+          senderUserId: config.bot_user_id,
+          recipientUserId: manager.id,
+          body: buildFeedbackEscalationMessage({
+            task: candidate.task,
+            assigneeName: candidate.assigneeName,
+            hoursWithoutProgress: candidate.hours,
+            feedbackRequestedAt: lastFeedbackRequest.sent_at,
+            feedbackEscalationDays,
+          }),
+          dedupeToken: hashKey,
+        })
+
+        if (sendResult.success) {
+          stats.escalationsSent += 1
+          await markMessageLogDelivered({
+            hashKey,
+            conversationId: sendResult.data.conversationId,
+            messageId: sendResult.data.messageId,
+          })
+        } else {
+          await rollbackMessageLog(hashKey)
+          console.error("Task analyst feedback escalation send failed:", sendResult.error)
+        }
+      }
+    }
 
     // reminders
     for (const candidate of toSendReminders) {
