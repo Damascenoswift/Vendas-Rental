@@ -5,12 +5,21 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { hasInternalChatAccess } from "@/lib/internal-chat-access"
+import {
+    INTERNAL_CHAT_ATTACHMENTS_BUCKET,
+    MAX_INTERNAL_CHAT_ATTACHMENT_BYTES,
+    MAX_INTERNAL_CHAT_ATTACHMENTS_PER_MESSAGE,
+    isInternalChatAttachmentRetentionPolicy,
+    type InternalChatAttachmentRetentionPolicy,
+} from "@/lib/internal-chat-attachment-config"
 import { createChatNotificationEvent } from "@/services/notification-service"
 
 const INTERNAL_CHAT_MAX_CONVERSATIONS = 120
 const INTERNAL_CHAT_MAX_MESSAGE_LENGTH = 2000
 const INTERNAL_CHAT_DEFAULT_MESSAGES_LIMIT = 60
 const INTERNAL_CHAT_MAX_MESSAGES_LIMIT = 200
+const INTERNAL_CHAT_ATTACHMENT_SIGNED_URL_TTL_SECONDS = 60 * 10
+const INTERNAL_CHAT_ATTACHMENTS_CLEANUP_BATCH_SIZE = 200
 
 export type InternalChatConversationKind = "direct"
 
@@ -27,6 +36,23 @@ export interface InternalChatMessage {
     body: string
     created_at: string
     sender: InternalChatUser | null
+    attachments: InternalChatAttachment[]
+}
+
+export interface InternalChatAttachment {
+    id: string
+    message_id: string
+    conversation_id: string
+    uploaded_by_user_id: string
+    storage_path: string
+    original_name: string
+    content_type: string | null
+    size_bytes: number
+    retention_policy: InternalChatAttachmentRetentionPolicy
+    first_downloaded_at: string | null
+    expires_at: string | null
+    download_count: number
+    created_at: string
 }
 
 export interface InternalChatConversationListItem {
@@ -54,6 +80,14 @@ export interface InternalChatMessagesPage {
 export type InternalChatActionResult<T> =
     | { success: true; data: T }
     | { success: false; error: string }
+
+export interface InternalChatMessageAttachmentInput {
+    path: string
+    original_name: string
+    content_type: string | null
+    size_bytes: number
+    retention_policy: InternalChatAttachmentRetentionPolicy
+}
 
 type CurrentInternalChatUser = {
     id: string
@@ -91,6 +125,22 @@ type MessageRow = {
     created_at: string
 }
 
+type MessageAttachmentRow = {
+    id: string
+    message_id: string
+    conversation_id: string
+    uploaded_by_user_id: string
+    storage_path: string
+    original_name: string
+    content_type: string | null
+    size_bytes: number
+    retention_policy: InternalChatAttachmentRetentionPolicy
+    first_downloaded_at: string | null
+    expires_at: string | null
+    download_count: number
+    created_at: string
+}
+
 type BasicUserRow = {
     id: string
     name: string | null
@@ -99,6 +149,12 @@ type BasicUserRow = {
 
 type RecipientRow = {
     user_id: string
+}
+
+type AttachmentLinkMessageRow = {
+    id: string
+    conversation_id: string
+    sender_user_id: string
 }
 
 type UnreadCountRow = {
@@ -147,6 +203,103 @@ function sanitizeMessageBody(value: string) {
     if (!normalized) return null
     if (normalized.length > INTERNAL_CHAT_MAX_MESSAGE_LENGTH) return null
     return normalized
+}
+
+function normalizeStoragePath(value: string) {
+    return value
+        .trim()
+        .replace(/^\/+/, "")
+}
+
+function normalizeAttachmentFileName(value: string) {
+    const trimmed = value.trim()
+    if (!trimmed) return "anexo"
+
+    return trimmed
+        .replace(/[\u0000-\u001F\u007F]/g, "")
+        .slice(0, 255)
+}
+
+function resolveMessageBodyValue(inputBody: string, hasAttachments: boolean) {
+    const sanitizedBody = sanitizeMessageBody(inputBody)
+    if (sanitizedBody) return sanitizedBody
+    if (hasAttachments) return "Anexo enviado."
+    return null
+}
+
+function isAttachmentExpired(expiresAt: string | null | undefined, nowMs = Date.now()) {
+    if (!expiresAt) return false
+    const expiresMs = Date.parse(expiresAt)
+    if (Number.isNaN(expiresMs)) return false
+    return expiresMs <= nowMs
+}
+
+function getAttachmentExpiryFromPolicy(
+    retentionPolicy: InternalChatAttachmentRetentionPolicy,
+    baseDate = new Date()
+) {
+    if (retentionPolicy === "download_24h") {
+        return new Date(baseDate.getTime() + (24 * 60 * 60 * 1000)).toISOString()
+    }
+
+    if (retentionPolicy === "download_30d") {
+        return new Date(baseDate.getTime() + (30 * 24 * 60 * 60 * 1000)).toISOString()
+    }
+
+    return null
+}
+
+function sanitizeMessageAttachmentInput(
+    input: InternalChatMessageAttachmentInput
+): InternalChatMessageAttachmentInput | null {
+    const path = normalizeStoragePath(input.path)
+    if (!path) return null
+
+    const originalName = normalizeAttachmentFileName(input.original_name)
+    if (!originalName) return null
+
+    const sizeBytes = Number(input.size_bytes)
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_INTERNAL_CHAT_ATTACHMENT_BYTES) {
+        return null
+    }
+
+    if (!isInternalChatAttachmentRetentionPolicy(input.retention_policy)) {
+        return null
+    }
+
+    const contentType = typeof input.content_type === "string" && input.content_type.trim()
+        ? input.content_type.trim()
+        : null
+
+    return {
+        path,
+        original_name: originalName,
+        content_type: contentType,
+        size_bytes: Math.trunc(sizeBytes),
+        retention_policy: input.retention_policy,
+    }
+}
+
+function sanitizeMessageAttachmentsInput(
+    attachmentsInput: InternalChatMessageAttachmentInput[] | null | undefined
+) {
+    const inputList = Array.isArray(attachmentsInput) ? attachmentsInput : []
+    if (inputList.length === 0) return [] as InternalChatMessageAttachmentInput[]
+    if (inputList.length > MAX_INTERNAL_CHAT_ATTACHMENTS_PER_MESSAGE) return null
+
+    const sanitized = inputList
+        .map((item) => sanitizeMessageAttachmentInput(item))
+        .filter((item): item is InternalChatMessageAttachmentInput => Boolean(item))
+
+    if (sanitized.length !== inputList.length) return null
+
+    const pathSet = new Set<string>()
+    for (const item of sanitized) {
+        if (pathSet.has(item.path)) return null
+        pathSet.add(item.path)
+    }
+
+    return sanitized
 }
 
 function sanitizeNotificationPreview(content: string, maxLength = 160) {
@@ -288,6 +441,160 @@ async function fetchLatestMessage(
     }
 
     return (data ?? null) as MessageRow | null
+}
+
+async function cleanupExpiredChatAttachments(
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>,
+    options?: { conversationId?: string; batchSize?: number }
+) {
+    const nowIso = new Date().toISOString()
+    const batchSize = Math.min(Math.max(options?.batchSize ?? INTERNAL_CHAT_ATTACHMENTS_CLEANUP_BATCH_SIZE, 1), 500)
+    let query = supabaseAdmin
+        .from("internal_chat_message_attachments")
+        .select("id, storage_path")
+        .lt("expires_at", nowIso)
+        .order("expires_at", { ascending: true })
+        .limit(batchSize)
+
+    if (options?.conversationId) {
+        query = query.eq("conversation_id", options.conversationId)
+    }
+
+    const { data, error } = await query
+    if (error || !data || data.length === 0) {
+        if (error) {
+            console.error("Error listing expired internal chat attachments:", {
+                error,
+                conversationId: options?.conversationId ?? null,
+            })
+        }
+        return
+    }
+
+    const rows = (data as Array<{ id: string; storage_path: string }>)
+        .filter((row) => typeof row.id === "string" && typeof row.storage_path === "string")
+        .map((row) => ({ id: row.id, storage_path: normalizeStoragePath(row.storage_path) }))
+        .filter((row) => row.id.length > 0 && row.storage_path.length > 0)
+
+    if (rows.length === 0) return
+
+    const storagePaths = rows.map((row) => row.storage_path)
+    const { error: storageError } = await supabaseAdmin.storage
+        .from(INTERNAL_CHAT_ATTACHMENTS_BUCKET)
+        .remove(storagePaths)
+
+    if (storageError) {
+        console.error("Error deleting expired internal chat attachment files:", {
+            error: storageError,
+            count: storagePaths.length,
+        })
+    }
+
+    const attachmentIds = rows.map((row) => row.id)
+    const { error: deleteError } = await supabaseAdmin
+        .from("internal_chat_message_attachments")
+        .delete()
+        .in("id", attachmentIds)
+
+    if (deleteError) {
+        console.error("Error deleting expired internal chat attachment rows:", {
+            error: deleteError,
+            count: attachmentIds.length,
+        })
+    }
+}
+
+async function listMessageAttachments(
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>,
+    conversationId: string,
+    messageIds: string[]
+) {
+    if (messageIds.length === 0) {
+        return [] as MessageAttachmentRow[]
+    }
+
+    const { data, error } = await supabaseAdmin
+        .from("internal_chat_message_attachments")
+        .select(`
+            id,
+            message_id,
+            conversation_id,
+            uploaded_by_user_id,
+            storage_path,
+            original_name,
+            content_type,
+            size_bytes,
+            retention_policy,
+            first_downloaded_at,
+            expires_at,
+            download_count,
+            created_at
+        `)
+        .eq("conversation_id", conversationId)
+        .in("message_id", messageIds)
+        .order("created_at", { ascending: true })
+
+    if (error) {
+        console.error("Error loading internal chat message attachments:", {
+            error,
+            conversationId,
+            messageIdsCount: messageIds.length,
+        })
+        return [] as MessageAttachmentRow[]
+    }
+
+    const nowMs = Date.now()
+    return ((data ?? []) as MessageAttachmentRow[]).filter((row) => !isAttachmentExpired(row.expires_at, nowMs))
+}
+
+async function loadAttachmentWithMessageContext(
+    supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>,
+    attachmentId: string
+) {
+    const { data: attachmentData, error: attachmentError } = await supabaseAdmin
+        .from("internal_chat_message_attachments")
+        .select(
+            `
+                id,
+                message_id,
+                conversation_id,
+                uploaded_by_user_id,
+                storage_path,
+                original_name,
+                content_type,
+                size_bytes,
+                retention_policy,
+                first_downloaded_at,
+                expires_at,
+                download_count,
+                created_at
+            `
+        )
+        .eq("id", attachmentId)
+        .maybeSingle()
+
+    if (attachmentError || !attachmentData) {
+        return null
+    }
+
+    const row = attachmentData as MessageAttachmentRow
+
+    const { data: messageData, error: messageError } = await supabaseAdmin
+        .from("internal_chat_messages")
+        .select("id, conversation_id, sender_user_id")
+        .eq("id", row.message_id)
+        .maybeSingle()
+
+    if (messageError || !messageData) {
+        return null
+    }
+
+    const message = messageData as AttachmentLinkMessageRow
+
+    return {
+        attachment: row,
+        message,
+    } as const
 }
 
 export async function getOrCreateDirectConversation(otherUserId: string) {
@@ -583,6 +890,8 @@ export async function getConversationMessages(
         return failure<InternalChatMessagesPage>("Você não tem acesso a esta conversa.")
     }
 
+    await cleanupExpiredChatAttachments(supabaseAdmin, { conversationId: sanitizedConversationId })
+
     let query = supabaseAdmin
         .from("internal_chat_messages")
         .select("id, conversation_id, sender_user_id, body, created_at")
@@ -611,6 +920,33 @@ export async function getConversationMessages(
     const hasMore = rows.length > safeLimit
     const rowsToUse = hasMore ? rows.slice(0, safeLimit) : rows
     const nextCursor = hasMore ? rowsToUse[rowsToUse.length - 1]?.created_at ?? null : null
+    const messageIds = rowsToUse.map((row) => row.id)
+
+    const attachmentRows = await listMessageAttachments(
+        supabaseAdmin,
+        sanitizedConversationId,
+        messageIds
+    )
+    const attachmentsByMessage = new Map<string, InternalChatAttachment[]>()
+    attachmentRows.forEach((row) => {
+        const existing = attachmentsByMessage.get(row.message_id) ?? []
+        existing.push({
+            id: row.id,
+            message_id: row.message_id,
+            conversation_id: row.conversation_id,
+            uploaded_by_user_id: row.uploaded_by_user_id,
+            storage_path: row.storage_path,
+            original_name: row.original_name,
+            content_type: row.content_type ?? null,
+            size_bytes: row.size_bytes,
+            retention_policy: row.retention_policy,
+            first_downloaded_at: row.first_downloaded_at ?? null,
+            expires_at: row.expires_at ?? null,
+            download_count: row.download_count ?? 0,
+            created_at: row.created_at,
+        })
+        attachmentsByMessage.set(row.message_id, existing)
+    })
 
     const senderIds = Array.from(new Set(rowsToUse.map((row) => row.sender_user_id)))
     const { data: senderRows, error: senderError } = await supabaseAdmin
@@ -646,6 +982,7 @@ export async function getConversationMessages(
             body: row.body,
             created_at: row.created_at,
             sender: sendersById.get(row.sender_user_id) ?? null,
+            attachments: attachmentsByMessage.get(row.id) ?? [],
         })) satisfies InternalChatMessage[]
 
     return success({
@@ -719,7 +1056,11 @@ export async function createChatMessageNotification(params: {
     }
 }
 
-export async function sendMessage(conversationId: string, body: string) {
+export async function sendMessage(
+    conversationId: string,
+    body: string,
+    options?: { attachments?: InternalChatMessageAttachmentInput[] }
+) {
     const session = await requireChatSession()
     if ("error" in session) {
         return failure<InternalChatMessage>(session.error)
@@ -732,8 +1073,23 @@ export async function sendMessage(conversationId: string, body: string) {
         return failure<InternalChatMessage>("Conversa inválida.")
     }
 
-    const sanitizedBody = sanitizeMessageBody(body)
-    if (!sanitizedBody) {
+    const sanitizedAttachments = sanitizeMessageAttachmentsInput(options?.attachments)
+    if (!sanitizedAttachments) {
+        return failure<InternalChatMessage>(
+            `Anexos inválidos. Envie até ${MAX_INTERNAL_CHAT_ATTACHMENTS_PER_MESSAGE} arquivo(s) de no máximo 100MB cada.`
+        )
+    }
+
+    const isPathOutsideConversation = sanitizedAttachments.some(
+        (attachment) => !attachment.path.startsWith(`${sanitizedConversationId}/`)
+    )
+    if (isPathOutsideConversation) {
+        return failure<InternalChatMessage>("Anexo inválido para esta conversa.")
+    }
+
+    const hasAttachments = sanitizedAttachments.length > 0
+    const messageBody = resolveMessageBodyValue(body, hasAttachments)
+    if (!messageBody) {
         return failure<InternalChatMessage>(
             `A mensagem precisa ter entre 1 e ${INTERNAL_CHAT_MAX_MESSAGE_LENGTH} caracteres.`
         )
@@ -754,7 +1110,7 @@ export async function sendMessage(conversationId: string, body: string) {
         .insert({
             conversation_id: sanitizedConversationId,
             sender_user_id: user.id,
-            body: sanitizedBody,
+            body: messageBody,
         })
         .select("id, conversation_id, sender_user_id, body, created_at")
         .maybeSingle()
@@ -766,6 +1122,65 @@ export async function sendMessage(conversationId: string, body: string) {
             userId: user.id,
         })
         return failure<InternalChatMessage>("Falha ao enviar mensagem no chat.")
+    }
+
+    let messageAttachments: InternalChatAttachment[] = []
+    if (sanitizedAttachments.length > 0) {
+        const { data: attachmentRows, error: attachmentError } = await supabaseAdmin
+            .from("internal_chat_message_attachments")
+            .insert(
+                sanitizedAttachments.map((attachment) => ({
+                    message_id: insertedMessage.id,
+                    conversation_id: sanitizedConversationId,
+                    uploaded_by_user_id: user.id,
+                    storage_path: attachment.path,
+                    original_name: attachment.original_name,
+                    content_type: attachment.content_type,
+                    size_bytes: attachment.size_bytes,
+                    retention_policy: attachment.retention_policy,
+                }))
+            )
+            .select(`
+                id,
+                message_id,
+                conversation_id,
+                uploaded_by_user_id,
+                storage_path,
+                original_name,
+                content_type,
+                size_bytes,
+                retention_policy,
+                first_downloaded_at,
+                expires_at,
+                download_count,
+                created_at
+            `)
+
+        if (attachmentError) {
+            console.error("Error linking internal chat attachments to message:", {
+                error: attachmentError,
+                conversationId: sanitizedConversationId,
+                userId: user.id,
+                messageId: insertedMessage.id,
+                attachmentsCount: sanitizedAttachments.length,
+            })
+        } else {
+            messageAttachments = ((attachmentRows ?? []) as MessageAttachmentRow[]).map((row) => ({
+                id: row.id,
+                message_id: row.message_id,
+                conversation_id: row.conversation_id,
+                uploaded_by_user_id: row.uploaded_by_user_id,
+                storage_path: row.storage_path,
+                original_name: row.original_name,
+                content_type: row.content_type ?? null,
+                size_bytes: row.size_bytes,
+                retention_policy: row.retention_policy,
+                first_downloaded_at: row.first_downloaded_at ?? null,
+                expires_at: row.expires_at ?? null,
+                download_count: row.download_count ?? 0,
+                created_at: row.created_at,
+            }))
+        }
     }
 
     const { data: recipientRows, error: recipientError } = await supabaseAdmin
@@ -787,7 +1202,7 @@ export async function sendMessage(conversationId: string, body: string) {
                     conversationId: sanitizedConversationId,
                     senderUserId: user.id,
                     recipientUserId: row.user_id,
-                    body: sanitizedBody,
+                    body: messageBody,
                     messageId: insertedMessage.id,
                 })
             )
@@ -808,7 +1223,153 @@ export async function sendMessage(conversationId: string, body: string) {
             name: currentUser.name ?? null,
             email: currentUser.email ?? null,
         },
+        attachments: messageAttachments,
     } satisfies InternalChatMessage)
+}
+
+export async function getAttachmentDownloadUrl(attachmentId: string) {
+    const session = await requireChatSession()
+    if ("error" in session) {
+        return failure<{ url: string }>(session.error)
+    }
+
+    const { supabaseAdmin, user } = session
+    const sanitizedAttachmentId = attachmentId.trim()
+    if (!sanitizedAttachmentId) {
+        return failure<{ url: string }>("Anexo inválido.")
+    }
+
+    await cleanupExpiredChatAttachments(supabaseAdmin)
+
+    const payload = await loadAttachmentWithMessageContext(supabaseAdmin, sanitizedAttachmentId)
+    if (!payload) {
+        return failure<{ url: string }>("Anexo não encontrado.")
+    }
+
+    const { attachment, message } = payload
+    if (attachment.conversation_id !== message.conversation_id) {
+        return failure<{ url: string }>("Anexo inconsistente.")
+    }
+
+    const hasAccess = await ensureParticipant(supabaseAdmin, attachment.conversation_id, user.id)
+    if (!hasAccess) {
+        return failure<{ url: string }>("Você não tem acesso a este anexo.")
+    }
+
+    if (isAttachmentExpired(attachment.expires_at)) {
+        await cleanupExpiredChatAttachments(supabaseAdmin, {
+            conversationId: attachment.conversation_id,
+            batchSize: INTERNAL_CHAT_ATTACHMENTS_CLEANUP_BATCH_SIZE,
+        })
+        return failure<{ url: string }>("Este anexo expirou e foi removido.")
+    }
+
+    const signedUrlResult = await supabaseAdmin.storage
+        .from(INTERNAL_CHAT_ATTACHMENTS_BUCKET)
+        .createSignedUrl(
+            attachment.storage_path,
+            INTERNAL_CHAT_ATTACHMENT_SIGNED_URL_TTL_SECONDS,
+            { download: attachment.original_name }
+        )
+
+    if (signedUrlResult.error || !signedUrlResult.data?.signedUrl) {
+        return failure<{ url: string }>(signedUrlResult.error?.message ?? "Falha ao gerar link de download.")
+    }
+
+    const now = new Date()
+    const updatePayload: {
+        download_count: number
+        first_downloaded_at?: string
+        expires_at?: string | null
+    } = {
+        download_count: Math.max(attachment.download_count, 0) + 1,
+    }
+
+    if (!attachment.first_downloaded_at) {
+        updatePayload.first_downloaded_at = now.toISOString()
+        updatePayload.expires_at = getAttachmentExpiryFromPolicy(attachment.retention_policy, now)
+    }
+
+    const { error: updateError } = await supabaseAdmin
+        .from("internal_chat_message_attachments")
+        .update(updatePayload)
+        .eq("id", attachment.id)
+
+    if (updateError) {
+        console.error("Error updating internal chat attachment download metadata:", {
+            error: updateError,
+            attachmentId: attachment.id,
+        })
+    }
+
+    return success({
+        url: signedUrlResult.data.signedUrl,
+    })
+}
+
+export async function deleteMessageAttachment(attachmentId: string) {
+    const session = await requireChatSession()
+    if ("error" in session) {
+        return failure<true>(session.error)
+    }
+
+    const { supabaseAdmin, user, currentUser } = session
+    const sanitizedAttachmentId = attachmentId.trim()
+    if (!sanitizedAttachmentId) {
+        return failure<true>("Anexo inválido.")
+    }
+
+    const payload = await loadAttachmentWithMessageContext(supabaseAdmin, sanitizedAttachmentId)
+    if (!payload) {
+        return failure<true>("Anexo não encontrado.")
+    }
+
+    const { attachment, message } = payload
+    if (attachment.conversation_id !== message.conversation_id) {
+        return failure<true>("Anexo inconsistente.")
+    }
+
+    const hasAccess = await ensureParticipant(supabaseAdmin, attachment.conversation_id, user.id)
+    if (!hasAccess) {
+        return failure<true>("Você não tem acesso a este anexo.")
+    }
+
+    const isAdminMaster = (currentUser.role ?? "").trim() === "adm_mestre"
+    const canDelete = isAdminMaster
+        || message.sender_user_id === user.id
+        || attachment.uploaded_by_user_id === user.id
+
+    if (!canDelete) {
+        return failure<true>("Você não pode apagar este anexo.")
+    }
+
+    const { error: storageError } = await supabaseAdmin.storage
+        .from(INTERNAL_CHAT_ATTACHMENTS_BUCKET)
+        .remove([attachment.storage_path])
+
+    if (storageError) {
+        console.error("Error deleting internal chat attachment storage object:", {
+            error: storageError,
+            attachmentId: attachment.id,
+            path: attachment.storage_path,
+        })
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+        .from("internal_chat_message_attachments")
+        .delete()
+        .eq("id", attachment.id)
+
+    if (deleteError) {
+        console.error("Error deleting internal chat attachment row:", {
+            error: deleteError,
+            attachmentId: attachment.id,
+        })
+        return failure<true>("Falha ao apagar anexo.")
+    }
+
+    revalidatePath("/admin/chat")
+    return success(true as const)
 }
 
 export async function markConversationAsRead(conversationId: string) {
