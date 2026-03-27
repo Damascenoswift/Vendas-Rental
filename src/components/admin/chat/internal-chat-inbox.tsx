@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react"
 import {
+    AudioLines,
     Download,
     Paperclip,
     Loader2,
     MessageSquareText,
+    Play,
     Plus,
     RefreshCcw,
     Send,
@@ -94,6 +96,27 @@ function getRetentionLabel(value: InternalChatAttachmentRetentionPolicy) {
     return "Exclusão manual"
 }
 
+function formatRecordingDuration(totalSeconds: number) {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+    const minutes = Math.floor(safeSeconds / 60)
+    const seconds = safeSeconds % 60
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+}
+
+function hasAudioAttachmentMimeOrName(contentType: string | null | undefined, fileName: string | null | undefined) {
+    const normalizedType = (contentType ?? "").trim().toLowerCase()
+    if (normalizedType.startsWith("audio/")) return true
+
+    const normalizedFileName = (fileName ?? "").trim().toLowerCase()
+    return (
+        normalizedFileName.endsWith(".mp3")
+        || normalizedFileName.endsWith(".ogg")
+        || normalizedFileName.endsWith(".wav")
+        || normalizedFileName.endsWith(".m4a")
+        || normalizedFileName.endsWith(".aac")
+    )
+}
+
 export function InternalChatInbox({
     currentUserId,
     initialConversations,
@@ -120,6 +143,10 @@ export function InternalChatInbox({
     const [isSending, setIsSending] = useState(false)
     const [downloadingAttachmentId, setDownloadingAttachmentId] = useState<string | null>(null)
     const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null)
+    const [loadingAudioAttachmentId, setLoadingAudioAttachmentId] = useState<string | null>(null)
+    const [audioAttachmentUrls, setAudioAttachmentUrls] = useState<Record<string, string>>({})
+    const [recordingAudio, setRecordingAudio] = useState(false)
+    const [recordingSeconds, setRecordingSeconds] = useState(0)
 
     const [isNewConversationOpen, setIsNewConversationOpen] = useState(false)
     const [userSearch, setUserSearch] = useState("")
@@ -136,6 +163,11 @@ export function InternalChatInbox({
     const conversationSearchRef = useRef("")
     const messagesScrollAreaRef = useRef<HTMLDivElement | null>(null)
     const attachmentInputRef = useRef<HTMLInputElement | null>(null)
+    const audioAttachmentInputRef = useRef<HTMLInputElement | null>(null)
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+    const mediaStreamRef = useRef<MediaStream | null>(null)
+    const audioChunksRef = useRef<Blob[]>([])
+    const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     const selectedConversation = useMemo(
         () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
@@ -307,21 +339,72 @@ export function InternalChatInbox({
     }, [debouncedConversationSearch, loadConversations])
 
     useEffect(() => {
+        const stopActiveRecordingIfNeeded = () => {
+            if (!recordingAudio) return
+
+            if (recordingIntervalRef.current) {
+                clearInterval(recordingIntervalRef.current)
+                recordingIntervalRef.current = null
+            }
+
+            const recorder = mediaRecorderRef.current
+            if (recorder && recorder.state !== "inactive") {
+                recorder.onstop = null
+                recorder.stop()
+            }
+            mediaRecorderRef.current = null
+            audioChunksRef.current = []
+
+            if (mediaStreamRef.current) {
+                mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+                mediaStreamRef.current = null
+            }
+
+            setRecordingAudio(false)
+            setRecordingSeconds(0)
+        }
+
         if (!selectedConversationId) {
             setMessages([])
             setAttachmentFiles([])
+            setAudioAttachmentUrls({})
+            stopActiveRecordingIfNeeded()
             return
         }
 
         setAttachmentFiles([])
+        setAudioAttachmentUrls({})
+        stopActiveRecordingIfNeeded()
         void loadMessages(selectedConversationId, { silent: true })
         void markSelectedConversationAsRead(selectedConversationId)
-    }, [loadMessages, markSelectedConversationAsRead, selectedConversationId])
+    }, [loadMessages, markSelectedConversationAsRead, recordingAudio, selectedConversationId])
 
     useEffect(() => {
         if (!isNewConversationOpen) return
         void loadAvailableUsers(debouncedUserSearch, { silent: true })
     }, [debouncedUserSearch, isNewConversationOpen, loadAvailableUsers])
+
+    useEffect(() => {
+        return () => {
+            if (recordingIntervalRef.current) {
+                clearInterval(recordingIntervalRef.current)
+                recordingIntervalRef.current = null
+            }
+
+            const recorder = mediaRecorderRef.current
+            if (recorder && recorder.state !== "inactive") {
+                recorder.onstop = null
+                recorder.stop()
+            }
+            mediaRecorderRef.current = null
+            audioChunksRef.current = []
+
+            if (mediaStreamRef.current) {
+                mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+                mediaStreamRef.current = null
+            }
+        }
+    }, [])
 
     useEffect(() => {
         scrollMessagesViewportToBottom("auto")
@@ -439,31 +522,213 @@ export function InternalChatInbox({
         [creatingConversationUserId, loadConversations, showToast]
     )
 
+    const appendAttachmentFiles = useCallback(
+        (nextFiles: File[]) => {
+            if (nextFiles.length === 0) return
+
+            setAttachmentFiles((previous) => {
+                const mergedFiles = [...previous, ...nextFiles]
+                const validationError = validateInternalChatAttachmentFiles(mergedFiles, {
+                    maxCount: MAX_INTERNAL_CHAT_ATTACHMENTS_PER_MESSAGE,
+                })
+
+                if (validationError) {
+                    showToast({
+                        variant: "error",
+                        title: "Anexo inválido",
+                        description: validationError,
+                    })
+                    return previous
+                }
+
+                return mergedFiles
+            })
+        },
+        [showToast]
+    )
+
     const handleAttachmentChange = useCallback(
         (event: ChangeEvent<HTMLInputElement>) => {
             const nextFiles = Array.from(event.target.files ?? [])
             if (nextFiles.length === 0) return
 
-            const mergedFiles = [...attachmentFiles, ...nextFiles]
-            const validationError = validateInternalChatAttachmentFiles(mergedFiles, {
-                maxCount: MAX_INTERNAL_CHAT_ATTACHMENTS_PER_MESSAGE,
-            })
-
-            if (validationError) {
-                showToast({
-                    variant: "error",
-                    title: "Anexo inválido",
-                    description: validationError,
-                })
-                event.target.value = ""
-                return
-            }
-
-            setAttachmentFiles(mergedFiles)
+            appendAttachmentFiles(nextFiles)
             event.target.value = ""
         },
-        [attachmentFiles, showToast]
+        [appendAttachmentFiles]
     )
+
+    const handleAudioAttachmentChange = useCallback(
+        (event: ChangeEvent<HTMLInputElement>) => {
+            const nextFiles = Array.from(event.target.files ?? [])
+            if (nextFiles.length === 0) return
+
+            appendAttachmentFiles(nextFiles)
+            event.target.value = ""
+        },
+        [appendAttachmentFiles]
+    )
+
+    const stopRecordingTimer = useCallback(() => {
+        if (!recordingIntervalRef.current) return
+        clearInterval(recordingIntervalRef.current)
+        recordingIntervalRef.current = null
+    }, [])
+
+    const stopRecordingTracks = useCallback(() => {
+        if (!mediaStreamRef.current) return
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+        mediaStreamRef.current = null
+    }, [])
+
+    const stopAudioRecording = useCallback(() => {
+        const recorder = mediaRecorderRef.current
+        if (!recorder || recorder.state === "inactive") {
+            setRecordingAudio(false)
+            setRecordingSeconds(0)
+            stopRecordingTimer()
+            stopRecordingTracks()
+            return
+        }
+
+        recorder.stop()
+        setRecordingAudio(false)
+        setRecordingSeconds(0)
+        stopRecordingTimer()
+    }, [stopRecordingTimer, stopRecordingTracks])
+
+    const startAudioRecording = useCallback(async () => {
+        if (!selectedConversation) {
+            showToast({
+                variant: "error",
+                title: "Selecione uma conversa",
+                description: "Escolha uma conversa antes de gravar áudio.",
+            })
+            return
+        }
+
+        if (recordingAudio || isSending) return
+
+        if (typeof window === "undefined" || typeof window.MediaRecorder === "undefined") {
+            showToast({
+                variant: "error",
+                title: "Gravação indisponível",
+                description: "Seu navegador não suporta gravação de áudio.",
+            })
+            return
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            showToast({
+                variant: "error",
+                title: "Gravação indisponível",
+                description: "Não foi possível acessar o microfone neste navegador.",
+            })
+            return
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            const preferredMimeTypes = [
+                "audio/mp4",
+                "audio/ogg;codecs=opus",
+                "audio/ogg",
+                "audio/wav",
+            ]
+
+            const mimeType = preferredMimeTypes.find((item) => {
+                try {
+                    return MediaRecorder.isTypeSupported(item)
+                } catch {
+                    return false
+                }
+            })
+
+            const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+            mediaRecorderRef.current = recorder
+            mediaStreamRef.current = stream
+            audioChunksRef.current = []
+
+            recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    audioChunksRef.current.push(event.data)
+                }
+            }
+
+            recorder.onstop = () => {
+                const effectiveType = recorder.mimeType || audioChunksRef.current[0]?.type || "audio/ogg"
+                const extension = effectiveType.includes("ogg")
+                    ? "ogg"
+                    : effectiveType.includes("mp4") || effectiveType.includes("m4a")
+                        ? "m4a"
+                        : effectiveType.includes("mpeg") || effectiveType.includes("mp3")
+                            ? "mp3"
+                            : "wav"
+
+                const blob = new Blob(audioChunksRef.current, { type: effectiveType })
+                audioChunksRef.current = []
+                mediaRecorderRef.current = null
+                stopRecordingTracks()
+
+                if (blob.size <= 0) {
+                    showToast({
+                        variant: "error",
+                        title: "Áudio vazio",
+                        description: "Não foi possível capturar o áudio gravado.",
+                    })
+                    return
+                }
+
+                const file = new File([blob], `audio-${Date.now()}.${extension}`, {
+                    type: effectiveType,
+                })
+                appendAttachmentFiles([file])
+            }
+
+            recorder.onerror = () => {
+                showToast({
+                    variant: "error",
+                    title: "Falha na gravação",
+                    description: "Não foi possível gravar o áudio.",
+                })
+                stopAudioRecording()
+            }
+
+            recorder.start(250)
+            setRecordingAudio(true)
+            setRecordingSeconds(0)
+            stopRecordingTimer()
+            recordingIntervalRef.current = setInterval(() => {
+                setRecordingSeconds((previous) => previous + 1)
+            }, 1000)
+        } catch (error) {
+            stopRecordingTracks()
+            showToast({
+                variant: "error",
+                title: "Permissão negada",
+                description: error instanceof Error
+                    ? error.message
+                    : "Autorize o microfone para gravar áudio no chat.",
+            })
+        }
+    }, [
+        appendAttachmentFiles,
+        isSending,
+        recordingAudio,
+        selectedConversation,
+        showToast,
+        stopAudioRecording,
+        stopRecordingTimer,
+        stopRecordingTracks,
+    ])
+
+    const handleAudioButtonClick = useCallback(() => {
+        if (recordingAudio) {
+            stopAudioRecording()
+            return
+        }
+        void startAudioRecording()
+    }, [recordingAudio, startAudioRecording, stopAudioRecording])
 
     const handleRemoveSelectedAttachment = useCallback((index: number) => {
         setAttachmentFiles((previous) => previous.filter((_, currentIndex) => currentIndex !== index))
@@ -472,6 +737,7 @@ export function InternalChatInbox({
     const handleSendMessage = useCallback(async () => {
         const conversationId = selectedConversationIdRef.current
         if (!conversationId || isSending) return
+        if (recordingAudio) return
 
         const messageText = draft.trim()
         const hasAttachments = attachmentFiles.length > 0
@@ -556,7 +822,7 @@ export function InternalChatInbox({
             search: conversationSearchRef.current,
             silent: true,
         })
-    }, [attachmentFiles, draft, isSending, loadConversations, retentionPolicy, showToast])
+    }, [attachmentFiles, draft, isSending, loadConversations, recordingAudio, retentionPolicy, showToast])
 
     const handleDownloadAttachment = useCallback(
         async (attachmentId: string) => {
@@ -581,6 +847,37 @@ export function InternalChatInbox({
             }
         },
         [downloadingAttachmentId, loadMessages, showToast]
+    )
+
+    const handleLoadAudioAttachment = useCallback(
+        async (attachmentId: string) => {
+            if (audioAttachmentUrls[attachmentId]) return
+            if (loadingAudioAttachmentId) return
+
+            setLoadingAudioAttachmentId(attachmentId)
+            const result = await getAttachmentDownloadUrl(attachmentId)
+            setLoadingAudioAttachmentId(null)
+
+            if (!result.success) {
+                showToast({
+                    variant: "error",
+                    title: "Falha ao carregar áudio",
+                    description: result.error,
+                })
+                return
+            }
+
+            setAudioAttachmentUrls((previous) => ({
+                ...previous,
+                [attachmentId]: result.data.url,
+            }))
+
+            const activeConversationId = selectedConversationIdRef.current
+            if (activeConversationId) {
+                void loadMessages(activeConversationId, { silent: true })
+            }
+        },
+        [audioAttachmentUrls, loadingAudioAttachmentId, loadMessages, showToast]
     )
 
     const handleDeleteAttachment = useCallback(
@@ -608,6 +905,12 @@ export function InternalChatInbox({
                     attachments: message.attachments.filter((attachment) => attachment.id !== attachmentId),
                 }))
             )
+            setAudioAttachmentUrls((previous) => {
+                if (!previous[attachmentId]) return previous
+                const next = { ...previous }
+                delete next[attachmentId]
+                return next
+            })
             showToast({
                 variant: "success",
                 title: "Anexo apagado",
@@ -849,6 +1152,12 @@ export function InternalChatInbox({
                                                         {message.attachments.map((attachment) => {
                                                             const isDeleting = deletingAttachmentId === attachment.id
                                                             const isDownloading = downloadingAttachmentId === attachment.id
+                                                            const isAudioAttachment = hasAudioAttachmentMimeOrName(
+                                                                attachment.content_type,
+                                                                attachment.original_name
+                                                            )
+                                                            const audioUrl = audioAttachmentUrls[attachment.id] ?? null
+                                                            const isLoadingAudio = loadingAudioAttachmentId === attachment.id
 
                                                             return (
                                                                 <div
@@ -913,6 +1222,36 @@ export function InternalChatInbox({
                                                                             )}
                                                                         </div>
                                                                     </div>
+
+                                                                    {isAudioAttachment && (
+                                                                        <div className="mt-2 space-y-1">
+                                                                            {!audioUrl && (
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    size="sm"
+                                                                                    variant={isMine ? "secondary" : "outline"}
+                                                                                    className="h-7 text-[11px]"
+                                                                                    onClick={() => void handleLoadAudioAttachment(attachment.id)}
+                                                                                    disabled={isLoadingAudio || isDeleting}
+                                                                                >
+                                                                                    {isLoadingAudio ? (
+                                                                                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                                                                    ) : (
+                                                                                        <Play className="mr-1 h-3.5 w-3.5" />
+                                                                                    )}
+                                                                                    Ouvir áudio
+                                                                                </Button>
+                                                                            )}
+                                                                            {audioUrl && (
+                                                                                <audio
+                                                                                    controls
+                                                                                    preload="none"
+                                                                                    src={audioUrl}
+                                                                                    className="w-full"
+                                                                                />
+                                                                            )}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             )
                                                         })}
@@ -935,6 +1274,15 @@ export function InternalChatInbox({
                         <Separator />
 
                         <div className="space-y-2 p-4">
+                            <input
+                                ref={audioAttachmentInputRef}
+                                type="file"
+                                accept="audio/mpeg,audio/mp3,audio/ogg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,.mp3,.ogg,.wav,.m4a,.aac"
+                                className="hidden"
+                                onChange={handleAudioAttachmentChange}
+                                disabled={isSending}
+                            />
+
                             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_220px]">
                                 <Input
                                     ref={attachmentInputRef}
@@ -961,6 +1309,35 @@ export function InternalChatInbox({
                                     <option value="download_30d">Apagar 30 dias após download</option>
                                 </select>
                             </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => audioAttachmentInputRef.current?.click()}
+                                    disabled={isSending || !selectedConversation}
+                                >
+                                    <AudioLines className="mr-1 h-4 w-4" />
+                                    Selecionar áudio
+                                </Button>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant={recordingAudio ? "destructive" : "outline"}
+                                    onClick={() => void handleAudioButtonClick()}
+                                    disabled={isSending || !selectedConversation}
+                                >
+                                    <AudioLines className="mr-1 h-4 w-4" />
+                                    {recordingAudio ? "Parar gravação" : "Gravar áudio"}
+                                </Button>
+                            </div>
+
+                            {recordingAudio && (
+                                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                                    Gravando áudio... {formatRecordingDuration(recordingSeconds)}
+                                </div>
+                            )}
 
                             {attachmentFiles.length > 0 && (
                                 <div className="space-y-1 rounded-md border bg-slate-50 px-3 py-2">
@@ -1008,7 +1385,7 @@ export function InternalChatInbox({
                                 <Button
                                     type="button"
                                     onClick={() => void handleSendMessage()}
-                                    disabled={isSending || (draft.trim().length === 0 && attachmentFiles.length === 0)}
+                                    disabled={isSending || recordingAudio || (draft.trim().length === 0 && attachmentFiles.length === 0)}
                                 >
                                     {isSending ? (
                                         <Loader2 className="mr-1 h-4 w-4 animate-spin" />

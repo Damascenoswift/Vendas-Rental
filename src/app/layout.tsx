@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Sora, JetBrains_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AiChatProvider } from "@/contexts/ai-chat-context";
@@ -54,6 +55,7 @@ export default function RootLayout({
         <AiChatProvider>
           {children}
           <AiChatWidget />
+          <Analytics />
           <SpeedInsights />
         </AiChatProvider>
       </body>
