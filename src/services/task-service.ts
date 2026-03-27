@@ -11,6 +11,7 @@ import {
     createTaskCommentNotifications,
     createTaskStatusChangedNotifications,
 } from "@/services/notification-service"
+import { recordTaskActivityEvent } from "@/services/task-analyst-service"
 import { revalidatePath } from "next/cache"
 
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
@@ -1084,6 +1085,30 @@ export async function createTask(data: {
         }
     }
 
+    await recordTaskActivityEvent({
+        eventType: "TASK_CREATED",
+        taskId,
+        actorUserId: user.id,
+        payload: {
+            status: taskData.status ?? "TODO",
+            priority: taskData.priority ?? data.priority,
+            department: taskData.department ?? null,
+            assignee_id: taskData.assignee_id ?? null,
+            visibility_scope: visibilityScope,
+        },
+    })
+
+    if (description) {
+        await recordTaskActivityEvent({
+            eventType: "TASK_COMMENT_CREATED",
+            taskId,
+            actorUserId: user.id,
+            payload: {
+                source: "initial_description",
+            },
+        })
+    }
+
     revalidatePath('/admin/tarefas')
     return { success: true, taskId }
 }
@@ -1289,6 +1314,19 @@ export async function createRentalTasksForIndication(params: {
 
         created += 1
 
+        await recordTaskActivityEvent({
+            eventType: "TASK_CREATED",
+            taskId: taskRow.id,
+            actorUserId: params.creatorId,
+            payload: {
+                source: "createRentalTasksForIndication",
+                status: insertPayload.status ?? taskPayload.status ?? "TODO",
+                department: insertPayload.department ?? taskPayload.department ?? null,
+                assignee_id: null,
+                visibility_scope: "TEAM",
+            },
+        })
+
         let checklistResult = await insertChecklistTemplate({
             supabase: writeClient,
             taskId: taskRow.id,
@@ -1488,6 +1526,16 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
             } catch (notificationError) {
                 console.error("Error creating task status changed notification:", notificationError)
             }
+
+            await recordTaskActivityEvent({
+                eventType: "TASK_STATUS_CHANGED",
+                taskId,
+                actorUserId: user.id,
+                payload: {
+                    old_status: previousStatus ?? null,
+                    new_status: newStatus,
+                },
+            })
         }
         revalidatePath('/admin/tarefas')
         return { success: true }
@@ -1539,6 +1587,16 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
         } catch (notificationError) {
             console.error("Error creating task status changed notification:", notificationError)
         }
+
+        await recordTaskActivityEvent({
+            eventType: "TASK_STATUS_CHANGED",
+            taskId,
+            actorUserId: user.id,
+            payload: {
+                old_status: previousStatus ?? null,
+                new_status: newStatus,
+            },
+        })
     }
 
     revalidatePath('/admin/tarefas')
@@ -1547,7 +1605,26 @@ export async function updateTaskStatus(taskId: string, newStatus: TaskStatus) {
 
 export async function updateTask(taskId: string, updates: Partial<Task>) {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
     const payload: Record<string, unknown> = { ...updates }
+    const shouldTrackStatusChange = Object.prototype.hasOwnProperty.call(updates, "status")
+    const shouldTrackAssigneeChange = Object.prototype.hasOwnProperty.call(updates, "assignee_id")
+
+    let previousStatus: string | null = null
+    let previousAssigneeId: string | null = null
+
+    if (shouldTrackStatusChange || shouldTrackAssigneeChange) {
+        const { data: previousTask, error: previousTaskError } = await supabase
+            .from('tasks')
+            .select('status, assignee_id')
+            .eq('id', taskId)
+            .maybeSingle()
+
+        if (!previousTaskError && previousTask) {
+            previousStatus = (previousTask as { status?: string | null }).status ?? null
+            previousAssigneeId = (previousTask as { assignee_id?: string | null }).assignee_id ?? null
+        }
+    }
 
     while (true) {
         const { error } = await supabase
@@ -1568,6 +1645,38 @@ export async function updateTask(taskId: string, updates: Partial<Task>) {
         }
 
         return { error: error.message }
+    }
+
+    if (shouldTrackStatusChange) {
+        const nextStatus = typeof updates.status === "string" ? updates.status : null
+        if (nextStatus && nextStatus !== previousStatus) {
+            await recordTaskActivityEvent({
+                eventType: "TASK_STATUS_CHANGED",
+                taskId,
+                actorUserId: user?.id ?? null,
+                payload: {
+                    old_status: previousStatus,
+                    new_status: nextStatus,
+                    source: "updateTask",
+                },
+            })
+        }
+    }
+
+    if (shouldTrackAssigneeChange) {
+        const nextAssigneeId = typeof updates.assignee_id === "string" ? updates.assignee_id : null
+        if (nextAssigneeId !== previousAssigneeId) {
+            await recordTaskActivityEvent({
+                eventType: "TASK_ASSIGNEE_CHANGED",
+                taskId,
+                actorUserId: user?.id ?? null,
+                payload: {
+                    old_assignee_id: previousAssigneeId,
+                    new_assignee_id: nextAssigneeId,
+                    source: "updateTask",
+                },
+            })
+        }
     }
 
     revalidatePath('/admin/tarefas')
@@ -1844,6 +1953,19 @@ export async function addTaskChecklistItem(
         }
     }
 
+    await recordTaskActivityEvent({
+        eventType: "TASK_CHECKLIST_CREATED",
+        taskId,
+        actorUserId: user?.id ?? null,
+        checklistItemId: insertedChecklistId,
+        payload: {
+            title: title.trim(),
+            due_date: options?.dueDate ?? null,
+            phase: options?.phase ?? null,
+            responsible_user_id: responsibleUserId,
+        },
+    })
+
     revalidatePath('/admin/tarefas')
     return { success: true }
 }
@@ -2072,6 +2194,20 @@ export async function toggleTaskChecklistItem(
         if (observerUpsertError) {
             console.error("Error auto-linking checklist responsible as observer on toggle:", observerUpsertError)
         }
+    }
+
+    if (itemWithTask?.task_id) {
+        await recordTaskActivityEvent({
+            eventType: "TASK_CHECKLIST_DECISION_CHANGED",
+            taskId: itemWithTask.task_id,
+            actorUserId: user.id,
+            checklistItemId: itemId,
+            payload: {
+                decision_status: nextDecisionStatus,
+                is_done: nextIsDone,
+                responsible_user_id: checklistResponsibleUserId,
+            },
+        })
     }
 
     // Keep doc commands mutually exclusive in the same task
@@ -2470,6 +2606,16 @@ export async function addTaskComment(
     if (!insertedComment?.id) {
         return { error: "Comentário criado, mas não foi possível confirmar o registro." }
     }
+
+    await recordTaskActivityEvent({
+        eventType: "TASK_COMMENT_CREATED",
+        taskId,
+        actorUserId: user.id,
+        payload: {
+            comment_id: insertedComment.id,
+            parent_id: parentId ?? null,
+        },
+    })
 
     try {
         await createTaskCommentNotifications({

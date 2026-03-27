@@ -1520,3 +1520,174 @@ export async function getMyUnreadChatCount() {
         return sum + Math.max(unread, 0)
     }, 0)
 }
+
+export type SystemDirectMessageParams = {
+    senderUserId: string
+    recipientUserId: string
+    body: string
+    dedupeToken?: string | null
+}
+
+export type SystemDirectMessageResult =
+    | { success: true; data: { conversationId: string; messageId: string } }
+    | { success: false; error: string }
+
+export async function sendSystemDirectMessage(params: SystemDirectMessageParams): Promise<SystemDirectMessageResult> {
+    const senderUserId = params.senderUserId.trim()
+    const recipientUserId = params.recipientUserId.trim()
+
+    if (!senderUserId || !recipientUserId) {
+        return { success: false, error: "Usuário remetente/destinatário inválido." }
+    }
+
+    if (senderUserId === recipientUserId) {
+        return { success: false, error: "Remetente e destinatário devem ser diferentes." }
+    }
+
+    const body = resolveMessageBodyValue(params.body, false)
+    if (!body) {
+        return { success: false, error: "Mensagem inválida." }
+    }
+
+    let supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
+    try {
+        supabaseAdmin = createSupabaseServiceClient()
+    } catch (error) {
+        console.error("Error creating service client for system direct message:", error)
+        return { success: false, error: "Falha ao inicializar envio interno." }
+    }
+
+    const [directUserAId, directUserBId] = normalizeDirectPair(senderUserId, recipientUserId)
+
+    const { data: existingConversation, error: existingConversationError } = await supabaseAdmin
+        .from("internal_chat_conversations")
+        .select("id")
+        .eq("direct_user_a_id", directUserAId)
+        .eq("direct_user_b_id", directUserBId)
+        .maybeSingle()
+
+    if (existingConversationError) {
+        console.error("Error loading direct conversation for system message:", {
+            error: existingConversationError,
+            senderUserId,
+            recipientUserId,
+        })
+        return { success: false, error: "Falha ao localizar conversa interna." }
+    }
+
+    let conversationId = existingConversation?.id as string | undefined
+
+    if (!conversationId) {
+        const { data: insertedConversation, error: insertConversationError } = await supabaseAdmin
+            .from("internal_chat_conversations")
+            .insert({
+                kind: "direct",
+                direct_user_a_id: directUserAId,
+                direct_user_b_id: directUserBId,
+            })
+            .select("id")
+            .maybeSingle()
+
+        if (insertConversationError) {
+            if (insertConversationError.code === "23505") {
+                const { data: raceConversation, error: raceError } = await supabaseAdmin
+                    .from("internal_chat_conversations")
+                    .select("id")
+                    .eq("direct_user_a_id", directUserAId)
+                    .eq("direct_user_b_id", directUserBId)
+                    .maybeSingle()
+
+                if (raceError || !raceConversation?.id) {
+                    console.error("Error resolving race on system direct conversation:", {
+                        error: raceError,
+                        senderUserId,
+                        recipientUserId,
+                    })
+                    return { success: false, error: "Falha ao abrir conversa interna." }
+                }
+
+                conversationId = raceConversation.id as string
+            } else {
+                console.error("Error creating system direct conversation:", {
+                    error: insertConversationError,
+                    senderUserId,
+                    recipientUserId,
+                })
+                return { success: false, error: "Falha ao abrir conversa interna." }
+            }
+        } else {
+            conversationId = insertedConversation?.id as string | undefined
+        }
+    }
+
+    if (!conversationId) {
+        return { success: false, error: "Falha ao identificar conversa interna." }
+    }
+
+    const { error: participantUpsertError } = await supabaseAdmin
+        .from("internal_chat_participants")
+        .upsert(
+            [
+                { conversation_id: conversationId, user_id: senderUserId },
+                { conversation_id: conversationId, user_id: recipientUserId },
+            ],
+            { onConflict: "conversation_id,user_id", ignoreDuplicates: true }
+        )
+
+    if (participantUpsertError) {
+        console.error("Error upserting participants for system direct message:", {
+            error: participantUpsertError,
+            conversationId,
+            senderUserId,
+            recipientUserId,
+        })
+    }
+
+    const { data: insertedMessage, error: messageError } = await supabaseAdmin
+        .from("internal_chat_messages")
+        .insert({
+            conversation_id: conversationId,
+            sender_user_id: senderUserId,
+            body,
+        })
+        .select("id")
+        .maybeSingle()
+
+    if (messageError || !insertedMessage?.id) {
+        console.error("Error inserting system direct message:", {
+            error: messageError,
+            conversationId,
+            senderUserId,
+            recipientUserId,
+        })
+        return { success: false, error: "Falha ao enviar mensagem interna." }
+    }
+
+    try {
+        await createChatMessageNotification({
+            conversationId,
+            senderUserId,
+            recipientUserId,
+            body,
+            messageId: insertedMessage.id,
+        })
+    } catch (notificationError) {
+        console.error("Error dispatching notification for system direct message:", {
+            error: notificationError,
+            conversationId,
+            senderUserId,
+            recipientUserId,
+        })
+    }
+
+    revalidatePath("/admin/chat")
+    revalidatePath("/admin/notificacoes")
+
+    return {
+        success: true,
+        data: {
+            conversationId,
+            messageId: insertedMessage.id,
+        },
+    }
+}

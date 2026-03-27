@@ -5,9 +5,11 @@ import { TaskBackfillButton } from "@/components/admin/tasks/task-backfill-butto
 import { TaskAttachmentsCleanupButton } from "@/components/admin/tasks/task-attachments-cleanup-button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskDashboard } from "@/components/admin/tasks/task-dashboard"
+import { TaskAnalystDashboard } from "@/components/admin/tasks/task-analyst-dashboard"
 import { TaskFilters } from "@/components/admin/tasks/task-filters"
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
+import { getTaskAnalystDashboardSummary } from "@/services/task-analyst-service"
 
 type TaskScope = "all" | "mine" | "department"
 
@@ -45,6 +47,8 @@ export default async function TasksPage({
     }
 
     const tasks = await getTasks({ showAll: true, brand, assigneeId, department, search })
+    const canViewTaskAnalyst = profile?.role === "adm_mestre"
+    const taskAnalystSummary = canViewTaskAnalyst ? await getTaskAnalystDashboardSummary() : null
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -68,6 +72,7 @@ export default async function TasksPage({
                     <TabsList>
                         <TabsTrigger value="board">Quadro Kanban</TabsTrigger>
                         <TabsTrigger value="dashboard">Visão Geral</TabsTrigger>
+                        {canViewTaskAnalyst ? <TabsTrigger value="analyst">Analista IA</TabsTrigger> : null}
                     </TabsList>
 
                     <div className="flex items-center gap-2">
@@ -83,6 +88,12 @@ export default async function TasksPage({
                     <TabsContent value="dashboard" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
                         <TaskDashboard tasks={tasks} />
                     </TabsContent>
+
+                    {canViewTaskAnalyst ? (
+                        <TabsContent value="analyst" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
+                            <TaskAnalystDashboard summary={taskAnalystSummary} />
+                        </TabsContent>
+                    ) : null}
                 </div>
             </Tabs>
         </div>
