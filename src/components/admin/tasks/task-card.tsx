@@ -18,6 +18,7 @@ interface TaskCardProps {
 const TASK_STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
     { value: "TODO", label: "A Fazer" },
     { value: "IN_PROGRESS", label: "Em Andamento" },
+    { value: "BLOCKED", label: "Bloqueada" },
     { value: "REVIEW", label: "Revisão" },
     { value: "DONE", label: "Concluído" },
 ]

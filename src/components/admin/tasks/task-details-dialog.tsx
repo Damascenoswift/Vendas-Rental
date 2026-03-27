@@ -6,7 +6,18 @@ import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { AlertTriangle, ChevronDown, ChevronUp, Paperclip, Trash2, UserPlus, X } from "lucide-react"
 
-import type { Task, TaskChecklistDecision, TaskChecklistItem, TaskComment, TaskObserver, TaskPriority, TaskProposalOption } from "@/services/task-service"
+import type {
+    Department,
+    Task,
+    TaskBlocker,
+    TaskBlockerOwnerType,
+    TaskChecklistDecision,
+    TaskChecklistItem,
+    TaskComment,
+    TaskObserver,
+    TaskPriority,
+    TaskProposalOption,
+} from "@/services/task-service"
 import {
     addTaskChecklistItem,
     addTaskComment,
@@ -14,12 +25,16 @@ import {
     activateTaskEnergisa,
     deleteTask,
     deleteTaskChecklistItem,
+    getTaskBlockers,
     getTaskChecklists,
     getTaskComments,
     getTaskAssignableUsers,
     getTaskObservers,
     getTaskProposalOptions,
+    openTaskBlocker,
     removeTaskObserver,
+    resolveTaskBlocker,
+    transferTaskResponsibility,
     triggerTaskDocAlert,
     toggleTaskChecklistItem,
     updateTask,
@@ -109,6 +124,18 @@ const PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
     { value: "URGENT", label: "Urgente" },
 ]
 
+const TASK_DEPARTMENT_OPTIONS: Array<{ value: Department; label: string }> = [
+    { value: "vendas", label: "Vendas" },
+    { value: "cadastro", label: "Cadastro" },
+    { value: "energia", label: "Energia" },
+    { value: "juridico", label: "Jurídico" },
+    { value: "financeiro", label: "Financeiro" },
+    { value: "ti", label: "TI" },
+    { value: "diretoria", label: "Diretoria" },
+    { value: "obras", label: "Obras" },
+    { value: "outro", label: "Outro" },
+]
+
 const formatDateTime = (value?: string | null) => {
     if (!value) return ""
     const parsed = new Date(value)
@@ -121,6 +148,21 @@ const formatDateOnly = (value?: string | null) => {
     const parsed = new Date(value)
     if (Number.isNaN(parsed.getTime())) return ""
     return format(parsed, "dd/MM/yyyy", { locale: ptBR })
+}
+
+const formatHoursSince = (value?: string | null) => {
+    if (!value) return "-"
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return "-"
+    const diffMs = Date.now() - parsed.getTime()
+    if (diffMs <= 0) return "0h"
+    return `${Math.floor(diffMs / (1000 * 60 * 60))}h`
+}
+
+const formatDepartmentLabel = (department?: string | null) => {
+    const normalized = (department ?? "").trim().toLowerCase()
+    const found = TASK_DEPARTMENT_OPTIONS.find((option) => option.value === normalized)
+    return found?.label ?? "Outro"
 }
 
 const getInitials = (name: string) =>
@@ -232,6 +274,7 @@ export function TaskDetailsDialog({
     const [checklists, setChecklists] = useState<TaskChecklistItem[]>([])
     const [observers, setObservers] = useState<TaskObserver[]>([])
     const [comments, setComments] = useState<TaskComment[]>([])
+    const [blockers, setBlockers] = useState<TaskBlocker[]>([])
     const [attachments, setAttachments] = useState<TaskAttachmentFile[]>([])
     const [users, setUsers] = useState<UserOption[]>([])
     const [newChecklistTitle, setNewChecklistTitle] = useState("")
@@ -252,6 +295,9 @@ export function TaskDetailsDialog({
     const [activeDocAlert, setActiveDocAlert] = useState<'DOCS_INCOMPLETE' | 'DOCS_REJECTED' | null>(null)
     const [editDueDate, setEditDueDate] = useState("")
     const [editAssigneeId, setEditAssigneeId] = useState("")
+    const [transferTargetUserId, setTransferTargetUserId] = useState("")
+    const [transferReason, setTransferReason] = useState("")
+    const [isTransferringResponsibility, setIsTransferringResponsibility] = useState(false)
     const [editTitle, setEditTitle] = useState("")
     const [editPriority, setEditPriority] = useState<TaskPriority>("MEDIUM")
     const [editClientName, setEditClientName] = useState("")
@@ -260,6 +306,14 @@ export function TaskDetailsDialog({
     const [editContactId, setEditContactId] = useState("")
     const [editProposalId, setEditProposalId] = useState("")
     const [isClientLinkExpanded, setIsClientLinkExpanded] = useState(false)
+    const [newBlockerOwnerType, setNewBlockerOwnerType] = useState<TaskBlockerOwnerType>("USER")
+    const [newBlockerOwnerUserId, setNewBlockerOwnerUserId] = useState("")
+    const [newBlockerOwnerDepartment, setNewBlockerOwnerDepartment] = useState<Department | "">("")
+    const [newBlockerReason, setNewBlockerReason] = useState("")
+    const [newBlockerExpectedAt, setNewBlockerExpectedAt] = useState("")
+    const [isSavingBlocker, setIsSavingBlocker] = useState(false)
+    const [resolvingBlockerId, setResolvingBlockerId] = useState<string | null>(null)
+    const [resolutionNotesByBlockerId, setResolutionNotesByBlockerId] = useState<Record<string, string>>({})
     const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
     const [proposalOptions, setProposalOptions] = useState<TaskProposalOption[]>([])
     const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -292,6 +346,15 @@ export function TaskDetailsDialog({
             return phase === null || phase === 'geral'
         }),
         [checklists]
+    )
+
+    const activeBlockers = useMemo(
+        () => blockers.filter((blocker) => blocker.status === "OPEN"),
+        [blockers]
+    )
+    const closedBlockers = useMemo(
+        () => blockers.filter((blocker) => blocker.status !== "OPEN"),
+        [blockers]
     )
 
     const formattedDueDate = useMemo(() => {
@@ -406,6 +469,7 @@ export function TaskDetailsDialog({
         setChecklists([])
         setObservers([])
         setComments([])
+        setBlockers([])
         setAttachments([])
         setNewChecklistTitle("")
         setNewChecklistResponsibleId("")
@@ -419,6 +483,8 @@ export function TaskDetailsDialog({
             attachmentInputRef.current.value = ""
         }
         setEditAssigneeId(taskAssigneeId)
+        setTransferTargetUserId(taskAssigneeId)
+        setTransferReason("")
         setEditTitle(taskTitle)
         setEditPriority(taskPriority)
         setEditClientName(taskClientName)
@@ -427,6 +493,12 @@ export function TaskDetailsDialog({
         setEditContactId(taskContactId)
         setEditProposalId(taskProposalId)
         setIsClientLinkExpanded(false)
+        setNewBlockerOwnerType("USER")
+        setNewBlockerOwnerUserId("")
+        setNewBlockerOwnerDepartment("")
+        setNewBlockerReason("")
+        setNewBlockerExpectedAt("")
+        setResolutionNotesByBlockerId({})
         if (taskDueDate) {
             const parsed = new Date(taskDueDate)
             setEditDueDate(Number.isNaN(parsed.getTime()) ? "" : format(parsed, "yyyy-MM-dd"))
@@ -436,11 +508,12 @@ export function TaskDetailsDialog({
 
         const load = async () => {
             setIsLoading(true)
-            const [checklistResult, observerResult, commentResult, attachmentResult] = await Promise.allSettled([
+            const [checklistResult, observerResult, commentResult, attachmentResult, blockerResult] = await Promise.allSettled([
                 getTaskChecklists(taskId),
                 getTaskObservers(taskId),
                 getTaskComments(taskId),
                 listTaskAttachments(taskId),
+                getTaskBlockers(taskId),
             ])
 
             if (checklistResult.status === "fulfilled") {
@@ -472,6 +545,13 @@ export function TaskDetailsDialog({
                 }
             } else {
                 console.error("Error loading task attachments:", attachmentResult.reason)
+            }
+
+            if (blockerResult.status === "fulfilled") {
+                setBlockers(blockerResult.value)
+            } else {
+                console.error("Error loading task blockers:", blockerResult.reason)
+                setBlockers([])
             }
             setIsLoading(false)
         }
@@ -877,7 +957,6 @@ export function TaskDetailsDialog({
             title: trimmedTitle,
             priority: editPriority,
             due_date: dueDateIso,
-            assignee_id: editAssigneeId || null,
             client_name: cleanedClientName || null,
             codigo_instalacao: cleanedCodigoInstalacao || null,
             indicacao_id: editIndicacaoId || null,
@@ -894,7 +973,6 @@ export function TaskDetailsDialog({
             showToast({ title: "Erro ao atualizar tarefa", description: result.error, variant: "error" })
         } else {
             showToast({ title: "Tarefa atualizada", variant: "success" })
-            const assignee = users.find((item) => item.id === editAssigneeId)
             onTaskUpdated?.(task.id, {
                 ...updates,
                 title: trimmedTitle,
@@ -904,10 +982,137 @@ export function TaskDetailsDialog({
                 indicacao_id: editIndicacaoId || null,
                 contact_id: editContactId || null,
                 proposal_id: editProposalId || null,
-                assignee: assignee ? { name: assignee.name, email: assignee.email ?? "" } : undefined,
             })
         }
         setIsSavingDetails(false)
+    }
+
+    const refreshTaskBlockers = async (currentTaskId: string) => {
+        const nextBlockers = await getTaskBlockers(currentTaskId)
+        setBlockers(nextBlockers)
+    }
+
+    const handleTransferResponsibility = async () => {
+        if (!task) return
+
+        const targetUserId = transferTargetUserId.trim()
+        const reason = transferReason.trim()
+        if (!targetUserId) {
+            showToast({ title: "Novo responsável obrigatório", description: "Selecione o novo responsável.", variant: "error" })
+            return
+        }
+        if (!reason) {
+            showToast({ title: "Justificativa obrigatória", description: "Informe por que a tarefa está sendo transferida.", variant: "error" })
+            return
+        }
+        if (targetUserId === editAssigneeId) {
+            showToast({ title: "Sem alteração", description: "Selecione uma pessoa diferente da atual.", variant: "info" })
+            return
+        }
+
+        setIsTransferringResponsibility(true)
+        const result = await transferTaskResponsibility({
+            taskId: task.id,
+            toUserId: targetUserId,
+            reason,
+        })
+        if (result?.error) {
+            showToast({ title: "Erro ao transferir", description: result.error, variant: "error" })
+            setIsTransferringResponsibility(false)
+            return
+        }
+
+        const nextAssignee = users.find((user) => user.id === targetUserId)
+        setEditAssigneeId(targetUserId)
+        setTransferReason("")
+        onTaskUpdated?.(task.id, {
+            assignee_id: targetUserId,
+            assignee: nextAssignee ? { name: nextAssignee.name, email: nextAssignee.email ?? "" } : undefined,
+        })
+
+        showToast({ title: "Responsável transferido", variant: "success" })
+        setIsTransferringResponsibility(false)
+    }
+
+    const handleOpenBlocker = async () => {
+        if (!task) return
+        const reason = newBlockerReason.trim()
+        if (!reason) {
+            showToast({ title: "Motivo obrigatório", description: "Descreva o motivo do bloqueio.", variant: "error" })
+            return
+        }
+        if (!newBlockerExpectedAt) {
+            showToast({ title: "Prazo obrigatório", description: "Informe o prazo estimado de desbloqueio.", variant: "error" })
+            return
+        }
+
+        if (newBlockerOwnerType === "USER" && !newBlockerOwnerUserId) {
+            showToast({ title: "Dependência obrigatória", description: "Selecione a pessoa responsável pelo desbloqueio.", variant: "error" })
+            return
+        }
+        if (newBlockerOwnerType === "DEPARTMENT" && !newBlockerOwnerDepartment) {
+            showToast({ title: "Dependência obrigatória", description: "Selecione o setor responsável pelo desbloqueio.", variant: "error" })
+            return
+        }
+
+        setIsSavingBlocker(true)
+        const expected = new Date(newBlockerExpectedAt)
+        if (Number.isNaN(expected.getTime())) {
+            showToast({ title: "Prazo inválido", description: "Informe uma data/hora válida para desbloqueio.", variant: "error" })
+            setIsSavingBlocker(false)
+            return
+        }
+        const result = await openTaskBlocker({
+            taskId: task.id,
+            ownerType: newBlockerOwnerType,
+            ownerUserId: newBlockerOwnerType === "USER" ? newBlockerOwnerUserId : null,
+            ownerDepartment: newBlockerOwnerType === "DEPARTMENT" ? newBlockerOwnerDepartment : null,
+            reason,
+            expectedUnblockAt: expected.toISOString(),
+        })
+
+        if (result?.error) {
+            showToast({ title: "Erro ao abrir bloqueio", description: result.error, variant: "error" })
+            setIsSavingBlocker(false)
+            return
+        }
+
+        await refreshTaskBlockers(task.id)
+        if (task.status !== "BLOCKED") {
+            onTaskUpdated?.(task.id, { status: "BLOCKED" })
+        }
+        setNewBlockerReason("")
+        setNewBlockerExpectedAt("")
+        setNewBlockerOwnerUserId("")
+        setNewBlockerOwnerDepartment("")
+        showToast({ title: "Bloqueio registrado", variant: "success" })
+        setIsSavingBlocker(false)
+    }
+
+    const handleResolveBlocker = async (blocker: TaskBlocker) => {
+        if (!task) return
+        setResolvingBlockerId(blocker.id)
+        const resolutionNote = resolutionNotesByBlockerId[blocker.id]?.trim() || null
+
+        const result = await resolveTaskBlocker({
+            blockerId: blocker.id,
+            resolutionNote,
+        })
+
+        if (result?.error) {
+            showToast({ title: "Erro ao resolver bloqueio", description: result.error, variant: "error" })
+            setResolvingBlockerId(null)
+            return
+        }
+
+        await refreshTaskBlockers(task.id)
+        setResolutionNotesByBlockerId((prev) => {
+            const next = { ...prev }
+            delete next[blocker.id]
+            return next
+        })
+        showToast({ title: "Bloqueio resolvido", variant: "success" })
+        setResolvingBlockerId(null)
     }
 
     const handleActivateEnergisa = async () => {
@@ -1530,23 +1735,13 @@ export function TaskDetailsDialog({
                                 />
                             </div>
                             <div className="grid gap-1">
-                                <label className="text-xs text-muted-foreground">Responsável</label>
-                                <Select
-                                    value={editAssigneeId || "__unassigned__"}
-                                    onValueChange={(value) => setEditAssigneeId(value === "__unassigned__" ? "" : value)}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Selecione um responsável" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__unassigned__">Sem responsável</SelectItem>
-                                        {responsibleUsers.map((user) => (
-                                            <SelectItem key={user.id} value={user.id}>
-                                                {user.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <label className="text-xs text-muted-foreground">Responsável atual</label>
+                                <div className="rounded-md border bg-background px-3 py-2 text-sm">
+                                    {editAssigneeId ? (usersById.get(editAssigneeId) ?? "Usuário vinculado") : "Sem responsável"}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Use o bloco de transferência para mudar responsável com justificativa.
+                                </p>
                             </div>
                             <div className="flex justify-end">
                                 <Button onClick={handleSaveDetails} disabled={isSavingDetails}>
@@ -1559,6 +1754,213 @@ export function TaskDetailsDialog({
                     <Separator />
 
                     <div className="grid gap-4">
+                        <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+                            <h4 className="text-sm font-semibold">Transferir responsabilidade</h4>
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Novo responsável</label>
+                                <Select
+                                    value={transferTargetUserId || "__none__"}
+                                    onValueChange={(value) => setTransferTargetUserId(value === "__none__" ? "" : value)}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione um responsável" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="__none__">Selecione</SelectItem>
+                                        {responsibleUsers.map((user) => (
+                                            <SelectItem key={user.id} value={user.id}>
+                                                {user.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Justificativa obrigatória</label>
+                                <Textarea
+                                    rows={3}
+                                    value={transferReason}
+                                    onChange={(event) => setTransferReason(event.target.value)}
+                                    placeholder="Explique por que esta tarefa está sendo transferida."
+                                />
+                            </div>
+                            <div className="flex justify-end">
+                                <Button
+                                    onClick={handleTransferResponsibility}
+                                    disabled={
+                                        isTransferringResponsibility
+                                        || !transferTargetUserId
+                                        || transferTargetUserId === editAssigneeId
+                                        || !transferReason.trim()
+                                    }
+                                >
+                                    {isTransferringResponsibility ? "Transferindo..." : "Transferir responsabilidade"}
+                                </Button>
+                            </div>
+                        </div>
+
+                        <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+                            <h4 className="text-sm font-semibold">Bloqueios formais</h4>
+                            <div className="grid gap-2 md:grid-cols-2">
+                                <div className="grid gap-2">
+                                    <label className="text-xs text-muted-foreground">Dependência (tipo)</label>
+                                    <Select
+                                        value={newBlockerOwnerType}
+                                        onValueChange={(value) => setNewBlockerOwnerType(value as TaskBlockerOwnerType)}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Selecione" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="USER">Pessoa</SelectItem>
+                                            <SelectItem value="DEPARTMENT">Setor</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {newBlockerOwnerType === "USER" ? (
+                                    <div className="grid gap-2">
+                                        <label className="text-xs text-muted-foreground">Pessoa responsável pelo desbloqueio</label>
+                                        <Select
+                                            value={newBlockerOwnerUserId || "__none__"}
+                                            onValueChange={(value) => setNewBlockerOwnerUserId(value === "__none__" ? "" : value)}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione uma pessoa" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="__none__">Selecione</SelectItem>
+                                                {responsibleUsers.map((user) => (
+                                                    <SelectItem key={user.id} value={user.id}>
+                                                        {user.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                ) : (
+                                    <div className="grid gap-2">
+                                        <label className="text-xs text-muted-foreground">Setor responsável pelo desbloqueio</label>
+                                        <Select
+                                            value={newBlockerOwnerDepartment || "__none__"}
+                                            onValueChange={(value) => setNewBlockerOwnerDepartment(value === "__none__" ? "" : (value as Department))}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Selecione um setor" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="__none__">Selecione</SelectItem>
+                                                {TASK_DEPARTMENT_OPTIONS.map((department) => (
+                                                    <SelectItem key={department.value} value={department.value}>
+                                                        {department.label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Prazo estimado de desbloqueio</label>
+                                <Input
+                                    type="datetime-local"
+                                    value={newBlockerExpectedAt}
+                                    onChange={(event) => setNewBlockerExpectedAt(event.target.value)}
+                                />
+                            </div>
+
+                            <div className="grid gap-2">
+                                <label className="text-xs text-muted-foreground">Motivo do bloqueio</label>
+                                <Textarea
+                                    rows={3}
+                                    value={newBlockerReason}
+                                    onChange={(event) => setNewBlockerReason(event.target.value)}
+                                    placeholder="Descreva o que impede o avanço desta tarefa."
+                                />
+                            </div>
+
+                            <div className="flex justify-end">
+                                <Button onClick={handleOpenBlocker} disabled={isSavingBlocker || !newBlockerReason.trim() || !newBlockerExpectedAt}>
+                                    {isSavingBlocker ? "Registrando..." : "Abrir bloqueio"}
+                                </Button>
+                            </div>
+
+                            <div className="grid gap-2">
+                                <h5 className="text-xs font-semibold text-muted-foreground">Bloqueios ativos</h5>
+                                {activeBlockers.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Nenhum bloqueio ativo nesta tarefa.</p>
+                                ) : (
+                                    activeBlockers.map((blocker) => {
+                                        const ownerLabel = blocker.owner_type === "USER"
+                                            ? (blocker.owner_user_id ? (usersById.get(blocker.owner_user_id) ?? "Pessoa não identificada") : "Pessoa não identificada")
+                                            : `Setor ${formatDepartmentLabel(blocker.owner_department)}`
+
+                                        return (
+                                            <div key={blocker.id} className="rounded-md border bg-background p-3 space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <Badge variant="outline">Aberto</Badge>
+                                                    <span className="text-[11px] text-muted-foreground">
+                                                        Aberto há {formatHoursSince(blocker.opened_at)}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs"><span className="font-medium">Dependência:</span> {ownerLabel}</p>
+                                                <p className="text-xs"><span className="font-medium">Motivo:</span> {blocker.reason}</p>
+                                                <p className="text-xs"><span className="font-medium">Previsão:</span> {formatDateTime(blocker.expected_unblock_at)}</p>
+                                                <Textarea
+                                                    rows={2}
+                                                    placeholder="Nota de resolução (opcional)"
+                                                    value={resolutionNotesByBlockerId[blocker.id] ?? ""}
+                                                    onChange={(event) =>
+                                                        setResolutionNotesByBlockerId((prev) => ({
+                                                            ...prev,
+                                                            [blocker.id]: event.target.value,
+                                                        }))
+                                                    }
+                                                />
+                                                <div className="flex justify-end">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => handleResolveBlocker(blocker)}
+                                                        disabled={resolvingBlockerId === blocker.id}
+                                                    >
+                                                        {resolvingBlockerId === blocker.id ? "Resolvendo..." : "Marcar como resolvido"}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        )
+                                    })
+                                )}
+                            </div>
+
+                            <div className="grid gap-2">
+                                <h5 className="text-xs font-semibold text-muted-foreground">Histórico de bloqueios resolvidos</h5>
+                                {closedBlockers.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground">Sem bloqueios resolvidos/cancelados.</p>
+                                ) : (
+                                    closedBlockers.slice(0, 8).map((blocker) => {
+                                        const ownerLabel = blocker.owner_type === "USER"
+                                            ? (blocker.owner_user_id ? (usersById.get(blocker.owner_user_id) ?? "Pessoa não identificada") : "Pessoa não identificada")
+                                            : `Setor ${formatDepartmentLabel(blocker.owner_department)}`
+
+                                        return (
+                                            <div key={blocker.id} className="rounded-md border bg-background p-3 space-y-1">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <Badge variant="secondary">{blocker.status}</Badge>
+                                                    <span className="text-[11px] text-muted-foreground">
+                                                        Resolvido em {formatDateTime(blocker.resolved_at)}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs"><span className="font-medium">Dependência:</span> {ownerLabel}</p>
+                                                <p className="text-xs"><span className="font-medium">Motivo:</span> {blocker.reason}</p>
+                                            </div>
+                                        )
+                                    })
+                                )}
+                            </div>
+                        </div>
+
                         <div className="grid gap-3 rounded-md border border-red-200 bg-red-50/50 p-3">
                             <div className="flex items-center justify-between gap-2">
                                 <h4 className="flex items-center gap-2 text-sm font-semibold text-red-700">

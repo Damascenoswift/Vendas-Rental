@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { TaskAnalystDashboardSummary } from "@/services/task-analyst-service"
@@ -60,7 +61,7 @@ export function TaskAnalystDashboard({ summary }: TaskAnalystDashboardProps) {
 
     return (
         <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium">Abertas</CardTitle>
@@ -90,6 +91,16 @@ export function TaskAnalystDashboard({ summary }: TaskAnalystDashboardProps) {
                         <p className="text-xs text-muted-foreground">Precisam de definição de owner.</p>
                     </CardContent>
                 </Card>
+
+                <Card>
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Bloqueios Ativos</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-orange-700">{summary.blockedTasks.length}</div>
+                        <p className="text-xs text-muted-foreground">Bloqueios formais em aberto.</p>
+                    </CardContent>
+                </Card>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -113,6 +124,144 @@ export function TaskAnalystDashboard({ summary }: TaskAnalystDashboardProps) {
                     </CardContent>
                 </Card>
             </div>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base">Atrasadas (Drill-down)</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                    {summary.overdueTasks.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhuma tarefa atrasada no momento.</p>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Tarefa</TableHead>
+                                    <TableHead>Setor</TableHead>
+                                    <TableHead>Responsável</TableHead>
+                                    <TableHead className="text-center">Status</TableHead>
+                                    <TableHead className="text-center">Prazo</TableHead>
+                                    <TableHead className="text-center">Atraso</TableHead>
+                                    <TableHead className="text-center">Sem avanço</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {summary.overdueTasks.map((task) => (
+                                    <TableRow key={task.taskId}>
+                                        <TableCell className="font-medium">{task.title}</TableCell>
+                                        <TableCell>{formatDepartmentLabel(task.department)}</TableCell>
+                                        <TableCell>{task.assigneeName}</TableCell>
+                                        <TableCell className="text-center">
+                                            <Badge variant="outline">{task.status}</Badge>
+                                        </TableCell>
+                                        <TableCell className="text-center">{formatDateTime(task.dueDate)}</TableCell>
+                                        <TableCell className="text-center">{task.overdueHours}h</TableCell>
+                                        <TableCell className="text-center">{task.hoursWithoutProgress}h</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+
+            <div className="grid gap-4 md:grid-cols-2">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Bloqueios por Pessoa</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                        {summary.blockerLoadByUser.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Nenhuma pessoa com tarefas bloqueadas no momento.</p>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Pessoa</TableHead>
+                                        <TableHead className="text-center">Tarefas</TableHead>
+                                        <TableHead className="text-center">Bloqueios</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {summary.blockerLoadByUser.map((item) => (
+                                        <TableRow key={item.ownerUserId}>
+                                            <TableCell className="font-medium">{item.ownerName}</TableCell>
+                                            <TableCell className="text-center">{item.blockedTasks}</TableCell>
+                                            <TableCell className="text-center">{item.activeBlockers}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Bloqueios por Setor</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                        {summary.blockerLoadByDepartment.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Nenhum setor com bloqueios ativos no momento.</p>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Setor</TableHead>
+                                        <TableHead className="text-center">Tarefas</TableHead>
+                                        <TableHead className="text-center">Bloqueios</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {summary.blockerLoadByDepartment.map((item) => (
+                                        <TableRow key={item.department}>
+                                            <TableCell className="font-medium">{formatDepartmentLabel(item.department)}</TableCell>
+                                            <TableCell className="text-center">{item.blockedTasks}</TableCell>
+                                            <TableCell className="text-center">{item.activeBlockers}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
+                </Card>
+            </div>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base">Tarefas Bloqueadas</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-x-auto">
+                    {summary.blockedTasks.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhuma tarefa bloqueada no momento.</p>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Tarefa</TableHead>
+                                    <TableHead>Setor</TableHead>
+                                    <TableHead>Dependência</TableHead>
+                                    <TableHead className="text-center">Idade</TableHead>
+                                    <TableHead className="text-center">Previsão</TableHead>
+                                    <TableHead>Motivo</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {summary.blockedTasks.map((item) => (
+                                    <TableRow key={item.blockerId}>
+                                        <TableCell className="font-medium">{item.taskTitle}</TableCell>
+                                        <TableCell>{formatDepartmentLabel(item.department)}</TableCell>
+                                        <TableCell>{item.ownerLabel}</TableCell>
+                                        <TableCell className="text-center">{item.blockerAgeHours}h</TableCell>
+                                        <TableCell className="text-center">{formatDateTime(item.expectedUnblockAt)}</TableCell>
+                                        <TableCell className="max-w-[360px] whitespace-normal">{item.reason}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
 
             <Card>
                 <CardHeader>

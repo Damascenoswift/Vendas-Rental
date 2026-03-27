@@ -17,6 +17,8 @@ import { revalidatePath } from "next/cache"
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BLOCKED'
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
 export type Department = 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro'
+export type TaskBlockerStatus = 'OPEN' | 'RESOLVED' | 'CANCELED'
+export type TaskBlockerOwnerType = 'USER' | 'DEPARTMENT'
 export type Brand = 'rental' | 'dorata'
 export type TaskVisibilityScope = 'TEAM' | 'RESTRICTED'
 export type TaskChecklistPhase = 'cadastro' | 'energisa' | 'geral'
@@ -42,6 +44,7 @@ const ENERGISA_CHECKLIST_TEMPLATE = [
 ]
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
+const TASK_DEPARTMENTS: Department[] = ['vendas', 'cadastro', 'energia', 'juridico', 'financeiro', 'ti', 'diretoria', 'obras', 'outro']
 const DOC_EVENT_KEYS: Exclude<TaskChecklistEventKey, null>[] = [
     'DOCS_APPROVED',
     'DOCS_INCOMPLETE',
@@ -82,6 +85,15 @@ function isLegacyDepartmentConstraintError(error?: { code?: string | null; messa
     return error.code === '23514' && /tasks_department_check/i.test(message)
 }
 
+function isMissingRelationError(error?: { code?: string | null; message?: string | null } | null, relation?: string) {
+    if (!error) return false
+    if (error.code === '42P01') return true
+    const message = (error.message ?? '').toLowerCase()
+    if (!message.includes('does not exist')) return false
+    if (!relation) return true
+    return message.includes(relation.toLowerCase())
+}
+
 function toLegacyDepartmentValue(department: string) {
     const map: Record<string, string> = {
         vendas: 'VENDAS',
@@ -95,6 +107,13 @@ function toLegacyDepartmentValue(department: string) {
     }
 
     return map[department] ?? department
+}
+
+function normalizeDepartmentValue(value?: string | null): Department | null {
+    const normalized = (value ?? '').trim().toLowerCase()
+    if (!normalized) return null
+    if (TASK_DEPARTMENTS.includes(normalized as Department)) return normalized as Department
+    return null
 }
 
 function inferEventKey(title?: string | null): TaskChecklistEventKey {
@@ -326,6 +345,24 @@ export interface TaskComment {
             email: string | null
         } | null
     } | null
+}
+
+export interface TaskBlocker {
+    id: string
+    task_id: string
+    status: TaskBlockerStatus
+    owner_type: TaskBlockerOwnerType
+    owner_user_id: string | null
+    owner_department: Department | null
+    reason: string
+    expected_unblock_at: string
+    opened_by_user_id: string
+    opened_at: string
+    resolved_by_user_id: string | null
+    resolved_at: string | null
+    resolution_note: string | null
+    created_at: string
+    updated_at: string
 }
 
 export interface TaskUserOption {
@@ -1678,6 +1715,339 @@ export async function updateTask(taskId: string, updates: Partial<Task>) {
             })
         }
     }
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+type TaskBlockerRow = {
+    id: string
+    task_id: string
+    status: string
+    owner_type: string
+    owner_user_id: string | null
+    owner_department: string | null
+    reason: string
+    expected_unblock_at: string
+    opened_by_user_id: string
+    opened_at: string
+    resolved_by_user_id: string | null
+    resolved_at: string | null
+    resolution_note: string | null
+    created_at: string
+    updated_at: string
+}
+
+function normalizeTaskBlockerStatus(value?: string | null): TaskBlockerStatus {
+    if (value === 'RESOLVED' || value === 'CANCELED') return value
+    return 'OPEN'
+}
+
+function normalizeTaskBlockerOwnerType(value?: string | null): TaskBlockerOwnerType {
+    if (value === 'DEPARTMENT') return 'DEPARTMENT'
+    return 'USER'
+}
+
+export async function getTaskBlockers(taskId: string): Promise<TaskBlocker[]> {
+    const normalizedTaskId = taskId.trim()
+    if (!normalizedTaskId) return []
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+        .from('task_blockers')
+        .select(`
+            id,
+            task_id,
+            status,
+            owner_type,
+            owner_user_id,
+            owner_department,
+            reason,
+            expected_unblock_at,
+            opened_by_user_id,
+            opened_at,
+            resolved_by_user_id,
+            resolved_at,
+            resolution_note,
+            created_at,
+            updated_at
+        `)
+        .eq('task_id', normalizedTaskId)
+        .order('opened_at', { ascending: false })
+
+    if (error) {
+        if (isMissingRelationError(error, 'task_blockers')) return []
+        console.error('Error fetching task blockers:', error)
+        return []
+    }
+
+    return ((data ?? []) as TaskBlockerRow[]).map((item) => ({
+        id: item.id,
+        task_id: item.task_id,
+        status: normalizeTaskBlockerStatus(item.status),
+        owner_type: normalizeTaskBlockerOwnerType(item.owner_type),
+        owner_user_id: item.owner_user_id ?? null,
+        owner_department: normalizeDepartmentValue(item.owner_department),
+        reason: item.reason ?? '',
+        expected_unblock_at: item.expected_unblock_at,
+        opened_by_user_id: item.opened_by_user_id,
+        opened_at: item.opened_at,
+        resolved_by_user_id: item.resolved_by_user_id ?? null,
+        resolved_at: item.resolved_at ?? null,
+        resolution_note: item.resolution_note ?? null,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+    }))
+}
+
+export async function transferTaskResponsibility(params: {
+    taskId: string
+    toUserId: string
+    reason: string
+}) {
+    const taskId = params.taskId.trim()
+    const toUserId = params.toUserId.trim()
+    const reason = params.reason.trim()
+
+    if (!taskId) return { error: 'Tarefa inválida.' }
+    if (!toUserId) return { error: 'Selecione o novo responsável.' }
+    if (!reason) return { error: 'A justificativa de transferência é obrigatória.' }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) return { error: 'Unauthorized' }
+
+    const { data: taskRow, error: taskError } = await supabase
+        .from('tasks')
+        .select('id, assignee_id')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    if (taskError) return { error: taskError.message }
+    if (!taskRow) return { error: 'Tarefa não encontrada ou sem acesso.' }
+
+    const previousAssigneeId = (taskRow as { assignee_id?: string | null }).assignee_id ?? null
+    if (previousAssigneeId === toUserId) {
+        return { success: true, unchanged: true }
+    }
+
+    const { error: updateError } = await supabase
+        .from('tasks')
+        .update({ assignee_id: toUserId })
+        .eq('id', taskId)
+
+    if (updateError) return { error: updateError.message }
+
+    await recordTaskActivityEvent({
+        eventType: 'TASK_ASSIGNEE_TRANSFERRED',
+        taskId,
+        actorUserId: user.id,
+        payload: {
+            old_assignee_id: previousAssigneeId,
+            new_assignee_id: toUserId,
+            reason,
+            source: 'transferTaskResponsibility',
+        },
+    })
+
+    await recordTaskActivityEvent({
+        eventType: 'TASK_ASSIGNEE_CHANGED',
+        taskId,
+        actorUserId: user.id,
+        payload: {
+            old_assignee_id: previousAssigneeId,
+            new_assignee_id: toUserId,
+            reason,
+            source: 'transferTaskResponsibility',
+        },
+    })
+
+    revalidatePath('/admin/tarefas')
+    return { success: true }
+}
+
+export async function openTaskBlocker(params: {
+    taskId: string
+    ownerType: TaskBlockerOwnerType
+    ownerUserId?: string | null
+    ownerDepartment?: string | null
+    reason: string
+    expectedUnblockAt: string
+}) {
+    const taskId = params.taskId.trim()
+    const reason = params.reason.trim()
+    const ownerType = params.ownerType === 'DEPARTMENT' ? 'DEPARTMENT' : 'USER'
+    const ownerUserId = params.ownerUserId?.trim() || null
+    const ownerDepartment = normalizeDepartmentValue(params.ownerDepartment)
+    const expectedUnblockAt = new Date(params.expectedUnblockAt)
+
+    if (!taskId) return { error: 'Tarefa inválida.' }
+    if (!reason) return { error: 'Motivo do bloqueio é obrigatório.' }
+    if (Number.isNaN(expectedUnblockAt.getTime())) return { error: 'Prazo estimado de desbloqueio inválido.' }
+
+    if (ownerType === 'USER' && !ownerUserId) {
+        return { error: 'Selecione a pessoa responsável pelo desbloqueio.' }
+    }
+
+    if (ownerType === 'DEPARTMENT' && !ownerDepartment) {
+        return { error: 'Selecione o setor responsável pelo desbloqueio.' }
+    }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) return { error: 'Unauthorized' }
+
+    const { data: taskRow, error: taskError } = await supabase
+        .from('tasks')
+        .select('id, status')
+        .eq('id', taskId)
+        .maybeSingle()
+
+    if (taskError) return { error: taskError.message }
+    if (!taskRow) return { error: 'Tarefa não encontrada ou sem acesso.' }
+
+    const currentStatus = ((taskRow as { status?: string | null }).status ?? '').trim()
+    if (currentStatus === 'DONE') {
+        return { error: 'Não é possível abrir bloqueio em tarefa concluída.' }
+    }
+
+    const { data: insertedBlocker, error: blockerInsertError } = await supabase
+        .from('task_blockers')
+        .insert({
+            task_id: taskId,
+            status: 'OPEN',
+            owner_type: ownerType,
+            owner_user_id: ownerType === 'USER' ? ownerUserId : null,
+            owner_department: ownerType === 'DEPARTMENT' ? ownerDepartment : null,
+            reason,
+            expected_unblock_at: expectedUnblockAt.toISOString(),
+            opened_by_user_id: user.id,
+        })
+        .select('id')
+        .maybeSingle()
+
+    if (blockerInsertError) {
+        if (isMissingRelationError(blockerInsertError, 'task_blockers')) {
+            return { error: 'Tabela task_blockers não encontrada. Aplique as migrations do módulo.' }
+        }
+        return { error: blockerInsertError.message }
+    }
+
+    if (currentStatus !== 'BLOCKED') {
+        const { error: blockStatusError } = await supabase
+            .from('tasks')
+            .update({ status: 'BLOCKED' })
+            .eq('id', taskId)
+
+        if (blockStatusError) {
+            return { error: blockStatusError.message }
+        }
+
+        await recordTaskActivityEvent({
+            eventType: 'TASK_STATUS_CHANGED',
+            taskId,
+            actorUserId: user.id,
+            payload: {
+                old_status: currentStatus || null,
+                new_status: 'BLOCKED',
+                source: 'openTaskBlocker',
+            },
+        })
+    }
+
+    await recordTaskActivityEvent({
+        eventType: 'TASK_BLOCKER_OPENED',
+        taskId,
+        actorUserId: user.id,
+        payload: {
+            blocker_id: insertedBlocker?.id ?? null,
+            owner_type: ownerType,
+            owner_user_id: ownerType === 'USER' ? ownerUserId : null,
+            owner_department: ownerType === 'DEPARTMENT' ? ownerDepartment : null,
+            reason,
+            expected_unblock_at: expectedUnblockAt.toISOString(),
+        },
+    })
+
+    revalidatePath('/admin/tarefas')
+    return {
+        success: true,
+        blockerId: (insertedBlocker as { id?: string | null } | null)?.id ?? null,
+    }
+}
+
+export async function resolveTaskBlocker(params: {
+    blockerId: string
+    resolutionNote?: string | null
+}) {
+    const blockerId = params.blockerId.trim()
+    const resolutionNote = params.resolutionNote?.trim() || null
+    if (!blockerId) return { error: 'Bloqueio inválido.' }
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return { error: 'Unauthorized' }
+
+    const { data: blocker, error: blockerError } = await supabase
+        .from('task_blockers')
+        .select(`
+            id,
+            task_id,
+            status,
+            owner_type,
+            owner_user_id,
+            owner_department,
+            reason,
+            expected_unblock_at,
+            opened_at
+        `)
+        .eq('id', blockerId)
+        .maybeSingle()
+
+    if (blockerError) {
+        if (isMissingRelationError(blockerError, 'task_blockers')) {
+            return { error: 'Tabela task_blockers não encontrada. Aplique as migrations do módulo.' }
+        }
+        return { error: blockerError.message }
+    }
+
+    if (!blocker) return { error: 'Bloqueio não encontrado ou sem acesso.' }
+    const blockerStatus = ((blocker as { status?: string | null }).status ?? '').trim()
+    if (blockerStatus !== 'OPEN') {
+        return { success: true, alreadyResolved: true }
+    }
+
+    const resolvedAt = new Date().toISOString()
+    const { error: resolveError } = await supabase
+        .from('task_blockers')
+        .update({
+            status: 'RESOLVED',
+            resolved_by_user_id: user.id,
+            resolved_at: resolvedAt,
+            resolution_note: resolutionNote,
+        })
+        .eq('id', blockerId)
+
+    if (resolveError) return { error: resolveError.message }
+
+    await recordTaskActivityEvent({
+        eventType: 'TASK_BLOCKER_RESOLVED',
+        taskId: (blocker as { task_id: string }).task_id,
+        actorUserId: user.id,
+        payload: {
+            blocker_id: blockerId,
+            owner_type: (blocker as { owner_type?: string | null }).owner_type ?? null,
+            owner_user_id: (blocker as { owner_user_id?: string | null }).owner_user_id ?? null,
+            owner_department: (blocker as { owner_department?: string | null }).owner_department ?? null,
+            reason: (blocker as { reason?: string | null }).reason ?? null,
+            expected_unblock_at: (blocker as { expected_unblock_at?: string | null }).expected_unblock_at ?? null,
+            opened_at: (blocker as { opened_at?: string | null }).opened_at ?? null,
+            resolved_at: resolvedAt,
+            resolution_note: resolutionNote,
+        },
+    })
 
     revalidatePath('/admin/tarefas')
     return { success: true }

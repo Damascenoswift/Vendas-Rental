@@ -7,6 +7,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { sendSystemDirectMessage } from "@/services/internal-chat-service"
 import {
   applyLearningSmoothing,
+  buildBlockerDependencyKey,
   buildCooldownHashKey,
   clampHours,
   computeHoursWithoutProgress,
@@ -18,6 +19,8 @@ import {
 
 type TaskStatus = "TODO" | "IN_PROGRESS" | "REVIEW" | "DONE" | "BLOCKED"
 type Department = "vendas" | "cadastro" | "energia" | "juridico" | "financeiro" | "ti" | "diretoria" | "obras" | "outro"
+type TaskBlockerStatus = "OPEN" | "RESOLVED" | "CANCELED"
+type TaskBlockerOwnerType = "USER" | "DEPARTMENT"
 
 type AnalystTrigger = "manual" | "scheduled"
 
@@ -38,6 +41,7 @@ type AnalystUserRow = {
   name: string | null
   email: string | null
   role: string | null
+  department?: string | null
   status: string | null
 }
 
@@ -52,6 +56,22 @@ type MessageLogRow = {
   task_id: string | null
   kind: TaskAnalystMessageKind
   sent_at: string
+  metadata?: Record<string, unknown> | null
+}
+
+type TaskBlockerRow = {
+  id: string
+  task_id: string
+  status: TaskBlockerStatus
+  owner_type: TaskBlockerOwnerType
+  owner_user_id: string | null
+  owner_department: string | null
+  reason: string
+  expected_unblock_at: string
+  opened_by_user_id: string
+  opened_at: string
+  resolved_by_user_id: string | null
+  resolved_at: string | null
 }
 
 type AnalystConfigRow = {
@@ -69,11 +89,14 @@ export type TaskActivityEventType =
   | "TASK_CREATED"
   | "TASK_STATUS_CHANGED"
   | "TASK_ASSIGNEE_CHANGED"
+  | "TASK_ASSIGNEE_TRANSFERRED"
   | "TASK_CHECKLIST_CREATED"
   | "TASK_CHECKLIST_DECISION_CHANGED"
   | "TASK_COMMENT_CREATED"
+  | "TASK_BLOCKER_OPENED"
+  | "TASK_BLOCKER_RESOLVED"
 
-export type TaskAnalystMessageKind = "REMINDER" | "ESCALATION" | "MANAGER_DIGEST" | "UNASSIGNED_ALERT"
+export type TaskAnalystMessageKind = "REMINDER" | "ESCALATION" | "MANAGER_DIGEST" | "UNASSIGNED_ALERT" | "BLOCKER_REMINDER"
 
 export type TaskAnalystRunStatus = "running" | "success" | "partial" | "failed" | "skipped"
 
@@ -100,6 +123,40 @@ export type TaskAnalystDashboardSummary = {
   withoutAssignee: number
   avgHoursToFirstProgress: number | null
   avgHoursToCompletion: number | null
+  overdueTasks: Array<{
+    taskId: string
+    title: string
+    status: string
+    department: string
+    assigneeName: string
+    dueDate: string
+    overdueHours: number
+    lastProgressAt: string
+    hoursWithoutProgress: number
+  }>
+  blockerLoadByUser: Array<{
+    ownerUserId: string
+    ownerName: string
+    blockedTasks: number
+    activeBlockers: number
+  }>
+  blockerLoadByDepartment: Array<{
+    department: string
+    blockedTasks: number
+    activeBlockers: number
+  }>
+  blockedTasks: Array<{
+    blockerId: string
+    taskId: string
+    taskTitle: string
+    department: string
+    ownerType: TaskBlockerOwnerType
+    ownerLabel: string
+    reason: string
+    expectedUnblockAt: string
+    openedAt: string
+    blockerAgeHours: number
+  }>
   slowSectors: Array<{
     department: string
     totalOpen: number
@@ -149,9 +206,12 @@ const DEPARTMENTS: Department[] = [
 const PROGRESS_EVENT_TYPES = new Set<TaskActivityEventType>([
   "TASK_STATUS_CHANGED",
   "TASK_ASSIGNEE_CHANGED",
+  "TASK_ASSIGNEE_TRANSFERRED",
   "TASK_CHECKLIST_CREATED",
   "TASK_CHECKLIST_DECISION_CHANGED",
   "TASK_COMMENT_CREATED",
+  "TASK_BLOCKER_OPENED",
+  "TASK_BLOCKER_RESOLVED",
 ])
 
 const INACTIVE_USER_STATUSES = new Set(["inativo", "inactive", "suspended"])
@@ -378,12 +438,83 @@ async function loadAdmMestreUsers() {
 
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("id, name, email, role, status")
+    .select("id, name, email, role, department, status")
     .eq("role", "adm_mestre")
 
   if (error) throw new Error(error.message)
 
   return ((data ?? []) as AnalystUserRow[]).filter((user) => !isInactiveStatus(user.status))
+}
+
+function normalizeTaskBlockerStatus(value?: string | null): TaskBlockerStatus {
+  if (value === "RESOLVED" || value === "CANCELED") return value
+  return "OPEN"
+}
+
+function normalizeTaskBlockerOwnerType(value?: string | null): TaskBlockerOwnerType {
+  if (value === "DEPARTMENT") return "DEPARTMENT"
+  return "USER"
+}
+
+async function loadOpenTaskBlockers(taskIds: string[]) {
+  if (taskIds.length === 0) return [] as TaskBlockerRow[]
+
+  const supabaseAdmin = createSupabaseServiceClient()
+  const { data, error } = await supabaseAdmin
+    .from("task_blockers")
+    .select(`
+      id,
+      task_id,
+      status,
+      owner_type,
+      owner_user_id,
+      owner_department,
+      reason,
+      expected_unblock_at,
+      opened_by_user_id,
+      opened_at,
+      resolved_by_user_id,
+      resolved_at
+    `)
+    .in("task_id", taskIds)
+    .eq("status", "OPEN")
+    .order("opened_at", { ascending: true })
+
+  if (error) {
+    if (isMissingRelationError(error, "task_blockers")) return [] as TaskBlockerRow[]
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id ?? ""),
+    task_id: String(row.task_id ?? ""),
+    status: normalizeTaskBlockerStatus(typeof row.status === "string" ? row.status : null),
+    owner_type: normalizeTaskBlockerOwnerType(typeof row.owner_type === "string" ? row.owner_type : null),
+    owner_user_id: typeof row.owner_user_id === "string" ? row.owner_user_id : null,
+    owner_department: normalizeDepartment(typeof row.owner_department === "string" ? row.owner_department : null),
+    reason: String(row.reason ?? ""),
+    expected_unblock_at: String(row.expected_unblock_at ?? ""),
+    opened_by_user_id: String(row.opened_by_user_id ?? ""),
+    opened_at: String(row.opened_at ?? ""),
+    resolved_by_user_id: typeof row.resolved_by_user_id === "string" ? row.resolved_by_user_id : null,
+    resolved_at: typeof row.resolved_at === "string" ? row.resolved_at : null,
+  }))
+}
+
+async function loadSupervisorUsers() {
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("id, name, email, role, department, status")
+    .eq("role", "supervisor")
+
+  if (error) throw new Error(error.message)
+
+  return ((data ?? []) as AnalystUserRow[]).filter((user) => {
+    if (isInactiveStatus(user.status)) return false
+    return Boolean(normalizeDepartment(user.department))
+  })
 }
 
 async function loadProgressSnapshot(taskRows: TaskRow[]): Promise<LocalProgressSnapshot> {
@@ -456,7 +587,7 @@ async function findLatestMessageLog(params: {
 
   let query = supabaseAdmin
     .from("task_analyst_message_log")
-    .select("recipient_user_id, task_id, kind, sent_at")
+    .select("recipient_user_id, task_id, kind, sent_at, metadata")
     .eq("recipient_user_id", params.recipientUserId)
     .eq("kind", params.kind)
     .order("sent_at", { ascending: false })
@@ -469,6 +600,29 @@ async function findLatestMessageLog(params: {
   }
 
   const { data, error } = await query
+
+  if (error) {
+    if (isMissingRelationError(error, "task_analyst_message_log")) return null
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as MessageLogRow[])[0] ?? null
+}
+
+async function findLatestBlockerReminderByDependency(params: {
+  taskId: string
+  dependencyKey: string
+}) {
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  const { data, error } = await supabaseAdmin
+    .from("task_analyst_message_log")
+    .select("recipient_user_id, task_id, kind, sent_at, metadata")
+    .eq("kind", "BLOCKER_REMINDER")
+    .eq("task_id", params.taskId)
+    .eq("metadata->>dependency_key", params.dependencyKey)
+    .order("sent_at", { ascending: false })
+    .limit(1)
 
   if (error) {
     if (isMissingRelationError(error, "task_analyst_message_log")) return null
@@ -504,6 +658,7 @@ async function insertMessageLog(params: {
   kind: TaskAnalystMessageKind
   conversationId?: string | null
   hashKey: string
+  metadata?: Record<string, unknown> | null
 }) {
   const supabaseAdmin = createSupabaseServiceClient()
 
@@ -516,6 +671,7 @@ async function insertMessageLog(params: {
       sent_at: new Date().toISOString(),
       conversation_id: params.conversationId ?? null,
       hash_key: params.hashKey,
+      metadata: params.metadata ?? {},
     })
 
   if (!error) return true
@@ -534,11 +690,24 @@ async function markMessageLogDelivered(params: {
 }) {
   const supabaseAdmin = createSupabaseServiceClient()
 
+  const { data: currentData, error: currentError } = await supabaseAdmin
+    .from("task_analyst_message_log")
+    .select("metadata")
+    .eq("hash_key", params.hashKey)
+    .maybeSingle()
+
+  if (currentError && !isMissingRelationError(currentError, "task_analyst_message_log")) {
+    console.error("Error loading current metadata for task analyst message log:", currentError)
+  }
+
+  const currentMetadata = (currentData as { metadata?: Record<string, unknown> | null } | null)?.metadata ?? {}
+
   const { error } = await supabaseAdmin
     .from("task_analyst_message_log")
     .update({
       conversation_id: params.conversationId,
       metadata: {
+        ...currentMetadata,
         delivered: true,
         message_id: params.messageId,
       },
@@ -615,13 +784,44 @@ function buildUnassignedMessage(tasks: Array<{ task: TaskRow; hoursWithoutProgre
   ].join("\n")
 }
 
+function buildBlockerOwnerLabel(params: {
+  blocker: TaskBlockerRow
+  usersById: Map<string, AnalystUserRow>
+}) {
+  if (params.blocker.owner_type === "USER") {
+    const userId = params.blocker.owner_user_id
+    const user = userId ? params.usersById.get(userId) : null
+    return user?.name?.trim() || user?.email?.trim() || "Pessoa não identificada"
+  }
+
+  return `Setor ${formatDepartmentLabel(params.blocker.owner_department ?? "outro")}`
+}
+
+function buildBlockerReminderMessage(params: {
+  task: TaskRow
+  blocker: TaskBlockerRow
+  ownerLabel: string
+  hoursWithoutProgress: number
+}) {
+  return [
+    "Cobrança automática de dependência (Analista IA).",
+    `A tarefa \"${taskTitle(params.task)}\" está bloqueada e sem avanço há ${params.hoursWithoutProgress}h.`,
+    `Dependência: ${params.ownerLabel}.`,
+    `Motivo informado: ${params.blocker.reason}.`,
+    `Previsão de desbloqueio: ${renderDueDateLabel(params.blocker.expected_unblock_at)}.`,
+    "Ação esperada: atualizar o desbloqueio ou responder com novo prazo.",
+  ].join("\n")
+}
+
 async function generateAIDigestSummary(input: {
   overdueCount: number
   withoutAssigneeCount: number
+  activeBlockersCount: number
   remindersSent: number
   escalationsSent: number
   slowSectors: Array<{ department: string; rate: number; stagnant: number; total: number }>
   topTasks: Array<{ title: string; hours: number; department: string }>
+  topBlockers: Array<{ owner: string; blockedTasks: number }>
 }) {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) return null
@@ -636,10 +836,12 @@ async function generateAIDigestSummary(input: {
       "Não invente números.",
       `Atrasadas: ${input.overdueCount}`,
       `Sem responsável: ${input.withoutAssigneeCount}`,
+      `Bloqueios ativos: ${input.activeBlockersCount}`,
       `Lembretes enviados: ${input.remindersSent}`,
       `Escalonamentos enviados: ${input.escalationsSent}`,
       `Setores lentos: ${JSON.stringify(input.slowSectors)}`,
       `Top tarefas paradas: ${JSON.stringify(input.topTasks)}`,
+      `Top dependências bloqueando tarefas: ${JSON.stringify(input.topBlockers)}`,
     ].join("\n")
 
     const response = await client.responses.create({
@@ -659,16 +861,20 @@ async function generateAIDigestSummary(input: {
 function buildDigestMessage(input: {
   overdueCount: number
   withoutAssigneeCount: number
+  activeBlockersCount: number
   remindersSent: number
   escalationsSent: number
   slowSectors: Array<{ department: string; rate: number; stagnant: number; total: number }>
   topTasks: Array<{ title: string; hours: number; department: string }>
+  topBlockers: Array<{ owner: string; blockedTasks: number }>
+  oldestBlockedTasks: Array<{ title: string; ownerLabel: string; ageHours: number }>
   aiSummary: string | null
 }) {
   const headline = [
     "Resumo do Analista IA (tarefas)",
     `Atrasadas: ${input.overdueCount}`,
     `Sem responsável: ${input.withoutAssigneeCount}`,
+    `Bloqueios ativos: ${input.activeBlockersCount}`,
     `Lembretes enviados no ciclo: ${input.remindersSent}`,
     `Escalonamentos enviados no ciclo: ${input.escalationsSent}`,
   ].join("\n")
@@ -690,9 +896,23 @@ function buildDigestMessage(input: {
       ...input.topTasks.slice(0, 5).map((item, index) => `${index + 1}. ${item.title} • ${item.hours}h • ${formatDepartmentLabel(item.department)}`),
     ]
 
+  const topBlockers = input.topBlockers.length === 0
+    ? ["Bloqueios ativos: nenhum."]
+    : [
+      "Bloqueios ativos por dependência:",
+      ...input.topBlockers.slice(0, 5).map((item, index) => `${index + 1}. ${item.owner}: ${item.blockedTasks} tarefa(s)`),
+    ]
+
+  const oldestBlockedTasks = input.oldestBlockedTasks.length === 0
+    ? ["Tarefas bloqueadas antigas: nenhuma."]
+    : [
+      "Exemplos de tarefas bloqueadas antigas:",
+      ...input.oldestBlockedTasks.slice(0, 5).map((item, index) => `${index + 1}. ${item.title} • ${item.ownerLabel} • ${item.ageHours}h`),
+    ]
+
   const aiBlock = input.aiSummary ? ["", "Leitura IA:", input.aiSummary] : []
 
-  return [headline, ...slowLines, ...topTasks, ...aiBlock].join("\n")
+  return [headline, ...slowLines, ...topTasks, ...topBlockers, ...oldestBlockedTasks, ...aiBlock].join("\n")
 }
 
 async function maybeApplyLearning(params: {
@@ -925,21 +1145,52 @@ export async function runTaskAnalyst(params: {
 
     const thresholdsMap = await loadDepartmentThresholds(fallbackThreshold)
 
-    const [openTasks, managerUsers] = await Promise.all([
+    const [openTasks, managerUsers, supervisorUsers] = await Promise.all([
       loadOpenTasks(),
       loadAdmMestreUsers(),
+      loadSupervisorUsers(),
     ])
 
     stats.tasksScanned = openTasks.length
 
+    const taskIds = openTasks.map((task) => task.id)
+    const [activeBlockers, progressSnapshot] = await Promise.all([
+      loadOpenTaskBlockers(taskIds),
+      loadProgressSnapshot(openTasks),
+    ])
+
+    const blockersByTask = new Map<string, TaskBlockerRow[]>()
+    activeBlockers.forEach((blocker) => {
+      const current = blockersByTask.get(blocker.task_id) ?? []
+      current.push(blocker)
+      blockersByTask.set(blocker.task_id, current)
+    })
+
     const assigneeIds = Array.from(new Set(openTasks.map((task) => task.assignee_id).filter((id): id is string => Boolean(id))))
-    const assigneesById = await loadUsersById(assigneeIds)
-    const progressSnapshot = await loadProgressSnapshot(openTasks)
+    const blockerOwnerIds = Array.from(new Set(activeBlockers.map((blocker) => blocker.owner_user_id).filter((id): id is string => Boolean(id))))
+    const usersById = await loadUsersById(Array.from(new Set([...assigneeIds, ...blockerOwnerIds])))
+
+    const supervisorsByDepartment = new Map<string, AnalystUserRow[]>()
+    supervisorUsers.forEach((user) => {
+      const department = normalizeDepartment(user.department)
+      if (!department) return
+      const current = supervisorsByDepartment.get(department) ?? []
+      current.push(user)
+      supervisorsByDepartment.set(department, current)
+    })
 
     const reminderCandidates: Array<{ task: TaskRow; recipientId: string; hours: number; threshold: DepartmentThreshold }> = []
     const escalationCandidates: Array<{ task: TaskRow; recipientId: string; hours: number; assigneeName: string; threshold: DepartmentThreshold }> = []
     const unassignedCandidates: Array<{ task: TaskRow; hours: number }> = []
     const slowSectorAccumulator = new Map<string, { total: number; stagnant: number; thresholdHours: number }>()
+    const blockerReminderCandidates = new Map<string, {
+      task: TaskRow
+      dependencyKey: string
+      recipients: AnalystUserRow[]
+      ownerLabel: string
+      hours: number
+      blockers: TaskBlockerRow[]
+    }>()
 
     openTasks.forEach((task) => {
       const threshold = pickTaskThreshold({
@@ -960,6 +1211,77 @@ export async function runTaskAnalyst(params: {
       if (hoursWithoutProgress >= threshold.slowHours) slowCurrent.stagnant += 1
       slowSectorAccumulator.set(department, slowCurrent)
 
+      const taskBlockers = blockersByTask.get(task.id) ?? []
+
+      if (taskBlockers.length > 0) {
+        taskBlockers.forEach((blocker) => {
+          const dependencyKey = buildBlockerDependencyKey({
+            ownerType: blocker.owner_type,
+            ownerUserId: blocker.owner_user_id,
+            ownerDepartment: blocker.owner_department,
+          })
+          if (!dependencyKey) return
+
+          const recipients = blocker.owner_type === "USER"
+            ? (() => {
+              const userId = blocker.owner_user_id
+              if (!userId) return [] as AnalystUserRow[]
+              const ownerUser = usersById.get(userId)
+              if (!ownerUser || isInactiveStatus(ownerUser.status)) return [] as AnalystUserRow[]
+              return [ownerUser]
+            })()
+            : (() => {
+              const department = normalizeDepartment(blocker.owner_department)
+              const supervisors = department ? (supervisorsByDepartment.get(department) ?? []) : []
+              const merged = [...supervisors, ...managerUsers]
+              const deduped = new Map<string, AnalystUserRow>()
+              merged.forEach((user) => {
+                if (isInactiveStatus(user.status)) return
+                deduped.set(user.id, user)
+              })
+              return Array.from(deduped.values())
+            })()
+
+          if (recipients.length === 0) return
+
+          const ownerLabel = buildBlockerOwnerLabel({
+            blocker,
+            usersById,
+          })
+
+          const candidateKey = `${task.id}:${dependencyKey}`
+          const existing = blockerReminderCandidates.get(candidateKey)
+          if (!existing) {
+            blockerReminderCandidates.set(candidateKey, {
+              task,
+              dependencyKey,
+              recipients,
+              ownerLabel,
+              hours: hoursWithoutProgress,
+              blockers: [blocker],
+            })
+            return
+          }
+
+          existing.hours = Math.max(existing.hours, hoursWithoutProgress)
+          existing.blockers.push(blocker)
+          existing.ownerLabel = existing.ownerLabel || ownerLabel
+
+          const recipientMap = new Map<string, AnalystUserRow>()
+          existing.recipients.forEach((recipient) => recipientMap.set(recipient.id, recipient))
+          recipients.forEach((recipient) => recipientMap.set(recipient.id, recipient))
+          existing.recipients = Array.from(recipientMap.values())
+          blockerReminderCandidates.set(candidateKey, existing)
+        })
+
+        if (!task.assignee_id) {
+          unassignedCandidates.push({ task, hours: hoursWithoutProgress })
+        }
+
+        // When task is blocked, cobrança shifts to dependency, not the assignee.
+        return
+      }
+
       if (!task.assignee_id) {
         unassignedCandidates.push({ task, hours: hoursWithoutProgress })
         return
@@ -972,7 +1294,7 @@ export async function runTaskAnalyst(params: {
         threshold,
       })
 
-      const assignee = assigneesById.get(task.assignee_id)
+      const assignee = usersById.get(task.assignee_id)
       escalationCandidates.push({
         task,
         recipientId: task.assignee_id,
@@ -1044,6 +1366,84 @@ export async function runTaskAnalyst(params: {
       } else {
         await rollbackMessageLog(hashKey)
         console.error("Task analyst reminder send failed:", sendResult.error)
+      }
+    }
+
+    // blocker reminders (dependency-driven cobrança)
+    for (const candidate of blockerReminderCandidates.values()) {
+      const recentByDependency = await findLatestBlockerReminderByDependency({
+        taskId: candidate.task.id,
+        dependencyKey: candidate.dependencyKey,
+      })
+
+      if (!shouldSendByCooldown({
+        lastSentAt: recentByDependency?.sent_at ?? null,
+        now,
+        cooldownHours: 24,
+      })) {
+        continue
+      }
+
+      if (dryRun) continue
+
+      const oldestBlocker = candidate.blockers
+        .slice()
+        .sort((a, b) => {
+          const left = parseDate(a.opened_at)?.getTime() ?? 0
+          const right = parseDate(b.opened_at)?.getTime() ?? 0
+          return left - right
+        })[0]
+
+      if (!oldestBlocker) continue
+
+      for (const recipient of candidate.recipients) {
+        const hashKey = [
+          "BLOCKER_REMINDER",
+          recipient.id,
+          candidate.task.id,
+          candidate.dependencyKey,
+          toISODateUTC(now),
+        ].join(":")
+
+        const inserted = await insertMessageLog({
+          recipientUserId: recipient.id,
+          taskId: candidate.task.id,
+          kind: "BLOCKER_REMINDER",
+          hashKey,
+          metadata: {
+            dependency_key: candidate.dependencyKey,
+            blocker_id: oldestBlocker.id,
+            owner_type: oldestBlocker.owner_type,
+            owner_user_id: oldestBlocker.owner_user_id,
+            owner_department: oldestBlocker.owner_department,
+          },
+        })
+
+        if (!inserted) continue
+
+        const sendResult = await sendSystemDirectMessage({
+          senderUserId: config.bot_user_id,
+          recipientUserId: recipient.id,
+          body: buildBlockerReminderMessage({
+            task: candidate.task,
+            blocker: oldestBlocker,
+            ownerLabel: candidate.ownerLabel,
+            hoursWithoutProgress: candidate.hours,
+          }),
+          dedupeToken: hashKey,
+        })
+
+        if (sendResult.success) {
+          stats.remindersSent += 1
+          await markMessageLogDelivered({
+            hashKey,
+            conversationId: sendResult.data.conversationId,
+            messageId: sendResult.data.messageId,
+          })
+        } else {
+          await rollbackMessageLog(hashKey)
+          console.error("Task analyst blocker reminder send failed:", sendResult.error)
+        }
       }
     }
 
@@ -1190,22 +1590,84 @@ export async function runTaskAnalyst(params: {
       .sort((a, b) => b.hours - a.hours)
       .slice(0, 8)
 
+    const taskById = new Map<string, TaskRow>()
+    openTasks.forEach((task) => taskById.set(task.id, task))
+
+    const blockerDependencyStats = new Map<string, { owner: string; taskIds: Set<string>; activeBlockers: number }>()
+    const oldestBlockedTasks = activeBlockers
+      .map((blocker) => {
+        const task = taskById.get(blocker.task_id)
+        if (!task) return null
+
+        const ownerLabel = buildBlockerOwnerLabel({
+          blocker,
+          usersById,
+        })
+        const ageHours = computeHoursWithoutProgress(blocker.opened_at, now)
+        const dependencyKey = buildBlockerDependencyKey({
+          ownerType: blocker.owner_type,
+          ownerUserId: blocker.owner_user_id,
+          ownerDepartment: blocker.owner_department,
+        }) ?? `${blocker.owner_type}:${blocker.id}`
+
+        const currentDependency = blockerDependencyStats.get(dependencyKey) ?? {
+          owner: ownerLabel,
+          taskIds: new Set<string>(),
+          activeBlockers: 0,
+        }
+        currentDependency.taskIds.add(task.id)
+        currentDependency.activeBlockers += 1
+        blockerDependencyStats.set(dependencyKey, currentDependency)
+
+        return {
+          title: taskTitle(task),
+          ownerLabel,
+          ageHours,
+        }
+      })
+      .filter((item): item is { title: string; ownerLabel: string; ageHours: number } => Boolean(item))
+      .sort((a, b) => b.ageHours - a.ageHours)
+      .slice(0, 8)
+
+    const topBlockers = Array.from(blockerDependencyStats.values())
+      .map((item) => ({
+        owner: item.owner,
+        blockedTasks: item.taskIds.size,
+        activeBlockers: item.activeBlockers,
+      }))
+      .sort((a, b) => {
+        if (b.blockedTasks !== a.blockedTasks) return b.blockedTasks - a.blockedTasks
+        return b.activeBlockers - a.activeBlockers
+      })
+      .slice(0, 8)
+
     const aiSummary = await generateAIDigestSummary({
       overdueCount,
       withoutAssigneeCount: unassignedCandidates.length,
+      activeBlockersCount: activeBlockers.length,
       remindersSent: stats.remindersSent,
       escalationsSent: stats.escalationsSent,
       slowSectors: slowSectorsForDigest,
       topTasks,
+      topBlockers: topBlockers.map((item) => ({
+        owner: item.owner,
+        blockedTasks: item.blockedTasks,
+      })),
     })
 
     const digestBody = buildDigestMessage({
       overdueCount,
       withoutAssigneeCount: unassignedCandidates.length,
+      activeBlockersCount: activeBlockers.length,
       remindersSent: stats.remindersSent,
       escalationsSent: stats.escalationsSent,
       slowSectors: slowSectorsForDigest,
       topTasks,
+      topBlockers: topBlockers.map((item) => ({
+        owner: item.owner,
+        blockedTasks: item.blockedTasks,
+      })),
+      oldestBlockedTasks,
       aiSummary,
     })
 
@@ -1375,8 +1837,11 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     return null
   }
 
+  const taskIds = openTasks.map((task) => task.id)
+  const activeBlockers = await loadOpenTaskBlockers(taskIds)
   const assigneeIds = Array.from(new Set(openTasks.map((task) => task.assignee_id).filter((id): id is string => Boolean(id))))
-  const assigneesById = await loadUsersById(assigneeIds)
+  const blockerOwnerIds = Array.from(new Set(activeBlockers.map((blocker) => blocker.owner_user_id).filter((id): id is string => Boolean(id))))
+  const usersById = await loadUsersById(Array.from(new Set([...assigneeIds, ...blockerOwnerIds])))
   const progressSnapshot = await loadProgressSnapshot(openTasks)
 
   const now = new Date()
@@ -1406,6 +1871,8 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     : null
 
   const slowSectorsMap = new Map<string, { totalOpen: number; stagnant: number; thresholdHours: number }>()
+  const taskById = new Map<string, TaskRow>()
+  openTasks.forEach((task) => taskById.set(task.id, task))
 
   const mostStagnantTasks = openTasks
     .map((task) => {
@@ -1432,7 +1899,7 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
       if (hoursWithoutProgress >= threshold.slowHours) current.stagnant += 1
       slowSectorsMap.set(department, current)
 
-      const assignee = task.assignee_id ? assigneesById.get(task.assignee_id) : null
+      const assignee = task.assignee_id ? usersById.get(task.assignee_id) : null
 
       return {
         taskId: task.id,
@@ -1447,6 +1914,113 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     })
     .sort((a, b) => b.hoursWithoutProgress - a.hoursWithoutProgress)
     .slice(0, 15)
+
+  const overdueTasks = openTasks
+    .map((task) => {
+      const dueDate = parseDate(task.due_date)
+      if (!dueDate || dueDate.getTime() >= now.getTime()) return null
+
+      const lastProgressAt = progressSnapshot.latestByTask.get(task.id) ?? task.updated_at ?? task.created_at
+      const hoursWithoutProgress = computeHoursWithoutProgress(lastProgressAt, now)
+      const overdueHours = Math.max(0, Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60)))
+      const assignee = task.assignee_id ? usersById.get(task.assignee_id) : null
+
+      return {
+        taskId: task.id,
+        title: taskTitle(task),
+        status: task.status,
+        department: normalizeDepartment(task.department) ?? "outro",
+        assigneeName: assignee?.name?.trim() || assignee?.email?.trim() || "Sem responsável",
+        dueDate: task.due_date ?? dueDate.toISOString(),
+        overdueHours,
+        lastProgressAt,
+        hoursWithoutProgress,
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => b.overdueHours - a.overdueHours)
+    .slice(0, 50)
+
+  const blockerLoadByUserMap = new Map<string, { ownerUserId: string; ownerName: string; taskIds: Set<string>; activeBlockers: number }>()
+  const blockerLoadByDepartmentMap = new Map<string, { department: string; taskIds: Set<string>; activeBlockers: number }>()
+
+  const blockedTasks = activeBlockers
+    .map((blocker) => {
+      const task = taskById.get(blocker.task_id)
+      if (!task) return null
+
+      const taskDepartment = normalizeDepartment(task.department) ?? "outro"
+      const ownerLabel = buildBlockerOwnerLabel({
+        blocker,
+        usersById,
+      })
+      const blockerAgeHours = computeHoursWithoutProgress(blocker.opened_at, now)
+
+      if (blocker.owner_type === "USER" && blocker.owner_user_id) {
+        const ownerUser = usersById.get(blocker.owner_user_id)
+        const ownerName = ownerUser?.name?.trim() || ownerUser?.email?.trim() || "Pessoa não identificada"
+        const current = blockerLoadByUserMap.get(blocker.owner_user_id) ?? {
+          ownerUserId: blocker.owner_user_id,
+          ownerName,
+          taskIds: new Set<string>(),
+          activeBlockers: 0,
+        }
+        current.taskIds.add(task.id)
+        current.activeBlockers += 1
+        blockerLoadByUserMap.set(blocker.owner_user_id, current)
+      }
+
+      if (blocker.owner_type === "DEPARTMENT") {
+        const ownerDepartment = normalizeDepartment(blocker.owner_department) ?? "outro"
+        const current = blockerLoadByDepartmentMap.get(ownerDepartment) ?? {
+          department: ownerDepartment,
+          taskIds: new Set<string>(),
+          activeBlockers: 0,
+        }
+        current.taskIds.add(task.id)
+        current.activeBlockers += 1
+        blockerLoadByDepartmentMap.set(ownerDepartment, current)
+      }
+
+      return {
+        blockerId: blocker.id,
+        taskId: task.id,
+        taskTitle: taskTitle(task),
+        department: taskDepartment,
+        ownerType: blocker.owner_type,
+        ownerLabel,
+        reason: blocker.reason,
+        expectedUnblockAt: blocker.expected_unblock_at,
+        openedAt: blocker.opened_at,
+        blockerAgeHours,
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((a, b) => b.blockerAgeHours - a.blockerAgeHours)
+    .slice(0, 50)
+
+  const blockerLoadByUser = Array.from(blockerLoadByUserMap.values())
+    .map((item) => ({
+      ownerUserId: item.ownerUserId,
+      ownerName: item.ownerName,
+      blockedTasks: item.taskIds.size,
+      activeBlockers: item.activeBlockers,
+    }))
+    .sort((a, b) => {
+      if (b.blockedTasks !== a.blockedTasks) return b.blockedTasks - a.blockedTasks
+      return b.activeBlockers - a.activeBlockers
+    })
+
+  const blockerLoadByDepartment = Array.from(blockerLoadByDepartmentMap.values())
+    .map((item) => ({
+      department: item.department,
+      blockedTasks: item.taskIds.size,
+      activeBlockers: item.activeBlockers,
+    }))
+    .sort((a, b) => {
+      if (b.blockedTasks !== a.blockedTasks) return b.blockedTasks - a.blockedTasks
+      return b.activeBlockers - a.activeBlockers
+    })
 
   const slowSectors = Array.from(slowSectorsMap.entries())
     .map(([department, item]) => ({
@@ -1465,6 +2039,10 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     withoutAssignee,
     avgHoursToFirstProgress,
     avgHoursToCompletion,
+    overdueTasks,
+    blockerLoadByUser,
+    blockerLoadByDepartment,
+    blockedTasks,
     slowSectors,
     mostStagnantTasks,
   }

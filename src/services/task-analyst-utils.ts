@@ -6,7 +6,7 @@ export type DepartmentThreshold = {
   source: "manual" | "learned"
 }
 
-type TaskAnalystMessageKindValue = "REMINDER" | "ESCALATION" | "MANAGER_DIGEST" | "UNASSIGNED_ALERT"
+type TaskAnalystMessageKindValue = "REMINDER" | "ESCALATION" | "MANAGER_DIGEST" | "UNASSIGNED_ALERT" | "BLOCKER_REMINDER"
 
 const KNOWN_DEPARTMENTS = new Set([
   "vendas",
@@ -71,6 +71,22 @@ export function buildCooldownHashKey(input: {
 }) {
   const ref = input.referenceAt ?? new Date()
   return `${input.kind}:${input.recipientUserId}:${input.taskId}:${toISODateUTC(ref)}`
+}
+
+export function buildBlockerDependencyKey(input: {
+  ownerType: "USER" | "DEPARTMENT"
+  ownerUserId?: string | null
+  ownerDepartment?: string | null
+}) {
+  if (input.ownerType === "USER") {
+    const ownerUserId = input.ownerUserId?.trim()
+    if (!ownerUserId) return null
+    return `USER:${ownerUserId}`
+  }
+
+  const department = normalizeDepartment(input.ownerDepartment)
+  if (!department) return null
+  return `DEPARTMENT:${department}`
 }
 
 export function shouldSendByCooldown(params: {

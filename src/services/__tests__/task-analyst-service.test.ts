@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   applyLearningSmoothing,
+  buildBlockerDependencyKey,
   buildCooldownHashKey,
   clampHours,
   computeHoursWithoutProgress,
@@ -43,6 +44,30 @@ describe("task analyst helpers", () => {
     })
 
     expect(key).toBe("REMINDER:u1:t1:2026-03-27")
+  })
+
+  it("builds dependency key for blocker recipients", () => {
+    expect(buildBlockerDependencyKey({
+      ownerType: "USER",
+      ownerUserId: "user-1",
+    })).toBe("USER:user-1")
+
+    expect(buildBlockerDependencyKey({
+      ownerType: "DEPARTMENT",
+      ownerDepartment: "cadastro",
+    })).toBe("DEPARTMENT:cadastro")
+  })
+
+  it("returns null dependency key when blocker target is incomplete", () => {
+    expect(buildBlockerDependencyKey({
+      ownerType: "USER",
+      ownerUserId: "",
+    })).toBeNull()
+
+    expect(buildBlockerDependencyKey({
+      ownerType: "DEPARTMENT",
+      ownerDepartment: "",
+    })).toBeNull()
   })
 
   it("checks cooldown window before sending", () => {

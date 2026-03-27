@@ -14,6 +14,7 @@ interface KanbanBoardProps {
 const COLUMNS: { id: TaskStatus; title: string }[] = [
     { id: 'TODO', title: 'A Fazer' },
     { id: 'IN_PROGRESS', title: 'Em Andamento' },
+    { id: 'BLOCKED', title: 'Bloqueadas' },
     { id: 'REVIEW', title: 'Revisão' },
     { id: 'DONE', title: 'Concluído' },
 ]
