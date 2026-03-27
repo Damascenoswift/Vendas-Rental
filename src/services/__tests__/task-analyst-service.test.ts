@@ -9,7 +9,7 @@ import {
   percentile75,
   shouldSendByCooldown,
   type DepartmentThreshold,
-} from "../task-analyst-service"
+} from "../task-analyst-utils"
 
 describe("task analyst helpers", () => {
   it("computes hours without progress from ISO timestamps", () => {
