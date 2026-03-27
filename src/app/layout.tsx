@@ -4,6 +4,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AiChatProvider } from "@/contexts/ai-chat-context";
 import { AiChatWidget } from "@/components/ai/ai-chat-widget";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const soraSans = Sora({
   variable: "--font-geist-sans",
@@ -56,6 +57,7 @@ export default function RootLayout({
           <AiChatWidget />
           <SpeedInsights />
         </AiChatProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
