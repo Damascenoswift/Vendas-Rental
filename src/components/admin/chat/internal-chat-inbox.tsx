@@ -339,9 +339,7 @@ export function InternalChatInbox({
     }, [debouncedConversationSearch, loadConversations])
 
     useEffect(() => {
-        const stopActiveRecordingIfNeeded = () => {
-            if (!recordingAudio) return
-
+        const stopActiveRecording = () => {
             if (recordingIntervalRef.current) {
                 clearInterval(recordingIntervalRef.current)
                 recordingIntervalRef.current = null
@@ -368,16 +366,16 @@ export function InternalChatInbox({
             setMessages([])
             setAttachmentFiles([])
             setAudioAttachmentUrls({})
-            stopActiveRecordingIfNeeded()
+            stopActiveRecording()
             return
         }
 
         setAttachmentFiles([])
         setAudioAttachmentUrls({})
-        stopActiveRecordingIfNeeded()
+        stopActiveRecording()
         void loadMessages(selectedConversationId, { silent: true })
         void markSelectedConversationAsRead(selectedConversationId)
-    }, [loadMessages, markSelectedConversationAsRead, recordingAudio, selectedConversationId])
+    }, [loadMessages, markSelectedConversationAsRead, selectedConversationId])
 
     useEffect(() => {
         if (!isNewConversationOpen) return
