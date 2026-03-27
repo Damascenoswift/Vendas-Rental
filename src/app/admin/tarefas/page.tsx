@@ -6,22 +6,32 @@ import { TaskAttachmentsCleanupButton } from "@/components/admin/tasks/task-atta
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskDashboard } from "@/components/admin/tasks/task-dashboard"
 import { TaskAnalystDashboard } from "@/components/admin/tasks/task-analyst-dashboard"
+import { TaskMyWeekDashboard } from "@/components/admin/tasks/task-my-week-dashboard"
 import { TaskFilters } from "@/components/admin/tasks/task-filters"
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
 import { getTaskAnalystDashboardSummary } from "@/services/task-analyst-service"
+import { getTaskPersonalWeeklySummary } from "@/services/task-personal-weekly-service"
+import Link from "next/link"
 
 type TaskScope = "all" | "mine" | "department"
+type TaskView = "board" | "dashboard" | "my-week" | "analyst"
 
 function normalizeScope(value?: string | null): TaskScope {
     if (value === "mine" || value === "department") return value
     return "all"
 }
 
+function normalizeView(value?: string | null, canViewTaskAnalyst?: boolean): TaskView {
+    if (value === "board" || value === "dashboard" || value === "my-week") return value
+    if (value === "analyst" && canViewTaskAnalyst) return value
+    return "dashboard"
+}
+
 export default async function TasksPage({
     searchParams,
 }: {
-    searchParams?: Promise<{ brand?: string; scope?: string; q?: string; openTask?: string }>
+    searchParams?: Promise<{ brand?: string; scope?: string; q?: string; openTask?: string; view?: string }>
 }) {
     const resolvedSearchParams = searchParams ? await searchParams : undefined
     const brand = (resolvedSearchParams?.brand === 'rental' || resolvedSearchParams?.brand === 'dorata')
@@ -48,7 +58,22 @@ export default async function TasksPage({
 
     const tasks = await getTasks({ showAll: true, brand, assigneeId, department, search })
     const canViewTaskAnalyst = profile?.role === "adm_mestre"
-    const taskAnalystSummary = canViewTaskAnalyst ? await getTaskAnalystDashboardSummary() : null
+    const activeView = normalizeView(resolvedSearchParams?.view, canViewTaskAnalyst)
+    const taskAnalystSummary = canViewTaskAnalyst && activeView === "analyst" ? await getTaskAnalystDashboardSummary() : null
+    const taskPersonalWeeklySummary = activeView === "my-week"
+        ? await getTaskPersonalWeeklySummary({ brand, search })
+        : null
+
+    const buildViewHref = (nextView: TaskView) => {
+        const params = new URLSearchParams()
+        if (brand) params.set("brand", brand)
+        if (scope !== "all") params.set("scope", scope)
+        if (search) params.set("q", search)
+        params.set("view", nextView)
+        if (nextView === "board" && openTaskId) params.set("openTask", openTaskId)
+        const query = params.toString()
+        return query ? `/admin/tarefas?${query}` : "/admin/tarefas"
+    }
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -67,12 +92,23 @@ export default async function TasksPage({
                 </div>
             </div>
 
-            <Tabs defaultValue="dashboard" className="flex flex-1 min-h-0 flex-col">
+            <Tabs value={activeView} className="flex flex-1 min-h-0 flex-col">
                 <div className="px-6 py-2 bg-gray-50/50 border-b flex items-center justify-between">
                     <TabsList>
-                        <TabsTrigger value="board">Quadro Kanban</TabsTrigger>
-                        <TabsTrigger value="dashboard">Visão Geral</TabsTrigger>
-                        {canViewTaskAnalyst ? <TabsTrigger value="analyst">Analista IA</TabsTrigger> : null}
+                        <TabsTrigger value="board" asChild>
+                            <Link href={buildViewHref("board")}>Quadro Kanban</Link>
+                        </TabsTrigger>
+                        <TabsTrigger value="dashboard" asChild>
+                            <Link href={buildViewHref("dashboard")}>Visão Geral</Link>
+                        </TabsTrigger>
+                        <TabsTrigger value="my-week" asChild>
+                            <Link href={buildViewHref("my-week")}>Minha Semana</Link>
+                        </TabsTrigger>
+                        {canViewTaskAnalyst ? (
+                            <TabsTrigger value="analyst" asChild>
+                                <Link href={buildViewHref("analyst")}>Analista IA</Link>
+                            </TabsTrigger>
+                        ) : null}
                     </TabsList>
 
                     <div className="flex items-center gap-2">
@@ -87,6 +123,10 @@ export default async function TasksPage({
 
                     <TabsContent value="dashboard" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
                         <TaskDashboard tasks={tasks} />
+                    </TabsContent>
+
+                    <TabsContent value="my-week" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
+                        <TaskMyWeekDashboard summary={taskPersonalWeeklySummary} />
                     </TabsContent>
 
                     {canViewTaskAnalyst ? (
