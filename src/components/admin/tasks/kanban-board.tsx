@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Task, TaskStatus, updateTaskStatus } from "@/services/task-service"
+import { evaluateCurrentUserTaskCompletion } from "@/services/task-benchmark-service"
 import { TaskColumn } from "./task-column"
 import { TaskDetailsDialog } from "./task-details-dialog"
 import { useToast } from "@/hooks/use-toast"
@@ -58,9 +59,35 @@ export function KanbanBoard({ initialTasks, initialOpenTaskId }: KanbanBoardProp
                     description: result.error,
                     variant: "error",
                 })
+                return
+            }
+
+            if (newStatus === "DONE") {
+                const task = tasks.find((t) => t.id === taskId)
+                if (task?.department && task.created_at) {
+                    const perf = await evaluateCurrentUserTaskCompletion(
+                        task.department,
+                        new Date(task.created_at),
+                        new Date()
+                    )
+                    if (perf) {
+                        const withinDeadline = perf.actual_business_days <= perf.benchmark.expected_business_days
+                        const description = perf.is_personal_best
+                            ? `Novo recorde! ${perf.actual_business_days}d úteis (anterior: ${perf.previous_best ?? "—"}d)`
+                            : withinDeadline
+                              ? `Concluída dentro do prazo — ${perf.actual_business_days}d úteis (meta: ${perf.benchmark.expected_business_days}d)`
+                              : `Concluída com ${perf.actual_business_days - perf.benchmark.expected_business_days}d acima da meta (${perf.benchmark.expected_business_days}d)`
+                        showToast({
+                            title: perf.is_personal_best ? "Recorde pessoal!" : "Tarefa concluída",
+                            description,
+                            variant: withinDeadline ? "success" : "info",
+                            duration: 6000,
+                        })
+                    }
+                }
             }
         },
-        [showToast]
+        [showToast, tasks]
     )
 
     const selectedTask = tasks.find(t => t.id === selectedTaskId) ?? null
