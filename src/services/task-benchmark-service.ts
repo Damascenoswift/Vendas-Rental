@@ -151,7 +151,19 @@ export async function evaluateTaskCompletion(
     const isPersonalBest = shouldUpdatePersonalRecord(previousBest, actual)
 
     if (isPersonalBest) {
-        await upsertPersonalRecordIfBetter(userId, benchmark.id, actual)
+        // upsert diretamente — já sabemos que é melhor, evita segunda leitura
+        const supabase = await createClient()
+        await supabase
+            .from("task_personal_records")
+            .upsert(
+                {
+                    user_id: userId,
+                    benchmark_id: benchmark.id,
+                    best_business_days: actual,
+                    achieved_at: new Date().toISOString(),
+                },
+                { onConflict: "user_id,benchmark_id" }
+            )
     }
 
     return {
@@ -176,7 +188,7 @@ export async function evaluateCurrentUserTaskCompletion(
 
 /** CRUD para admin */
 export async function createBenchmark(data: {
-    department: string
+    department: Department
     label: string
     expected_business_days: number
 }): Promise<{ error?: string }> {
