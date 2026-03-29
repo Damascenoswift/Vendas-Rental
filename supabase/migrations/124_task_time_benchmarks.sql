@@ -65,6 +65,8 @@ CREATE POLICY "personal_records_upsert" ON public.task_personal_records
     FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
 
 CREATE POLICY "personal_records_update" ON public.task_personal_records
-    FOR UPDATE TO authenticated USING (user_id = auth.uid());
+    FOR UPDATE TO authenticated
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
 
 COMMIT;
