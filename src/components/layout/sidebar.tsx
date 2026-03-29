@@ -16,6 +16,7 @@ import {
     CircleDollarSign,
     Calculator,
     KanbanSquare,
+    Timer,
     MessageCircle,
     Bell,
     MessageSquareText,
@@ -308,6 +309,9 @@ export function Sidebar({ className }: SidebarProps) {
 
                             {['adm_mestre', 'adm_dorata', 'funcionario_n1', 'funcionario_n2'].includes(role) && (
                                 <NavItem collapsed={isCollapsed} href="/admin/configuracoes/precos" label="Base de Cálculo" icon={CircleDollarSign} />
+                            )}
+                            {['adm_mestre', 'supervisor'].includes(role) && (
+                                <NavItem collapsed={isCollapsed} href="/admin/configuracoes/benchmarks" label="Benchmarks de Tempo" icon={Timer} />
                             )}
                         </div>
                     </div>
