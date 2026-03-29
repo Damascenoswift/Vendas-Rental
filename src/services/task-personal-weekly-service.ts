@@ -72,6 +72,7 @@ export type TaskPersonalSummaryTask = {
     creatorName: string
     blockerCount: number
     oldestBlockerOpenedAt: string | null
+    createdAt: string
 }
 
 export type TaskPersonalDependencyGroup = {
@@ -254,6 +255,7 @@ function toSummaryTask(params: {
         creatorName: params.task.creator?.name?.trim() || "Sem criador",
         blockerCount,
         oldestBlockerOpenedAt,
+        createdAt: params.task.created_at,
     }
 }
 

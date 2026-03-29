@@ -11,7 +11,9 @@ import { TaskFilters } from "@/components/admin/tasks/task-filters"
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
 import { getTaskAnalystDashboardSummary } from "@/services/task-analyst-service"
-import { getTaskPersonalWeeklySummary } from "@/services/task-personal-weekly-service"
+import { getActiveWorksForUser, getTaskPersonalWeeklySummary } from "@/services/task-personal-weekly-service"
+import { getDefaultBenchmarkForDepartment } from "@/services/task-benchmark-service"
+import { differenceInBusinessDays } from "@/lib/business-days"
 import Link from "next/link"
 
 type TaskScope = "all" | "mine" | "department"
@@ -63,6 +65,30 @@ export default async function TasksPage({
     const taskPersonalWeeklySummary = activeView === "my-week"
         ? await getTaskPersonalWeeklySummary({ brand, search })
         : null
+
+    let activeWorks: Awaited<ReturnType<typeof getActiveWorksForUser>> = []
+    const taskBenchmarkDays: Record<string, { expected: number; elapsed: number }> = {}
+
+    if (activeView === "my-week" && user) {
+        activeWorks = await getActiveWorksForUser(user.id)
+
+        if (taskPersonalWeeklySummary) {
+            const now = new Date()
+            const departmentBenchmarkCache: Record<string, number | null> = {}
+
+            for (const task of taskPersonalWeeklySummary.inProgressTasks) {
+                if (!(task.department in departmentBenchmarkCache)) {
+                    const bm = await getDefaultBenchmarkForDepartment(task.department)
+                    departmentBenchmarkCache[task.department] = bm?.expected_business_days ?? null
+                }
+                const expected = departmentBenchmarkCache[task.department]
+                if (expected !== null) {
+                    const elapsed = Math.max(0, differenceInBusinessDays(new Date(task.createdAt), now))
+                    taskBenchmarkDays[task.taskId] = { expected, elapsed }
+                }
+            }
+        }
+    }
 
     const buildViewHref = (nextView: TaskView) => {
         const params = new URLSearchParams()
@@ -126,7 +152,11 @@ export default async function TasksPage({
                     </TabsContent>
 
                     <TabsContent value="my-week" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
-                        <TaskMyWeekDashboard summary={taskPersonalWeeklySummary} />
+                        <TaskMyWeekDashboard
+                            summary={taskPersonalWeeklySummary}
+                            activeWorks={activeWorks}
+                            taskBenchmarkDays={taskBenchmarkDays}
+                        />
                     </TabsContent>
 
                     {canViewTaskAnalyst ? (
