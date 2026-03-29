@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { differenceInBusinessDays } from "@/lib/business-days"
 import type { Brand, Department, Task, TaskChecklistDecision, TaskPriority, TaskStatus } from "@/services/task-service"
 import { getTasks } from "@/services/task-service"
 import {
@@ -643,4 +644,69 @@ export async function getTaskPersonalWeeklySummary(params?: {
         tasksByRole,
         pendingChecklistItems,
     }
+}
+
+// --- OBRAS EM ANDAMENTO ---
+
+export type ActiveWorkSummary = {
+    id: string
+    title: string | null
+    work_address: string | null
+    status: string
+    phase: "PROJETO" | "EXECUCAO" | null
+    execution_deadline_at: string | null
+    execution_deadline_business_days: number | null
+    completed_at: string | null
+    elapsed_business_days: number | null
+    is_overdue: boolean
+}
+
+export async function getActiveWorksForUser(userId: string): Promise<ActiveWorkSummary[]> {
+    const supabase = await createClient()
+
+    // work_cards tem coluna user_id (migration 087) — filtrar diretamente pelo responsável
+    const { data, error } = await supabase
+        .from("work_cards")
+        .select(`
+            id,
+            title,
+            work_address,
+            status,
+            execution_deadline_at,
+            execution_deadline_business_days,
+            completed_at,
+            created_at
+        `)
+        .eq("user_id", userId)
+        .in("status", ["PARA_INICIAR", "EM_ANDAMENTO"])
+        .order("execution_deadline_at", { ascending: true })
+        .limit(10)
+
+    if (error) {
+        console.error("getActiveWorksForUser error:", error.message)
+        return []
+    }
+
+    const now = new Date()
+    return (data ?? []).map((row) => {
+        const deadline = row.execution_deadline_at ? new Date(row.execution_deadline_at) : null
+        const isOverdue = deadline ? now > deadline : false
+
+        // elapsed = dias úteis desde criação da obra até hoje
+        const startedAt = new Date(row.created_at)
+        const elapsed = differenceInBusinessDays(startedAt, now)
+
+        return {
+            id: row.id,
+            title: row.title,
+            work_address: row.work_address,
+            status: row.status,
+            phase: null,
+            execution_deadline_at: row.execution_deadline_at,
+            execution_deadline_business_days: row.execution_deadline_business_days,
+            completed_at: row.completed_at,
+            elapsed_business_days: elapsed,
+            is_overdue: isOverdue,
+        }
+    })
 }
