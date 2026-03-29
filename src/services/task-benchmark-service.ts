@@ -186,6 +186,42 @@ export async function evaluateCurrentUserTaskCompletion(
     return evaluateTaskCompletion(user.id, department, startedAt, completedAt)
 }
 
+export type PersonalHistoryEntry = {
+    benchmark: TaskTimeBenchmark
+    record: TaskPersonalRecord | null
+    total_completed: number
+    within_deadline: number
+}
+
+export async function getPersonalArenaStats(userId: string): Promise<PersonalHistoryEntry[]> {
+    const supabase = await createClient()
+
+    const { data: benchmarks } = await supabase
+        .from("task_time_benchmarks")
+        .select("*")
+        .eq("active", true)
+        .order("department")
+        .order("label")
+
+    if (!benchmarks?.length) return []
+
+    const { data: records } = await supabase
+        .from("task_personal_records")
+        .select("*")
+        .eq("user_id", userId)
+
+    const recordsByBenchmark = new Map(
+        (records ?? []).map((r) => [r.benchmark_id, r as TaskPersonalRecord])
+    )
+
+    return (benchmarks as TaskTimeBenchmark[]).map((b) => ({
+        benchmark: b,
+        record: recordsByBenchmark.get(b.id) ?? null,
+        total_completed: 0,
+        within_deadline: 0,
+    }))
+}
+
 /** CRUD para admin */
 export async function createBenchmark(data: {
     department: Department
