@@ -73,6 +73,8 @@ export type TaskPersonalSummaryTask = {
     blockerCount: number
     oldestBlockerOpenedAt: string | null
     createdAt: string
+    /** ISO timestamp of the most recent IN_PROGRESS event, or null if not found. */
+    inProgressAt: string | null
 }
 
 export type TaskPersonalDependencyGroup = {
@@ -105,6 +107,7 @@ export type TaskPersonalWeeklySummary = {
         emAndamento: number
         travadas: number
         vencendoOuAtrasadas: number
+        obrasAtivas: number
     }
     importantTasks: TaskPersonalSummaryTask[]
     blockedByDependency: {
@@ -238,6 +241,7 @@ function toSummaryTask(params: {
     week: { startDateKey: string; endDateKey: string }
     blockerCount?: number
     oldestBlockerOpenedAt?: string | null
+    inProgressAt?: string | null
 }): TaskPersonalSummaryTask {
     const blockerCount = params.blockerCount ?? 0
     const oldestBlockerOpenedAt = params.oldestBlockerOpenedAt ?? null
@@ -256,6 +260,7 @@ function toSummaryTask(params: {
         blockerCount,
         oldestBlockerOpenedAt,
         createdAt: params.task.created_at,
+        inProgressAt: params.inProgressAt ?? null,
     }
 }
 
@@ -329,6 +334,32 @@ async function loadUsersNameMap(userIds: string[]) {
 
     const map = new Map<string, UserNameRow>()
     ;((data ?? []) as UserNameRow[]).forEach((item) => map.set(item.id, item))
+    return map
+}
+
+async function loadInProgressEventsByTask(taskIds: string[]): Promise<Map<string, string>> {
+    const map = new Map<string, string>()
+    if (taskIds.length === 0) return map
+
+    const supabase = await createClient()
+    const { data, error } = await supabase
+        .from("task_activity_events")
+        .select("task_id, event_at")
+        .in("task_id", taskIds)
+        .eq("event_type", "TASK_STATUS_CHANGED")
+        .eq("metadata->>new_status" as string, "IN_PROGRESS")
+        .order("event_at", { ascending: false })
+
+    if (error) {
+        // table may not exist yet in some envs — degrade gracefully
+        return map
+    }
+
+    for (const row of (data ?? []) as Array<{ task_id: string; event_at: string }>) {
+        if (!map.has(row.task_id)) {
+            map.set(row.task_id, row.event_at)
+        }
+    }
     return map
 }
 
@@ -422,6 +453,8 @@ export async function getTaskPersonalWeeklySummary(params?: {
         .filter((task) => task.status === "IN_PROGRESS" || task.status === "REVIEW")
     const sortedInProgressRows = sortSummaryTasksByImportance(inProgressRows, { now, week }).slice(0, 20)
 
+    const inProgressEventMap = await loadInProgressEventsByTask(sortedInProgressRows.map((t) => t.id))
+
     const assigneeTaskIdSet = new Set(assigneeTasks.map((task) => task.id))
     const blockersFromAssigneeTasks = openBlockers.filter((blocker) => assigneeTaskIdSet.has(blocker.task_id))
     const blockerOwnerUserIds = Array.from(
@@ -449,7 +482,18 @@ export async function getTaskPersonalWeeklySummary(params?: {
 
     const openTasksById = new Map<string, Task>(openTasks.map((task) => [task.id, task]))
     const importantTasks = selectedImportantRows.map(toSummaryTaskWithBlockers)
-    const inProgressTasks = sortedInProgressRows.map(toSummaryTaskWithBlockers)
+    const inProgressTasks = sortedInProgressRows.map((task) => {
+        const blockers = blockersByTaskId.get(task.id) ?? []
+        const oldestBlockerOpenedAt = blockers.map((item) => item.opened_at).sort(compareIsoAsc)[0] ?? null
+        return toSummaryTask({
+            task,
+            now,
+            week,
+            blockerCount: blockers.length,
+            oldestBlockerOpenedAt,
+            inProgressAt: inProgressEventMap.get(task.id) ?? null,
+        })
+    })
 
     const tasksByRole = {
         assignee: sortSummaryTasksByImportance(assigneeTasks, { now, week }).slice(0, 25).map(toSummaryTaskWithBlockers),
@@ -639,6 +683,7 @@ export async function getTaskPersonalWeeklySummary(params?: {
             emAndamento: inProgressTasks.length,
             travadas: blockedTaskSummaries.length,
             vencendoOuAtrasadas: dueOrOverdueCount,
+            obrasAtivas: 0, // populated by getActiveWorksForUser in the page layer
         },
         importantTasks,
         blockedByDependency,

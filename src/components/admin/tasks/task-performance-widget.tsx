@@ -3,13 +3,9 @@ import Link from "next/link"
 import { Activity } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import type { WeeklyPerformanceSummary } from "@/services/task-benchmark-service"
 
-export type WeeklyPerformanceSummary = {
-    withinDeadline: number
-    outsideDeadline: number
-    rate: number // 0-100
-    badges: string[]
-}
+export type { WeeklyPerformanceSummary }
 
 export function TaskPerformanceWidget({
     summary,

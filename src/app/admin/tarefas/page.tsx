@@ -12,7 +12,8 @@ import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
 import { getTaskAnalystDashboardSummary } from "@/services/task-analyst-service"
 import { getActiveWorksForUser, getTaskPersonalWeeklySummary } from "@/services/task-personal-weekly-service"
-import { getDefaultBenchmarkForDepartment } from "@/services/task-benchmark-service"
+import { getDefaultBenchmarkForDepartment, getWeeklyPerformanceSummary } from "@/services/task-benchmark-service"
+import type { WeeklyPerformanceSummary } from "@/services/task-benchmark-service"
 import { differenceInBusinessDays } from "@/lib/business-days"
 import Link from "next/link"
 
@@ -68,6 +69,7 @@ export default async function TasksPage({
 
     let activeWorks: Awaited<ReturnType<typeof getActiveWorksForUser>> = []
     const taskBenchmarkDays: Record<string, { expected: number; elapsed: number }> = {}
+    let performanceSummary: WeeklyPerformanceSummary | null = null
 
     if (activeView === "my-week" && user) {
         activeWorks = await getActiveWorksForUser(user.id)
@@ -83,10 +85,17 @@ export default async function TasksPage({
                 }
                 const expected = departmentBenchmarkCache[task.department]
                 if (expected !== null) {
-                    const elapsed = Math.max(0, differenceInBusinessDays(new Date(task.createdAt), now))
+                    // Use IN_PROGRESS event timestamp as start; fall back to created_at
+                    const startAt = task.inProgressAt ? new Date(task.inProgressAt) : new Date(task.createdAt)
+                    const elapsed = Math.max(0, differenceInBusinessDays(startAt, now))
                     taskBenchmarkDays[task.taskId] = { expected, elapsed }
                 }
             }
+
+            // Compute weekly performance summary (tasks completed this week)
+            const weekStart = new Date(taskPersonalWeeklySummary.weekStartDate + "T00:00:00-04:00")
+            const weekEnd = new Date(taskPersonalWeeklySummary.weekEndDate + "T23:59:59-04:00")
+            performanceSummary = await getWeeklyPerformanceSummary(user.id, weekStart, weekEnd)
         }
     }
 
@@ -156,6 +165,7 @@ export default async function TasksPage({
                             summary={taskPersonalWeeklySummary}
                             activeWorks={activeWorks}
                             taskBenchmarkDays={taskBenchmarkDays}
+                            performanceSummary={performanceSummary}
                         />
                     </TabsContent>
 

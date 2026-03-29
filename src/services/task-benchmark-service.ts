@@ -222,6 +222,94 @@ export async function getPersonalArenaStats(userId: string): Promise<PersonalHis
     }))
 }
 
+export type WeeklyPerformanceSummary = {
+    withinDeadline: number
+    outsideDeadline: number
+    rate: number // 0-100
+    badges: string[]
+}
+
+/**
+ * Computes performance summary for the current user for a given week window.
+ * Queries tasks completed (DONE) by the assignee inside the week range,
+ * looks up their IN_PROGRESS → DONE duration and compares to the benchmark.
+ */
+export async function getWeeklyPerformanceSummary(
+    userId: string,
+    weekStart: Date,
+    weekEnd: Date
+): Promise<WeeklyPerformanceSummary> {
+    const supabase = await createClient()
+
+    // Find tasks the user completed (status=DONE) within the week
+    const { data: doneTasks, error: doneError } = await supabase
+        .from("tasks")
+        .select("id, department, created_at")
+        .eq("assignee_id", userId)
+        .eq("status", "DONE")
+        .gte("updated_at", weekStart.toISOString())
+        .lte("updated_at", weekEnd.toISOString())
+        .limit(100)
+
+    if (doneError || !doneTasks?.length) {
+        return { withinDeadline: 0, outsideDeadline: 0, rate: 0, badges: [] }
+    }
+
+    const taskIds = doneTasks.map((t) => t.id)
+
+    // Get IN_PROGRESS event timestamps for these tasks
+    const { data: events } = await supabase
+        .from("task_activity_events")
+        .select("task_id, event_at")
+        .in("task_id", taskIds)
+        .eq("event_type", "TASK_STATUS_CHANGED")
+        .eq("metadata->>new_status" as string, "IN_PROGRESS")
+        .order("event_at", { ascending: false })
+
+    const inProgressAt = new Map<string, Date>()
+    for (const row of (events ?? []) as Array<{ task_id: string; event_at: string }>) {
+        if (!inProgressAt.has(row.task_id)) {
+            inProgressAt.set(row.task_id, new Date(row.event_at))
+        }
+    }
+
+    // Collect benchmarks for involved departments
+    const departments = Array.from(new Set(doneTasks.map((t) => t.department).filter(Boolean))) as Department[]
+    const bmMap = new Map<string, TaskTimeBenchmark>()
+    for (const dept of departments) {
+        const bm = await getDefaultBenchmarkForDepartment(dept)
+        if (bm) bmMap.set(dept, bm)
+    }
+
+    let withinDeadline = 0
+    let outsideDeadline = 0
+    const newRecordDepartments: string[] = []
+
+    for (const task of doneTasks as Array<{ id: string; department: string; created_at: string }>) {
+        const bm = bmMap.get(task.department)
+        if (!bm) continue
+
+        const start = inProgressAt.get(task.id) ?? new Date(task.created_at)
+        const actual = computeActualBusinessDays(start, weekEnd)
+        if (actual <= bm.expected_business_days) {
+            withinDeadline++
+        } else {
+            outsideDeadline++
+        }
+
+        const rec = await getPersonalRecord(userId, bm.id)
+        if (shouldUpdatePersonalRecord(rec?.best_business_days ?? null, actual)) {
+            newRecordDepartments.push(bm.label)
+        }
+    }
+
+    const total = withinDeadline + outsideDeadline
+    const rate = total > 0 ? Math.round((withinDeadline / total) * 100) : 0
+    const badges = newRecordDepartments.map((label) => `Recorde pessoal em ${label}`)
+
+    return { withinDeadline, outsideDeadline, rate, badges }
+}
+
 /** CRUD para admin */
 export async function createBenchmark(data: {
     department: Department
