@@ -20,6 +20,7 @@ import Link from "next/link"
 
 type TaskScope = "all" | "mine" | "department"
 type TaskView = "board" | "dashboard" | "my-week" | "analyst"
+const ANALYST_PERIOD_OPTIONS = [30, 60, 90] as const
 
 function normalizeScope(value?: string | null): TaskScope {
     if (value === "mine" || value === "department") return value
@@ -32,10 +33,17 @@ function normalizeView(value?: string | null, canViewTaskAnalyst?: boolean): Tas
     return "dashboard"
 }
 
+function normalizeAnalystPeriod(value?: string | null) {
+    const parsed = Number.parseInt((value ?? "").trim(), 10)
+    if (!Number.isFinite(parsed)) return 90
+    if (ANALYST_PERIOD_OPTIONS.includes(parsed as typeof ANALYST_PERIOD_OPTIONS[number])) return parsed
+    return 90
+}
+
 export default async function TasksPage({
     searchParams,
 }: {
-    searchParams?: Promise<{ brand?: string; scope?: string; q?: string; openTask?: string; view?: string }>
+    searchParams?: Promise<{ brand?: string; scope?: string; q?: string; openTask?: string; view?: string; period?: string }>
 }) {
     const resolvedSearchParams = searchParams ? await searchParams : undefined
     const brand = (resolvedSearchParams?.brand === 'rental' || resolvedSearchParams?.brand === 'dorata')
@@ -43,6 +51,7 @@ export default async function TasksPage({
         : undefined
     const search = resolvedSearchParams?.q?.trim() || undefined
     const openTaskId = resolvedSearchParams?.openTask?.trim() || undefined
+    const selectedAnalystPeriod = normalizeAnalystPeriod(resolvedSearchParams?.period)
 
     const scope = normalizeScope(resolvedSearchParams?.scope)
     const supabase = await createClient()
@@ -66,7 +75,9 @@ export default async function TasksPage({
         task_analyst_access: profile?.taskAnalystAccess ?? null,
     })
     const activeView = normalizeView(resolvedSearchParams?.view, canViewTaskAnalyst)
-    const taskAnalystSummary = canViewTaskAnalyst && activeView === "analyst" ? await getTaskAnalystDashboardSummary() : null
+    const taskAnalystSummary = canViewTaskAnalyst && activeView === "analyst"
+        ? await getTaskAnalystDashboardSummary({ periodDays: selectedAnalystPeriod })
+        : null
     const taskPersonalWeeklySummary = activeView === "my-week"
         ? await getTaskPersonalWeeklySummary({ brand, search })
         : null
@@ -108,11 +119,26 @@ export default async function TasksPage({
         if (brand) params.set("brand", brand)
         if (scope !== "all") params.set("scope", scope)
         if (search) params.set("q", search)
+        if (canViewTaskAnalyst) params.set("period", String(selectedAnalystPeriod))
         params.set("view", nextView)
         if (nextView === "board" && openTaskId) params.set("openTask", openTaskId)
         const query = params.toString()
         return query ? `/admin/tarefas?${query}` : "/admin/tarefas"
     }
+
+    const analystPeriodLinks = ANALYST_PERIOD_OPTIONS.map((days) => {
+        const params = new URLSearchParams()
+        if (brand) params.set("brand", brand)
+        if (scope !== "all") params.set("scope", scope)
+        if (search) params.set("q", search)
+        params.set("view", "analyst")
+        params.set("period", String(days))
+        const query = params.toString()
+        return {
+            days,
+            href: query ? `/admin/tarefas?${query}` : "/admin/tarefas?view=analyst",
+        }
+    })
 
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -175,7 +201,11 @@ export default async function TasksPage({
 
                     {canViewTaskAnalyst ? (
                         <TabsContent value="analyst" className="h-full min-h-0 overflow-y-auto p-6 m-0 data-[state=inactive]:hidden">
-                            <TaskAnalystDashboard summary={taskAnalystSummary} />
+                            <TaskAnalystDashboard
+                                summary={taskAnalystSummary}
+                                selectedPeriodDays={selectedAnalystPeriod}
+                                periodOptions={analystPeriodLinks}
+                            />
                         </TabsContent>
                     ) : null}
                 </div>

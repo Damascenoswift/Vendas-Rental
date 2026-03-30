@@ -9,11 +9,15 @@ import {
   applyLearningSmoothing,
   buildBlockerDependencyKey,
   buildCooldownHashKey,
+  classifyTaskDeadlineHealth,
   clampHours,
+  computeBlockedHoursInWindow,
   computeHoursWithoutProgress,
+  findFirstInProgressAt,
   percentile75,
   pickTaskThreshold,
   shouldSendByCooldown,
+  type DeadlineHealthBucket,
   type DepartmentThreshold,
 } from "@/services/task-analyst-utils"
 
@@ -49,6 +53,7 @@ type ActivityEventRow = {
   task_id: string
   event_type: string
   event_at: string
+  payload?: Record<string, unknown> | null
 }
 
 type MessageLogRow = {
@@ -64,6 +69,7 @@ type TaskBlockerRow = {
   task_id: string
   status: TaskBlockerStatus
   owner_type: TaskBlockerOwnerType
+  original_assignee_id: string | null
   owner_user_id: string | null
   owner_department: string | null
   reason: string
@@ -116,6 +122,51 @@ export type TaskAnalystRunResult = {
     unassignedAlertsSent: number
     learnedThresholdsUpdated: number
   }
+}
+
+export type TaskAnalystDeadlineHealth = {
+  onTime: number
+  inRisk: number
+  late: number
+  withoutDueDate: number
+}
+
+export type TaskAnalystPerformanceByUser = {
+  userId: string
+  userName: string
+  department: string
+  samples: {
+    start: number
+    completion: number
+    blocker: number
+    deadline: number
+  }
+  avgTodoToInProgressHours: number | null
+  avgInProgressToDoneGrossHours: number | null
+  avgInProgressToDoneNetHours: number | null
+  avgAssigneeToBlockerHours: number | null
+  onTimeRate: number | null
+  inRiskOpen: number
+  overdueOpen: number
+  completedLate: number
+}
+
+export type TaskAnalystPerformanceByDepartment = {
+  department: string
+  samples: {
+    start: number
+    completion: number
+    blocker: number
+    deadline: number
+  }
+  avgTodoToInProgressHours: number | null
+  avgInProgressToDoneGrossHours: number | null
+  avgInProgressToDoneNetHours: number | null
+  avgAssigneeToBlockerHours: number | null
+  onTimeRate: number | null
+  inRiskOpen: number
+  overdueOpen: number
+  completedLate: number
 }
 
 export type TaskAnalystDashboardSummary = {
@@ -176,6 +227,16 @@ export type TaskAnalystDashboardSummary = {
     lastProgressAt: string
     hoursWithoutProgress: number
   }>
+  executionKpis: {
+    periodDays: number
+    avgTodoToInProgressHours: number | null
+    avgInProgressToDoneGrossHours: number | null
+    avgInProgressToDoneNetHours: number | null
+    avgAssigneeToBlockerHours: number | null
+  }
+  performanceByUser: TaskAnalystPerformanceByUser[]
+  performanceByDepartment: TaskAnalystPerformanceByDepartment[]
+  deadlineHealth: TaskAnalystDeadlineHealth
 }
 
 type LocalProgressSnapshot = {
@@ -519,13 +580,14 @@ async function loadOpenTaskBlockers(taskIds: string[]) {
   if (taskIds.length === 0) return [] as TaskBlockerRow[]
 
   const supabaseAdmin = createSupabaseServiceClient()
-  const { data, error } = await supabaseAdmin
+  let { data, error } = await supabaseAdmin
     .from("task_blockers")
     .select(`
       id,
       task_id,
       status,
       owner_type,
+      original_assignee_id,
       owner_user_id,
       owner_department,
       reason,
@@ -539,6 +601,37 @@ async function loadOpenTaskBlockers(taskIds: string[]) {
     .eq("status", "OPEN")
     .order("opened_at", { ascending: true })
 
+  const missingColumn = parseMissingColumnError(error?.message)
+  if (
+    error &&
+    missingColumn &&
+    missingColumn.table === "task_blockers" &&
+    missingColumn.column === "original_assignee_id"
+  ) {
+    const fallback = await supabaseAdmin
+      .from("task_blockers")
+      .select(`
+        id,
+        task_id,
+        status,
+        owner_type,
+        owner_user_id,
+        owner_department,
+        reason,
+        expected_unblock_at,
+        opened_by_user_id,
+        opened_at,
+        resolved_by_user_id,
+        resolved_at
+      `)
+      .in("task_id", taskIds)
+      .eq("status", "OPEN")
+      .order("opened_at", { ascending: true })
+
+    data = fallback.data as typeof data
+    error = fallback.error
+  }
+
   if (error) {
     if (isMissingRelationError(error, "task_blockers")) return [] as TaskBlockerRow[]
     throw new Error(error.message)
@@ -549,6 +642,7 @@ async function loadOpenTaskBlockers(taskIds: string[]) {
     task_id: String(row.task_id ?? ""),
     status: normalizeTaskBlockerStatus(typeof row.status === "string" ? row.status : null),
     owner_type: normalizeTaskBlockerOwnerType(typeof row.owner_type === "string" ? row.owner_type : null),
+    original_assignee_id: typeof row.original_assignee_id === "string" ? row.original_assignee_id : null,
     owner_user_id: typeof row.owner_user_id === "string" ? row.owner_user_id : null,
     owner_department: normalizeDepartment(typeof row.owner_department === "string" ? row.owner_department : null),
     reason: String(row.reason ?? ""),
@@ -558,6 +652,197 @@ async function loadOpenTaskBlockers(taskIds: string[]) {
     resolved_by_user_id: typeof row.resolved_by_user_id === "string" ? row.resolved_by_user_id : null,
     resolved_at: typeof row.resolved_at === "string" ? row.resolved_at : null,
   }))
+}
+
+async function loadTaskActivityEvents(taskIds: string[]) {
+  if (taskIds.length === 0) return [] as ActivityEventRow[]
+
+  const supabaseAdmin = createSupabaseServiceClient()
+  const { data, error } = await supabaseAdmin
+    .from("task_activity_events")
+    .select("task_id, event_type, event_at, payload")
+    .in("task_id", taskIds)
+    .order("event_at", { ascending: true })
+
+  if (error) {
+    if (isMissingRelationError(error, "task_activity_events")) return [] as ActivityEventRow[]
+    throw new Error(error.message)
+  }
+
+  return (data ?? []) as ActivityEventRow[]
+}
+
+async function loadTaskBlockersForAnalytics(taskIds: string[]) {
+  if (taskIds.length === 0) return [] as TaskBlockerRow[]
+
+  const supabaseAdmin = createSupabaseServiceClient()
+  let { data, error } = await supabaseAdmin
+    .from("task_blockers")
+    .select(`
+      id,
+      task_id,
+      status,
+      owner_type,
+      original_assignee_id,
+      owner_user_id,
+      owner_department,
+      reason,
+      expected_unblock_at,
+      opened_by_user_id,
+      opened_at,
+      resolved_by_user_id,
+      resolved_at
+    `)
+    .in("task_id", taskIds)
+    .order("opened_at", { ascending: true })
+
+  const missingColumn = parseMissingColumnError(error?.message)
+  if (
+    error &&
+    missingColumn &&
+    missingColumn.table === "task_blockers" &&
+    missingColumn.column === "original_assignee_id"
+  ) {
+    const fallback = await supabaseAdmin
+      .from("task_blockers")
+      .select(`
+        id,
+        task_id,
+        status,
+        owner_type,
+        owner_user_id,
+        owner_department,
+        reason,
+        expected_unblock_at,
+        opened_by_user_id,
+        opened_at,
+        resolved_by_user_id,
+        resolved_at
+      `)
+      .in("task_id", taskIds)
+      .order("opened_at", { ascending: true })
+
+    data = fallback.data as typeof data
+    error = fallback.error
+  }
+
+  if (error) {
+    if (isMissingRelationError(error, "task_blockers")) return [] as TaskBlockerRow[]
+    throw new Error(error.message)
+  }
+
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id ?? ""),
+    task_id: String(row.task_id ?? ""),
+    status: normalizeTaskBlockerStatus(typeof row.status === "string" ? row.status : null),
+    owner_type: normalizeTaskBlockerOwnerType(typeof row.owner_type === "string" ? row.owner_type : null),
+    original_assignee_id: typeof row.original_assignee_id === "string" ? row.original_assignee_id : null,
+    owner_user_id: typeof row.owner_user_id === "string" ? row.owner_user_id : null,
+    owner_department: normalizeDepartment(typeof row.owner_department === "string" ? row.owner_department : null),
+    reason: String(row.reason ?? ""),
+    expected_unblock_at: String(row.expected_unblock_at ?? ""),
+    opened_by_user_id: String(row.opened_by_user_id ?? ""),
+    opened_at: String(row.opened_at ?? ""),
+    resolved_by_user_id: typeof row.resolved_by_user_id === "string" ? row.resolved_by_user_id : null,
+    resolved_at: typeof row.resolved_at === "string" ? row.resolved_at : null,
+  }))
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  return value as Record<string, unknown>
+}
+
+function readUserId(value: unknown) {
+  if (typeof value !== "string") return null
+  const normalized = value.trim()
+  return normalized.length > 0 ? normalized : null
+}
+
+function avgOrNull(values: number[]) {
+  if (values.length === 0) return null
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length)
+}
+
+function toHoursBetween(startAt: string, endAt: string) {
+  const start = parseDate(startAt)
+  const end = parseDate(endAt)
+  if (!start || !end) return null
+  if (end.getTime() <= start.getTime()) return 0
+  return Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60))
+}
+
+type AssigneeTimelineEvent = {
+  eventAt: string
+  oldAssigneeId: string | null
+  newAssigneeId: string | null
+}
+
+function buildAssigneeTimelineEvents(events: ActivityEventRow[]) {
+  return events
+    .filter((event) => event.event_type === "TASK_ASSIGNEE_CHANGED" || event.event_type === "TASK_ASSIGNEE_TRANSFERRED")
+    .map((event) => {
+      const payload = toRecord(event.payload)
+      return {
+        eventAt: event.event_at,
+        oldAssigneeId: readUserId(payload.old_assignee_id),
+        newAssigneeId: readUserId(payload.new_assignee_id),
+      }
+    })
+    .sort((left, right) => {
+      const leftTime = parseDate(left.eventAt)?.getTime() ?? 0
+      const rightTime = parseDate(right.eventAt)?.getTime() ?? 0
+      return leftTime - rightTime
+    })
+}
+
+function inferAssigneeAt(params: {
+  at: Date
+  fallbackAssigneeId: string | null
+  timeline: AssigneeTimelineEvent[]
+}) {
+  if (params.timeline.length === 0) return params.fallbackAssigneeId
+
+  let currentAssignee = params.timeline[0].oldAssigneeId ?? params.fallbackAssigneeId
+  for (const event of params.timeline) {
+    const eventDate = parseDate(event.eventAt)
+    if (!eventDate) continue
+    if (eventDate.getTime() > params.at.getTime()) break
+    currentAssignee = event.newAssigneeId
+  }
+
+  return currentAssignee
+}
+
+function findAssigneeStartedAt(params: {
+  ownerUserId: string
+  openedAt: Date
+  taskCreatedAt: string
+  fallbackAssigneeId: string | null
+  timeline: AssigneeTimelineEvent[]
+}) {
+  if (!params.ownerUserId) return null
+
+  if (params.timeline.length === 0) {
+    return params.fallbackAssigneeId === params.ownerUserId ? params.taskCreatedAt : null
+  }
+
+  let currentAssignee = params.timeline[0].oldAssigneeId ?? params.fallbackAssigneeId
+  let currentStartedAt = params.taskCreatedAt
+
+  for (const event of params.timeline) {
+    const eventDate = parseDate(event.eventAt)
+    if (!eventDate) continue
+    if (eventDate.getTime() > params.openedAt.getTime()) break
+
+    if (event.newAssigneeId !== currentAssignee) {
+      currentAssignee = event.newAssigneeId
+      currentStartedAt = event.eventAt
+    }
+  }
+
+  if (currentAssignee !== params.ownerUserId) return null
+  return currentStartedAt
 }
 
 async function loadSupervisorUsers() {
@@ -2098,7 +2383,9 @@ export async function recordTaskActivityEvent(params: {
   console.error("Error recording task activity event:", error)
 }
 
-export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashboardSummary | null> {
+export async function getTaskAnalystDashboardSummary(params?: {
+  periodDays?: number | null
+}): Promise<TaskAnalystDashboardSummary | null> {
   let supabaseAdmin: ReturnType<typeof createSupabaseServiceClient>
   try {
     supabaseAdmin = createSupabaseServiceClient()
@@ -2109,6 +2396,9 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
 
   const config = await loadAnalystConfig()
   if (!config) return null
+  const periodDays = clampHours(params?.periodDays ?? config.history_window_days, 30, 365)
+  const now = new Date()
+  const periodStart = new Date(now.getTime() - (periodDays * 24 * 60 * 60 * 1000))
 
   const fallbackThreshold: DepartmentThreshold = {
     department: "_default",
@@ -2131,27 +2421,100 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
   }
 
   const openTasks = (openTasksData ?? []) as TaskRow[]
+  const completedSelect = "id, title, status, department, assignee_id, creator_id, due_date, created_at, updated_at, completed_at"
+  let completedTasksData: Array<Record<string, unknown>> | null = null
+  let completedTasksError: { message?: string | null; code?: string | null } | null = null
 
-  const { data: completedTasksData, error: completedTasksError } = await supabaseAdmin
+  const completedResult = await supabaseAdmin
     .from("tasks")
-    .select("id, created_at, completed_at")
+    .select(completedSelect)
     .not("completed_at", "is", null)
+    .gte("completed_at", periodStart.toISOString())
     .order("completed_at", { ascending: false })
-    .limit(600)
+    .limit(800)
+
+  completedTasksData = (completedResult.data ?? null) as Array<Record<string, unknown>> | null
+  completedTasksError = completedResult.error as { message?: string | null; code?: string | null } | null
+
+  const missingCompletedColumn = parseMissingColumnError(completedTasksError?.message)
+  if (
+    completedTasksError &&
+    missingCompletedColumn &&
+    missingCompletedColumn.table === "tasks" &&
+    (missingCompletedColumn.column === "completed_at" || missingCompletedColumn.column === "status")
+  ) {
+    const fallback = await supabaseAdmin
+      .from("tasks")
+      .select("id, title, department, assignee_id, creator_id, due_date, created_at, updated_at")
+      .eq("status", "DONE")
+      .gte("updated_at", periodStart.toISOString())
+
+    completedTasksData = (fallback.data ?? null) as Array<Record<string, unknown>> | null
+    completedTasksError = fallback.error as { message?: string | null; code?: string | null } | null
+  }
 
   if (completedTasksError) {
     console.error("Error loading completed tasks for dashboard:", completedTasksError)
     return null
   }
 
-  const taskIds = openTasks.map((task) => task.id)
-  const activeBlockers = await loadOpenTaskBlockers(taskIds)
-  const assigneeIds = Array.from(new Set(openTasks.map((task) => task.assignee_id).filter((id): id is string => Boolean(id))))
-  const blockerOwnerIds = Array.from(new Set(activeBlockers.map((blocker) => blocker.owner_user_id).filter((id): id is string => Boolean(id))))
-  const usersById = await loadUsersById(Array.from(new Set([...assigneeIds, ...blockerOwnerIds])))
-  const progressSnapshot = await loadProgressSnapshot(openTasks)
+  const completedTasks = ((completedTasksData ?? []) as Array<Record<string, unknown>>).map((row) => {
+    const rawStatus = typeof row.status === "string" ? row.status.trim().toUpperCase() : "DONE"
+    const status: TaskStatus = rawStatus === "TODO" || rawStatus === "IN_PROGRESS" || rawStatus === "REVIEW" || rawStatus === "BLOCKED"
+      ? rawStatus
+      : "DONE"
 
-  const now = new Date()
+    return {
+      id: String(row.id ?? ""),
+      title: typeof row.title === "string" ? row.title : null,
+      status,
+      department: typeof row.department === "string" ? row.department : null,
+      assignee_id: typeof row.assignee_id === "string" ? row.assignee_id : null,
+      creator_id: typeof row.creator_id === "string" ? row.creator_id : null,
+      due_date: typeof row.due_date === "string" ? row.due_date : null,
+      created_at: String(row.created_at ?? ""),
+      updated_at: String(row.updated_at ?? row.created_at ?? ""),
+      completed_at: typeof row.completed_at === "string" ? row.completed_at : null,
+    }
+  })
+
+  const analysisTaskById = new Map<string, TaskRow & { completed_at?: string | null }>()
+  openTasks.forEach((task) => analysisTaskById.set(task.id, task))
+  completedTasks.forEach((task) => {
+    if (!analysisTaskById.has(task.id)) analysisTaskById.set(task.id, task)
+  })
+
+  const openTaskIds = openTasks.map((task) => task.id)
+  const analysisTaskIds = Array.from(analysisTaskById.keys())
+
+  const [activeBlockers, progressSnapshot, activityEvents, blockersForAnalytics] = await Promise.all([
+    loadOpenTaskBlockers(openTaskIds),
+    loadProgressSnapshot(openTasks),
+    loadTaskActivityEvents(analysisTaskIds),
+    loadTaskBlockersForAnalytics(analysisTaskIds),
+  ])
+
+  const potentialUserIds = new Set<string>()
+  for (const task of analysisTaskById.values()) {
+    if (task.assignee_id) potentialUserIds.add(task.assignee_id)
+  }
+  activeBlockers.forEach((blocker) => {
+    if (blocker.owner_user_id) potentialUserIds.add(blocker.owner_user_id)
+  })
+  blockersForAnalytics.forEach((blocker) => {
+    if (blocker.owner_user_id) potentialUserIds.add(blocker.owner_user_id)
+    if (blocker.original_assignee_id) potentialUserIds.add(blocker.original_assignee_id)
+  })
+  activityEvents.forEach((event) => {
+    const payload = toRecord(event.payload)
+    const oldAssigneeId = readUserId(payload.old_assignee_id)
+    const newAssigneeId = readUserId(payload.new_assignee_id)
+    if (oldAssigneeId) potentialUserIds.add(oldAssigneeId)
+    if (newAssigneeId) potentialUserIds.add(newAssigneeId)
+  })
+
+  const usersById = await loadUsersById(Array.from(potentialUserIds))
+
   const overdueOpenTasks = openTasks.filter((task) => {
     const dueDate = parseDate(task.due_date)
     return Boolean(dueDate && dueDate.getTime() < now.getTime())
@@ -2164,10 +2527,10 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     ? Math.round(firstProgressHours.reduce((sum, value) => sum + value, 0) / firstProgressHours.length)
     : null
 
-  const completionHours = ((completedTasksData ?? []) as Array<{ created_at: string; completed_at: string | null }>)
+  const completionHours = completedTasks
     .map((item) => {
       const createdAt = parseDate(item.created_at)
-      const completedAt = parseDate(item.completed_at)
+      const completedAt = parseDate(item.completed_at ?? null)
       if (!createdAt || !completedAt) return null
       return Math.max(0, Math.floor((completedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60)))
     })
@@ -2180,6 +2543,19 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
   const slowSectorsMap = new Map<string, { totalOpen: number; stagnant: number; thresholdHours: number }>()
   const taskById = new Map<string, TaskRow>()
   openTasks.forEach((task) => taskById.set(task.id, task))
+  const eventsByTask = new Map<string, ActivityEventRow[]>()
+  activityEvents.forEach((event) => {
+    const current = eventsByTask.get(event.task_id) ?? []
+    current.push(event)
+    eventsByTask.set(event.task_id, current)
+  })
+
+  const blockersByTask = new Map<string, TaskBlockerRow[]>()
+  blockersForAnalytics.forEach((blocker) => {
+    const current = blockersByTask.get(blocker.task_id) ?? []
+    current.push(blocker)
+    blockersByTask.set(blocker.task_id, current)
+  })
 
   const mostStagnantTasks = openTasks
     .map((task) => {
@@ -2339,6 +2715,266 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     }))
     .sort((a, b) => b.stagnationRate - a.stagnationRate)
 
+  type MutablePerformanceRow = {
+    userId?: string
+    userName?: string
+    department: string
+    startHours: number[]
+    completionGrossHours: number[]
+    completionNetHours: number[]
+    blockerHours: number[]
+    deadlineTotal: number
+    deadlineOnTime: number
+    inRiskOpen: number
+    overdueOpen: number
+    completedLate: number
+  }
+
+  const userPerformanceMap = new Map<string, MutablePerformanceRow>()
+  const departmentPerformanceMap = new Map<string, MutablePerformanceRow>()
+  const executionStartHours: number[] = []
+  const executionCompletionGrossHours: number[] = []
+  const executionCompletionNetHours: number[] = []
+  const executionBlockerHours: number[] = []
+  const deadlineHealth: TaskAnalystDeadlineHealth = {
+    onTime: 0,
+    inRisk: 0,
+    late: 0,
+    withoutDueDate: 0,
+  }
+
+  function ensureDepartmentPerformance(department: string) {
+    const normalizedDepartment = normalizeDepartment(department) ?? "outro"
+    const current = departmentPerformanceMap.get(normalizedDepartment)
+    if (current) return current
+    const created: MutablePerformanceRow = {
+      department: normalizedDepartment,
+      startHours: [],
+      completionGrossHours: [],
+      completionNetHours: [],
+      blockerHours: [],
+      deadlineTotal: 0,
+      deadlineOnTime: 0,
+      inRiskOpen: 0,
+      overdueOpen: 0,
+      completedLate: 0,
+    }
+    departmentPerformanceMap.set(normalizedDepartment, created)
+    return created
+  }
+
+  function ensureUserPerformance(userId: string, fallbackDepartment: string) {
+    const current = userPerformanceMap.get(userId)
+    if (current) return current
+    const user = usersById.get(userId)
+    const created: MutablePerformanceRow = {
+      userId,
+      userName: user?.name?.trim() || user?.email?.trim() || "Usuário não identificado",
+      department: normalizeDepartment(user?.department ?? fallbackDepartment) ?? "outro",
+      startHours: [],
+      completionGrossHours: [],
+      completionNetHours: [],
+      blockerHours: [],
+      deadlineTotal: 0,
+      deadlineOnTime: 0,
+      inRiskOpen: 0,
+      overdueOpen: 0,
+      completedLate: 0,
+    }
+    userPerformanceMap.set(userId, created)
+    return created
+  }
+
+  for (const task of analysisTaskById.values()) {
+    const taskDepartment = normalizeDepartment(task.department) ?? "outro"
+    const taskEvents = eventsByTask.get(task.id) ?? []
+    const taskTimeline = buildAssigneeTimelineEvents(taskEvents)
+    const taskBlockers = blockersByTask.get(task.id) ?? []
+    const firstInProgressAt = findFirstInProgressAt(taskEvents.map((event) => ({
+      eventType: event.event_type,
+      eventAt: event.event_at,
+      payload: toRecord(event.payload),
+    })))
+
+    const firstInProgressDate = parseDate(firstInProgressAt)
+    const createdAtDate = parseDate(task.created_at)
+
+    if (firstInProgressDate && createdAtDate && firstInProgressDate.getTime() >= periodStart.getTime()) {
+      const todoToInProgressHours = Math.max(0, Math.floor((firstInProgressDate.getTime() - createdAtDate.getTime()) / (1000 * 60 * 60)))
+      executionStartHours.push(todoToInProgressHours)
+      ensureDepartmentPerformance(taskDepartment).startHours.push(todoToInProgressHours)
+
+      const assigneeAtStart = inferAssigneeAt({
+        at: firstInProgressDate,
+        fallbackAssigneeId: task.assignee_id ?? null,
+        timeline: taskTimeline,
+      })
+      if (assigneeAtStart) ensureUserPerformance(assigneeAtStart, taskDepartment).startHours.push(todoToInProgressHours)
+    }
+
+    const completedAtRaw = (task as { completed_at?: string | null }).completed_at ?? null
+    const completedAtDate = parseDate(completedAtRaw)
+    if (firstInProgressDate && completedAtDate && completedAtDate.getTime() >= periodStart.getTime()) {
+      const grossHours = Math.max(0, Math.floor((completedAtDate.getTime() - firstInProgressDate.getTime()) / (1000 * 60 * 60)))
+      const blockedHours = computeBlockedHoursInWindow({
+        windowStartAt: firstInProgressDate.toISOString(),
+        windowEndAt: completedAtDate.toISOString(),
+        blockers: taskBlockers.map((blocker) => ({
+          openedAt: blocker.opened_at,
+          resolvedAt: blocker.resolved_at ?? completedAtDate.toISOString(),
+        })),
+      })
+      const netHours = Math.max(0, grossHours - blockedHours)
+
+      executionCompletionGrossHours.push(grossHours)
+      executionCompletionNetHours.push(netHours)
+      const departmentPerformance = ensureDepartmentPerformance(taskDepartment)
+      departmentPerformance.completionGrossHours.push(grossHours)
+      departmentPerformance.completionNetHours.push(netHours)
+
+      const assigneeAtCompletion = inferAssigneeAt({
+        at: completedAtDate,
+        fallbackAssigneeId: task.assignee_id ?? null,
+        timeline: taskTimeline,
+      })
+      if (assigneeAtCompletion) {
+        const userPerformance = ensureUserPerformance(assigneeAtCompletion, taskDepartment)
+        userPerformance.completionGrossHours.push(grossHours)
+        userPerformance.completionNetHours.push(netHours)
+      }
+    }
+
+    taskBlockers.forEach((blocker) => {
+      const openedAtDate = parseDate(blocker.opened_at)
+      if (!openedAtDate || openedAtDate.getTime() < periodStart.getTime()) return
+
+      const ownerUserId = blocker.original_assignee_id ?? inferAssigneeAt({
+        at: openedAtDate,
+        fallbackAssigneeId: task.assignee_id ?? null,
+        timeline: taskTimeline,
+      })
+      if (!ownerUserId) return
+
+      const ownerStartedAt = findAssigneeStartedAt({
+        ownerUserId,
+        openedAt: openedAtDate,
+        taskCreatedAt: task.created_at,
+        fallbackAssigneeId: task.assignee_id ?? null,
+        timeline: taskTimeline,
+      })
+      if (!ownerStartedAt) return
+
+      const assigneeToBlockerHours = toHoursBetween(ownerStartedAt, blocker.opened_at)
+      if (assigneeToBlockerHours === null) return
+      executionBlockerHours.push(assigneeToBlockerHours)
+      ensureDepartmentPerformance(taskDepartment).blockerHours.push(assigneeToBlockerHours)
+      ensureUserPerformance(ownerUserId, taskDepartment).blockerHours.push(assigneeToBlockerHours)
+    })
+
+    const bucket: DeadlineHealthBucket = classifyTaskDeadlineHealth({
+      status: task.status,
+      dueDate: task.due_date,
+      completedAt: completedAtRaw,
+      now,
+      inRiskDays: 2,
+    })
+
+    if (bucket === "on_time") deadlineHealth.onTime += 1
+    if (bucket === "in_risk") deadlineHealth.inRisk += 1
+    if (bucket === "late") deadlineHealth.late += 1
+    if (bucket === "without_due_date") deadlineHealth.withoutDueDate += 1
+
+    const departmentPerformance = ensureDepartmentPerformance(taskDepartment)
+    const currentAssignee = task.assignee_id ?? inferAssigneeAt({
+      at: now,
+      fallbackAssigneeId: task.assignee_id ?? null,
+      timeline: taskTimeline,
+    })
+    const userPerformance = currentAssignee ? ensureUserPerformance(currentAssignee, taskDepartment) : null
+
+    if (bucket !== "without_due_date") {
+      departmentPerformance.deadlineTotal += 1
+      if (bucket === "on_time") departmentPerformance.deadlineOnTime += 1
+      if (bucket === "in_risk") departmentPerformance.inRiskOpen += 1
+      if (bucket === "late") {
+        if (completedAtDate) {
+          departmentPerformance.completedLate += 1
+        } else {
+          departmentPerformance.overdueOpen += 1
+        }
+      }
+
+      if (userPerformance) {
+        userPerformance.deadlineTotal += 1
+        if (bucket === "on_time") userPerformance.deadlineOnTime += 1
+        if (bucket === "in_risk") userPerformance.inRiskOpen += 1
+        if (bucket === "late") {
+          if (completedAtDate) {
+            userPerformance.completedLate += 1
+          } else {
+            userPerformance.overdueOpen += 1
+          }
+        }
+      }
+    }
+  }
+
+  const performanceByUser: TaskAnalystPerformanceByUser[] = Array.from(userPerformanceMap.values())
+    .map((row) => ({
+      userId: row.userId ?? "",
+      userName: row.userName ?? "Usuário não identificado",
+      department: row.department,
+      samples: {
+        start: row.startHours.length,
+        completion: row.completionGrossHours.length,
+        blocker: row.blockerHours.length,
+        deadline: row.deadlineTotal,
+      },
+      avgTodoToInProgressHours: avgOrNull(row.startHours),
+      avgInProgressToDoneGrossHours: avgOrNull(row.completionGrossHours),
+      avgInProgressToDoneNetHours: avgOrNull(row.completionNetHours),
+      avgAssigneeToBlockerHours: avgOrNull(row.blockerHours),
+      onTimeRate: row.deadlineTotal > 0 ? row.deadlineOnTime / row.deadlineTotal : null,
+      inRiskOpen: row.inRiskOpen,
+      overdueOpen: row.overdueOpen,
+      completedLate: row.completedLate,
+    }))
+    .sort((left, right) => {
+      const rightLag = right.avgInProgressToDoneNetHours ?? -1
+      const leftLag = left.avgInProgressToDoneNetHours ?? -1
+      if (rightLag !== leftLag) return rightLag - leftLag
+      const rightBacklog = right.overdueOpen + right.completedLate
+      const leftBacklog = left.overdueOpen + left.completedLate
+      return rightBacklog - leftBacklog
+    })
+
+  const performanceByDepartment: TaskAnalystPerformanceByDepartment[] = Array.from(departmentPerformanceMap.values())
+    .map((row) => ({
+      department: row.department,
+      samples: {
+        start: row.startHours.length,
+        completion: row.completionGrossHours.length,
+        blocker: row.blockerHours.length,
+        deadline: row.deadlineTotal,
+      },
+      avgTodoToInProgressHours: avgOrNull(row.startHours),
+      avgInProgressToDoneGrossHours: avgOrNull(row.completionGrossHours),
+      avgInProgressToDoneNetHours: avgOrNull(row.completionNetHours),
+      avgAssigneeToBlockerHours: avgOrNull(row.blockerHours),
+      onTimeRate: row.deadlineTotal > 0 ? row.deadlineOnTime / row.deadlineTotal : null,
+      inRiskOpen: row.inRiskOpen,
+      overdueOpen: row.overdueOpen,
+      completedLate: row.completedLate,
+    }))
+    .sort((left, right) => {
+      const rightLag = right.avgInProgressToDoneNetHours ?? -1
+      const leftLag = left.avgInProgressToDoneNetHours ?? -1
+      if (rightLag !== leftLag) return rightLag - leftLag
+      const rightBacklog = right.overdueOpen + right.completedLate
+      const leftBacklog = left.overdueOpen + left.completedLate
+      return rightBacklog - leftBacklog
+    })
+
   return {
     generatedAt: new Date().toISOString(),
     openTasks: openTasks.length,
@@ -2352,5 +2988,15 @@ export async function getTaskAnalystDashboardSummary(): Promise<TaskAnalystDashb
     blockedTasks,
     slowSectors,
     mostStagnantTasks,
+    executionKpis: {
+      periodDays,
+      avgTodoToInProgressHours: avgOrNull(executionStartHours),
+      avgInProgressToDoneGrossHours: avgOrNull(executionCompletionGrossHours),
+      avgInProgressToDoneNetHours: avgOrNull(executionCompletionNetHours),
+      avgAssigneeToBlockerHours: avgOrNull(executionBlockerHours),
+    },
+    performanceByUser,
+    performanceByDepartment,
+    deadlineHealth,
   }
 }

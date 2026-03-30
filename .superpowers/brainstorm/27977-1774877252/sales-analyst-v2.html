@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analista de Vendas – Dorata</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, 'Inter', 'Geist Sans', sans-serif;
+    background: #f0fdf4;
+    color: #1a2e22;
+    min-height: 100vh;
+    padding: 32px 24px 48px;
+  }
+
+  .page-header {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .page-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #14532d;
+    letter-spacing: -0.3px;
+  }
+  .page-header p {
+    font-size: 14px;
+    color: #4b7a5e;
+    margin-top: 6px;
+  }
+
+  .options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  .option-card {
+    background: white;
+    border: 2px solid #d1fae5;
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 200ms ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    position: relative;
+  }
+  .option-card:hover {
+    border-color: #10b981;
+    box-shadow: 0 8px 24px rgba(16,185,129,0.15);
+    transform: translateY(-2px);
+  }
+  .option-card.selected {
+    border-color: #059669;
+    box-shadow: 0 0 0 3px rgba(5,150,105,0.2), 0 8px 24px rgba(16,185,129,0.2);
+  }
+
+  .option-badge {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    border: 1.5px solid #6ee7b7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #065f46;
+    z-index: 2;
+  }
+  .option-card.selected .option-badge {
+    background: #059669;
+    border-color: #059669;
+    color: white;
+  }
+
+  .option-header {
+    padding: 14px 16px 12px 50px;
+    border-bottom: 1px solid #f0fdf4;
+  }
+  .option-header h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #14532d;
+    line-height: 1.3;
+  }
+  .option-header p {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 3px;
+    line-height: 1.4;
+  }
+
+  /* ── MOCKUP SHELL ── */
+  .mockup-shell {
+    margin: 0;
+    background: #f8fafc;
+    border-top: none;
+  }
+
+  /* Fake app bar */
+  .app-bar {
+    background: #ecfdf5;
+    border-bottom: 1px solid #d1fae5;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .app-bar-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .app-bar-title { font-size: 11px; font-weight: 600; color: #065f46; margin-left: 4px; flex: 1; }
+  .tab-row {
+    display: flex;
+    gap: 0;
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0 12px;
+  }
+  .tab {
+    padding: 7px 10px;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #9ca3af;
+    border-bottom: 2px solid transparent;
+    cursor: default;
+  }
+  .tab.active {
+    color: #059669;
+    border-bottom-color: #059669;
+    font-weight: 600;
+  }
+
+  /* ── OPTION A: sidebar layout ── */
+  .layout-split {
+    display: flex;
+    min-height: 180px;
+  }
+  .split-main {
+    flex: 3;
+    padding: 10px 12px;
+    border-right: 1px solid #e5e7eb;
+    font-size: 11px;
+  }
+  .split-chat {
+    flex: 2;
+    padding: 10px;
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chat-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #059669;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .bubble-bot {
+    background: #059669;
+    color: white;
+    border-radius: 10px 10px 10px 2px;
+    padding: 7px 9px;
+    font-size: 10.5px;
+    line-height: 1.4;
+  }
+  .bubble-user {
+    background: white;
+    border: 1px solid #d1fae5;
+    color: #374151;
+    border-radius: 10px 10px 2px 10px;
+    padding: 7px 9px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    align-self: flex-end;
+    max-width: 90%;
+  }
+  .chat-input-mock {
+    margin-top: auto;
+    background: white;
+    border: 1px solid #d1fae5;
+    border-radius: 8px;
+    padding: 5px 8px;
+    font-size: 10px;
+    color: #9ca3af;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .send-btn {
+    width: 18px; height: 18px;
+    background: #059669;
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .prop-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .prop-row:last-child { border-bottom: none; }
+  .prop-name { font-size: 11px; font-weight: 500; color: #374151; }
+  .prop-val { font-size: 11px; color: #6b7280; }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 99px;
+    font-size: 9.5px;
+    font-weight: 600;
+  }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+  .badge-green  { background: #dcfce7; color: #166534; }
+  .badge-red    { background: #fee2e2; color: #991b1b; }
+  .badge-blue   { background: #dbeafe; color: #1e40af; }
+
+  /* ── OPTION B: tabs layout ── */
+  .analyst-list { padding: 10px 12px; }
+  .alert-box {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 10.5px;
+    color: #92400e;
+    margin-bottom: 8px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 5px;
+    background: white;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 150ms;
+  }
+  .list-item:hover { background: #f0fdf4; }
+  .list-item-left { display: flex; flex-direction: column; gap: 2px; }
+  .list-item-name { font-weight: 600; color: #111827; }
+  .list-item-sub  { font-size: 10px; color: #9ca3af; }
+  .days-badge { font-size: 10px; font-weight: 700; }
+  .days-red  { color: #dc2626; }
+  .days-yellow { color: #d97706; }
+  .days-green  { color: #059669; }
+
+  /* ── OPTION C: panorama ── */
+  .panorama-body { padding: 10px 12px; }
+  .stats-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .stat-card {
+    flex: 1;
+    border-radius: 10px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+  .stat-num { font-size: 20px; font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 9.5px; font-weight: 500; margin-top: 3px; }
+  .stat-green { background: #dcfce7; color: #15803d; }
+  .stat-yellow { background: #fef9c3; color: #b45309; }
+  .stat-red    { background: #fee2e2; color: #dc2626; }
+  .stat-blue   { background: #dbeafe; color: #2563eb; }
+
+  .mini-chart {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+  .chart-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #374151;
+    margin-bottom: 6px;
+  }
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .bar-label { font-size: 9.5px; color: #6b7280; width: 60px; text-align: right; }
+  .bar-track { flex: 1; background: #f3f4f6; border-radius: 99px; height: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 99px; background: #059669; }
+  .bar-val { font-size: 9.5px; color: #374151; font-weight: 600; width: 28px; }
+
+  /* Mini conversation strip for option C */
+  .chat-strip {
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 10.5px;
+  }
+  .chat-strip-title { font-size: 10px; font-weight: 700; color: #374151; margin-bottom: 6px; }
+  .strip-bubble-bot {
+    background: #059669;
+    color: white;
+    border-radius: 8px 8px 8px 2px;
+    padding: 5px 8px;
+    display: inline-block;
+    margin-bottom: 4px;
+    max-width: 85%;
+    line-height: 1.4;
+  }
+
+  /* Selected check */
+  .check-mark {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 20px; height: 20px;
+    background: #059669;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .option-card.selected .check-mark { display: flex; }
+  .check-mark svg { width: 11px; height: 11px; }
+
+  .selected-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #059669;
+    color: white;
+    text-align: center;
+    padding: 14px;
+    font-size: 14px;
+    font-weight: 600;
+    display: none;
+    animation: slideUp 200ms ease;
+    z-index: 100;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Onde fica o Analista de Vendas?</h1>
+  <p>Clique na opção que faz mais sentido para o seu fluxo de trabalho</p>
+</div>
+
+<div class="options-grid">
+
+  <!-- OPTION A -->
+  <div class="option-card" onclick="select(this,'a')" data-choice="a">
+    <div class="option-badge">A</div>
+    <div class="check-mark"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="option-header">
+      <h3>Chat lateral dentro do orçamento</h3>
+      <p>Analista aparece ao abrir um orçamento e já questiona sobre aquele cliente específico</p>
+    </div>
+    <div class="mockup-shell">
+      <div class="app-bar">
+        <div class="app-bar-dot" style="background:#f87171"></div>
+        <div class="app-bar-dot" style="background:#fbbf24"></div>
+        <div class="app-bar-dot" style="background:#4ade80"></div>
+        <span class="app-bar-title">Orçamento #4521 – João Silva</span>
+        <span class="badge badge-yellow">Pendente</span>
+      </div>
+      <div class="layout-split">
+        <div class="split-main">
+          <div class="prop-row">
+            <span class="prop-name">Valor total</span>
+            <span class="prop-val" style="color:#059669;font-weight:700">R$ 48.000</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-name">Potência</span>
+            <span class="prop-val">8,5 kWp</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-name">Margem</span>
+            <span class="prop-val">18%</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-name">Validade</span>
+            <span class="prop-val">15/04/2026</span>
+          </div>
+          <div class="prop-row">
+            <span class="prop-name">Status negociação</span>
+            <span class="badge badge-blue">Followup</span>
+          </div>
+        </div>
+        <div class="split-chat">
+          <div class="chat-label">🤖 Analista</div>
+          <div class="bubble-bot">Esse orçamento está há 5 dias sem update. O cliente pediu prazo ou deu algum sinal de preço?</div>
+          <div class="bubble-user">Pediu pra ligar semana que vem</div>
+          <div class="bubble-bot">Entendido. Vou registrar como followup. Quer que eu te lembre na segunda-feira?</div>
+          <div class="chat-input-mock">
+            <span>Digite sua resposta...</span>
+            <div class="send-btn">
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M1 5h8M5 1l4 4-4 4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <div class="option-card" onclick="select(this,'b')" data-choice="b">
+    <div class="option-badge">B</div>
+    <div class="check-mark"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="option-header">
+      <h3>Aba "Analista" na lista de orçamentos</h3>
+      <p>Visão consolidada de todos os orçamentos com prioridades, alertas e chat por orçamento</p>
+    </div>
+    <div class="mockup-shell">
+      <div class="app-bar">
+        <div class="app-bar-dot" style="background:#f87171"></div>
+        <div class="app-bar-dot" style="background:#fbbf24"></div>
+        <div class="app-bar-dot" style="background:#4ade80"></div>
+        <span class="app-bar-title">Orçamentos – Dorata</span>
+      </div>
+      <div class="tab-row">
+        <div class="tab">Lista</div>
+        <div class="tab active">🤖 Analista</div>
+        <div class="tab">📊 Panorama</div>
+      </div>
+      <div class="analyst-list">
+        <div class="alert-box">
+          <span>⚠️</span>
+          <span><strong>3 orçamentos</strong> sem update há mais de 7 dias precisam de atenção</span>
+        </div>
+        <div class="list-item">
+          <div class="list-item-left">
+            <span class="list-item-name">João Silva</span>
+            <span class="list-item-sub">R$ 48.000 · 8,5 kWp · <span class="badge badge-yellow" style="font-size:9px">Followup</span></span>
+          </div>
+          <span class="days-badge days-red">12 dias</span>
+        </div>
+        <div class="list-item">
+          <div class="list-item-left">
+            <span class="list-item-name">Maria Costa</span>
+            <span class="list-item-sub">R$ 32.000 · 6 kWp · <span class="badge badge-blue" style="font-size:9px">Negociação</span></span>
+          </div>
+          <span class="days-badge days-yellow">7 dias</span>
+        </div>
+        <div class="list-item">
+          <div class="list-item-left">
+            <span class="list-item-name">Pedro Alves</span>
+            <span class="list-item-sub">R$ 61.000 · 11 kWp · <span class="badge badge-red" style="font-size:9px">Parado</span></span>
+          </div>
+          <span class="days-badge days-yellow">5 dias</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <div class="option-card" onclick="select(this,'c')" data-choice="c">
+    <div class="option-badge">C</div>
+    <div class="check-mark"><svg viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="option-header">
+      <h3>Ambos — chat lateral + panorama geral</h3>
+      <p>Melhor dos dois mundos: chat em cada orçamento e dashboard com métricas de conversão</p>
+    </div>
+    <div class="mockup-shell">
+      <div class="app-bar">
+        <div class="app-bar-dot" style="background:#f87171"></div>
+        <div class="app-bar-dot" style="background:#fbbf24"></div>
+        <div class="app-bar-dot" style="background:#4ade80"></div>
+        <span class="app-bar-title">Orçamentos – Panorama</span>
+      </div>
+      <div class="tab-row">
+        <div class="tab">Lista</div>
+        <div class="tab">🤖 Analista</div>
+        <div class="tab active">📊 Panorama</div>
+      </div>
+      <div class="panorama-body">
+        <div class="stats-row">
+          <div class="stat-card stat-green"><div class="stat-num">14</div><div class="stat-label">Convertidos</div></div>
+          <div class="stat-card stat-blue"><div class="stat-num">8</div><div class="stat-label">Negociação</div></div>
+          <div class="stat-card stat-yellow"><div class="stat-num">5</div><div class="stat-label">Followup</div></div>
+          <div class="stat-card stat-red"><div class="stat-num">3</div><div class="stat-label">Parados</div></div>
+        </div>
+        <div class="mini-chart">
+          <div class="chart-title">Tempo médio até conversão (dias)</div>
+          <div class="bar-row">
+            <div class="bar-label">Jan</div>
+            <div class="bar-track"><div class="bar-fill" style="width:65%"></div></div>
+            <div class="bar-val">18d</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Fev</div>
+            <div class="bar-track"><div class="bar-fill" style="width:50%"></div></div>
+            <div class="bar-val">14d</div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label">Mar</div>
+            <div class="bar-track"><div class="bar-fill" style="width:40%"></div></div>
+            <div class="bar-val">11d</div>
+          </div>
+        </div>
+        <div class="chat-strip">
+          <div class="chat-strip-title">🤖 Resumo do Analista</div>
+          <div class="strip-bubble-bot">Taxa de conversão este mês: 46%. Melhor que fevereiro (38%). 2 clientes aguardam retorno há mais de 10 dias.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="selected-bar" id="selectedBar">✓ Opção selecionada — responda no terminal para continuar</div>
+
+<script>
+  function select(el, choice) {
+    document.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('selectedBar').style.display = 'block';
+
+    // Record event
+    if (window.recordChoice) window.recordChoice(choice, el.querySelector('h3').textContent);
+    else {
+      try {
+        fetch('/__brainstorm/event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'click', choice, text: el.querySelector('h3').textContent, timestamp: Date.now() })
+        });
+      } catch(e) {}
+    }
+  }
+</script>
+</body>
+</html>

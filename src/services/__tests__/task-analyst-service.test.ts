@@ -5,7 +5,11 @@ import {
   buildBlockerDependencyKey,
   buildCooldownHashKey,
   clampHours,
+  computeBlockedHoursInWindow,
   computeHoursWithoutProgress,
+  classifyTaskDeadlineHealth,
+  findFirstInProgressAt,
+  formatHoursToDaysHours,
   pickTaskThreshold,
   percentile75,
   shouldSendByCooldown,
@@ -117,5 +121,85 @@ describe("task analyst helpers", () => {
     expect(selected.reminderHours).toBe(30)
     expect(selected.escalationHours).toBe(90)
     expect(selected.slowHours).toBe(60)
+  })
+
+  it("finds the first TODO -> IN_PROGRESS transition", () => {
+    const firstInProgress = findFirstInProgressAt([
+      {
+        eventType: "TASK_STATUS_CHANGED",
+        eventAt: "2026-03-20T10:00:00.000Z",
+        payload: { old_status: "TODO", new_status: "REVIEW" },
+      },
+      {
+        eventType: "TASK_STATUS_CHANGED",
+        eventAt: "2026-03-20T12:00:00.000Z",
+        payload: { old_status: "TODO", new_status: "IN_PROGRESS" },
+      },
+      {
+        eventType: "TASK_STATUS_CHANGED",
+        eventAt: "2026-03-21T09:00:00.000Z",
+        payload: { old_status: "IN_PROGRESS", new_status: "IN_PROGRESS" },
+      },
+    ])
+
+    expect(firstInProgress).toBe("2026-03-20T12:00:00.000Z")
+  })
+
+  it("calculates blocked hours overlap for net completion", () => {
+    const blockedHours = computeBlockedHoursInWindow({
+      windowStartAt: "2026-03-20T08:00:00.000Z",
+      windowEndAt: "2026-03-20T20:00:00.000Z",
+      blockers: [
+        {
+          openedAt: "2026-03-20T09:00:00.000Z",
+          resolvedAt: "2026-03-20T11:00:00.000Z",
+        },
+        {
+          openedAt: "2026-03-20T18:00:00.000Z",
+          resolvedAt: null,
+        },
+      ],
+    })
+
+    expect(blockedHours).toBe(4)
+  })
+
+  it("classifies deadline health with no prazo, em risco and atrasada", () => {
+    const now = new Date("2026-03-25T12:00:00.000Z")
+
+    expect(classifyTaskDeadlineHealth({
+      status: "DONE",
+      dueDate: "2026-03-25T20:00:00.000Z",
+      completedAt: "2026-03-25T10:00:00.000Z",
+      now,
+    })).toBe("on_time")
+
+    expect(classifyTaskDeadlineHealth({
+      status: "TODO",
+      dueDate: "2026-03-27T10:00:00.000Z",
+      completedAt: null,
+      now,
+      inRiskDays: 2,
+    })).toBe("in_risk")
+
+    expect(classifyTaskDeadlineHealth({
+      status: "IN_PROGRESS",
+      dueDate: "2026-03-24T10:00:00.000Z",
+      completedAt: null,
+      now,
+    })).toBe("late")
+
+    expect(classifyTaskDeadlineHealth({
+      status: "TODO",
+      dueDate: null,
+      completedAt: null,
+      now,
+    })).toBe("without_due_date")
+  })
+
+  it("formats hours as days and hours for analyst dashboard", () => {
+    expect(formatHoursToDaysHours(0)).toBe("0d 0h")
+    expect(formatHoursToDaysHours(27)).toBe("1d 3h")
+    expect(formatHoursToDaysHours(null)).toBe("-")
   })
 })

@@ -1,0 +1,87 @@
+<h2>Onde fica o Analista de Vendas?</h2>
+<p class="subtitle">Como você quer acessar o agente em relação aos orçamentos?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Painel lateral dentro do orçamento</h3>
+      <p>Você abre um orçamento e tem um chat com o analista do lado direito — ele já leu aquele orçamento e começa a questionar. Tudo no contexto de um orçamento específico.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Orçamento #4521 – Cliente João Silva</div>
+        <div class="mockup-body" style="display:flex;gap:0;padding:0">
+          <div style="flex:2;padding:12px;border-right:1px solid #e2e8f0;font-size:12px">
+            <div style="font-weight:600;margin-bottom:8px">Detalhes do Orçamento</div>
+            <div style="color:#64748b">Total: R$ 48.000</div>
+            <div style="color:#64748b">Potência: 8,5 kWp</div>
+            <div style="color:#64748b">Status: <span style="color:#f59e0b;font-weight:600">Pendente</span></div>
+          </div>
+          <div style="flex:1.5;padding:12px;background:#f8fafc;font-size:11px">
+            <div style="font-weight:600;margin-bottom:8px;color:#1e3a5f">🤖 Analista</div>
+            <div style="background:#1e3a5f;color:white;border-radius:8px;padding:8px;margin-bottom:6px">Esse orçamento está há 5 dias sem retorno. O que o cliente disse?</div>
+            <div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px">Ele pediu para ligar na semana que vem...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Seção dedicada na lista de orçamentos</h3>
+      <p>A página de orçamentos ganha abas: <strong>Lista</strong> | <strong>Analista</strong> | <strong>Panorama</strong>. O analista mostra todos os orçamentos priorizados e você pode abrir a conversa de qualquer um.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Orçamentos – Dorata</div>
+        <div class="mockup-body" style="padding:0">
+          <div style="display:flex;border-bottom:1px solid #e2e8f0;padding:0 12px;gap:16px;font-size:11px">
+            <span style="padding:8px 0;color:#64748b">Lista</span>
+            <span style="padding:8px 0;color:#1e3a5f;border-bottom:2px solid #1e3a5f;font-weight:600">🤖 Analista</span>
+            <span style="padding:8px 0;color:#64748b">📊 Panorama</span>
+          </div>
+          <div style="padding:12px;font-size:11px">
+            <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px;margin-bottom:6px">
+              <strong>⚠️ Precisa atenção:</strong> 3 orçamentos sem update há mais de 7 dias
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px;margin-bottom:4px;display:flex;justify-content:space-between">
+              <span>João Silva – R$ 48k</span><span style="color:#ef4444">12 dias</span>
+            </div>
+            <div style="border:1px solid #e2e8f0;border-radius:6px;padding:8px;display:flex;justify-content:space-between">
+              <span>Maria Costa – R$ 32k</span><span style="color:#f59e0b">7 dias</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Ambos — painel lateral + aba de panorama</h3>
+      <p>Cada orçamento tem um chat rápido lateral para feedback pontual, E a lista tem uma aba "Panorama" com o dashboard de vendas. O analista consolida tudo e gera alertas na lista.</p>
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Orçamentos – Visão Geral</div>
+        <div class="mockup-body" style="font-size:11px;padding:10px">
+          <div style="display:flex;gap:8px;margin-bottom:8px">
+            <div style="flex:1;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:8px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:#16a34a">12</div>
+              <div style="color:#64748b">Convertidos</div>
+            </div>
+            <div style="flex:1;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:#d97706">8</div>
+              <div style="color:#64748b">Em negociação</div>
+            </div>
+            <div style="flex:1;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:8px;text-align:center">
+              <div style="font-size:18px;font-weight:700;color:#dc2626">5</div>
+              <div style="color:#64748b">Parados</div>
+            </div>
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px;font-size:10px;color:#64748b">
+            💬 Chat lateral disponível em cada orçamento individual
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

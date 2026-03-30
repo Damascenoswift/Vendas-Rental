@@ -1095,7 +1095,9 @@ export function TaskDetailsDialog({
         if (!task) return
         setResolvingBlockerId(blocker.id)
         const resolutionNote = resolutionNotesByBlockerId[blocker.id]?.trim() || null
-        const resumeToOriginalAssignee = resumeToOriginalByBlockerId[blocker.id] === true
+        const resumeToOriginalAssignee = blocker.original_assignee_id
+            ? resumeToOriginalByBlockerId[blocker.id] !== false
+            : false
 
         const result = await resolveTaskBlocker({
             blockerId: blocker.id,
@@ -1938,7 +1940,7 @@ export function TaskDetailsDialog({
                                                 {blocker.original_assignee_id ? (
                                                     <label className="flex items-center gap-2 text-xs text-muted-foreground">
                                                         <Checkbox
-                                                            checked={resumeToOriginalByBlockerId[blocker.id] === true}
+                                                            checked={blocker.original_assignee_id ? resumeToOriginalByBlockerId[blocker.id] !== false : false}
                                                             onChange={(event) =>
                                                                 setResumeToOriginalByBlockerId((prev) => ({
                                                                     ...prev,

@@ -1,10 +1,15 @@
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { formatHoursToDaysHours } from "@/services/task-analyst-utils"
 import type { TaskAnalystDashboardSummary } from "@/services/task-analyst-service"
+import Link from "next/link"
 
 type TaskAnalystDashboardProps = {
     summary: TaskAnalystDashboardSummary | null
+    selectedPeriodDays?: number
+    periodOptions?: Array<{ days: number; href: string }>
 }
 
 function formatDepartmentLabel(department: string) {
@@ -35,15 +40,23 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function formatNumber(value: number | null) {
-    if (value === null || Number.isNaN(value)) return "-"
-    return `${value}h`
+    return formatHoursToDaysHours(value)
 }
 
 function formatPercent(value: number) {
     return `${Math.round(value * 100)}%`
 }
 
-export function TaskAnalystDashboard({ summary }: TaskAnalystDashboardProps) {
+function formatRate(value: number | null) {
+    if (value === null || Number.isNaN(value)) return "-"
+    return formatPercent(value)
+}
+
+export function TaskAnalystDashboard({
+    summary,
+    selectedPeriodDays = 90,
+    periodOptions = [],
+}: TaskAnalystDashboardProps) {
     if (!summary) {
         return (
             <Card>
@@ -121,6 +134,199 @@ export function TaskAnalystDashboard({ summary }: TaskAnalystDashboardProps) {
                     <CardContent>
                         <div className="text-2xl font-bold">{formatNumber(summary.avgHoursToCompletion)}</div>
                         <p className="text-xs text-muted-foreground">Média de tarefas concluídas recentes.</p>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <CardTitle className="text-base">Performance Operacional ({summary.executionKpis.periodDays} dias)</CardTitle>
+                        {periodOptions.length > 0 ? (
+                            <div className="flex items-center gap-2">
+                                {periodOptions.map((option) => (
+                                    <Button
+                                        key={option.days}
+                                        variant={option.days === selectedPeriodDays ? "default" : "outline"}
+                                        size="sm"
+                                        asChild
+                                    >
+                                        <Link href={option.href}>{option.days} dias</Link>
+                                    </Button>
+                                ))}
+                            </div>
+                        ) : null}
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">TODO → Em andamento</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{formatNumber(summary.executionKpis.avgTodoToInProgressHours)}</div>
+                                <p className="text-xs text-muted-foreground">Média para iniciar execução.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Conclusão (Bruto)</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{formatNumber(summary.executionKpis.avgInProgressToDoneGrossHours)}</div>
+                                <p className="text-xs text-muted-foreground">Do início à conclusão sem descontos.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Conclusão (Líquido)</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{formatNumber(summary.executionKpis.avgInProgressToDoneNetHours)}</div>
+                                <p className="text-xs text-muted-foreground">Descontando janela em bloqueio formal.</p>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Até Bloquear</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold">{formatNumber(summary.executionKpis.avgAssigneeToBlockerHours)}</div>
+                                <p className="text-xs text-muted-foreground">Tempo com responsável até abrir bloqueio.</p>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-4">
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">No prazo</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-emerald-700">{summary.deadlineHealth.onTime}</div>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Em risco</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-amber-700">{summary.deadlineHealth.inRisk}</div>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Atrasada</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-red-700">{summary.deadlineHealth.late}</div>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm font-medium">Sem prazo</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="text-2xl font-bold text-muted-foreground">{summary.deadlineHealth.withoutDueDate}</div>
+                            </CardContent>
+                        </Card>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <div className="grid gap-4">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Performance por Pessoa</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                        {summary.performanceByUser.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Sem dados suficientes no período.</p>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Pessoa</TableHead>
+                                        <TableHead>Setor</TableHead>
+                                        <TableHead className="text-center">TODO→AND</TableHead>
+                                        <TableHead className="text-center">Bruto</TableHead>
+                                        <TableHead className="text-center">Líquido</TableHead>
+                                        <TableHead className="text-center">Até bloqueio</TableHead>
+                                        <TableHead className="text-center">No prazo</TableHead>
+                                        <TableHead className="text-center">Em risco</TableHead>
+                                        <TableHead className="text-center">Atras. abertas</TableHead>
+                                        <TableHead className="text-center">Concl. atrasadas</TableHead>
+                                        <TableHead className="text-center">Amostras</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {summary.performanceByUser.map((row) => (
+                                        <TableRow key={row.userId}>
+                                            <TableCell className="font-medium">{row.userName}</TableCell>
+                                            <TableCell>{formatDepartmentLabel(row.department)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgTodoToInProgressHours)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgInProgressToDoneGrossHours)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgInProgressToDoneNetHours)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgAssigneeToBlockerHours)}</TableCell>
+                                            <TableCell className="text-center">{formatRate(row.onTimeRate)}</TableCell>
+                                            <TableCell className="text-center">{row.inRiskOpen}</TableCell>
+                                            <TableCell className="text-center">{row.overdueOpen}</TableCell>
+                                            <TableCell className="text-center">{row.completedLate}</TableCell>
+                                            <TableCell className="text-center">
+                                                {row.samples.start}/{row.samples.completion}/{row.samples.blocker}/{row.samples.deadline}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-base">Performance por Setor</CardTitle>
+                    </CardHeader>
+                    <CardContent className="overflow-x-auto">
+                        {summary.performanceByDepartment.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">Sem dados suficientes no período.</p>
+                        ) : (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Setor</TableHead>
+                                        <TableHead className="text-center">TODO→AND</TableHead>
+                                        <TableHead className="text-center">Bruto</TableHead>
+                                        <TableHead className="text-center">Líquido</TableHead>
+                                        <TableHead className="text-center">Até bloqueio</TableHead>
+                                        <TableHead className="text-center">No prazo</TableHead>
+                                        <TableHead className="text-center">Em risco</TableHead>
+                                        <TableHead className="text-center">Atras. abertas</TableHead>
+                                        <TableHead className="text-center">Concl. atrasadas</TableHead>
+                                        <TableHead className="text-center">Amostras</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {summary.performanceByDepartment.map((row) => (
+                                        <TableRow key={row.department}>
+                                            <TableCell className="font-medium">{formatDepartmentLabel(row.department)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgTodoToInProgressHours)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgInProgressToDoneGrossHours)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgInProgressToDoneNetHours)}</TableCell>
+                                            <TableCell className="text-center">{formatNumber(row.avgAssigneeToBlockerHours)}</TableCell>
+                                            <TableCell className="text-center">{formatRate(row.onTimeRate)}</TableCell>
+                                            <TableCell className="text-center">{row.inRiskOpen}</TableCell>
+                                            <TableCell className="text-center">{row.overdueOpen}</TableCell>
+                                            <TableCell className="text-center">{row.completedLate}</TableCell>
+                                            <TableCell className="text-center">
+                                                {row.samples.start}/{row.samples.completion}/{row.samples.blocker}/{row.samples.deadline}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
                     </CardContent>
                 </Card>
             </div>
