@@ -25,6 +25,7 @@ export async function POST(request: Request) {
     const proposalId = typeof body?.proposal_id === "string" ? body.proposal_id.trim() : ""
     const message = typeof body?.message === "string" ? body.message.trim() : ""
     if (!proposalId) return NextResponse.json({ error: "proposal_id obrigatório" }, { status: 400 })
+    if (message.length > 2000) return NextResponse.json({ error: "Mensagem muito longa" }, { status: 400 })
 
     const service = createSupabaseServiceClient()
 
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
       .from("users")
       .select("id")
       .eq("auth_id", user.id)
-      .single()).data?.id ?? null
+      .maybeSingle()).data?.id ?? null
 
     if (message) {
       await service.from("proposal_analyst_conversations").insert({
