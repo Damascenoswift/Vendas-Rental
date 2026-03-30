@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Minha Semana — Design v3</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f5f5f4;
+    color: #1c1917;
+    padding: 24px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .page-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #78716c;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .space-y { display: flex; flex-direction: column; gap: 12px; }
+
+  .card {
+    background: white;
+    border: 1px solid #e7e5e4;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 12px 16px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1c1917;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-body { padding: 0 16px 14px; }
+
+  .header-card {
+    background: linear-gradient(to right, #eff6ff, #ecfeff);
+    border: 1px solid #bfdbfe;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-card .title { font-size: 13px; font-weight: 600; color: #1e3a5f; }
+  .header-card .sub { font-size: 11px; color: #1e40af; opacity: 0.8; margin-top: 1px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat-box {
+    background: white;
+    border: 1px solid #e7e5e4;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .stat-value { font-size: 20px; font-weight: 700; line-height: 1.2; }
+  .stat-label { font-size: 10px; color: #78716c; margin-top: 2px; }
+  .stat-green .stat-value { color: #16a34a; }
+  .stat-amber .stat-value { color: #d97706; }
+  .stat-red .stat-value { color: #dc2626; }
+  .stat-blue .stat-value { color: #2563eb; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+  .badge-green { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+  .badge-red { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+  .badge-amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+  .badge-outline { background: white; color: #44403c; border-color: #d6d3d1; }
+
+  .obra-item {
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-bottom: 8px;
+  }
+  .obra-item:last-child { margin-bottom: 0; }
+  .obra-item.ok { border-left: 3px solid #22c55e; }
+  .obra-item.late { border-left: 3px solid #ef4444; }
+
+  .item-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .item-name { font-size: 12px; font-weight: 500; color: #1c1917; }
+  .item-meta { font-size: 10px; color: #78716c; margin-top: 1px; }
+
+  .progress-row { display: flex; align-items: center; gap: 8px; }
+  .progress-track {
+    flex: 1;
+    background: #f5f5f4;
+    border-radius: 99px;
+    height: 5px;
+    overflow: hidden;
+    border: 1px solid #e7e5e4;
+  }
+  .progress-fill { height: 100%; border-radius: 99px; }
+  .fill-green { background: #22c55e; }
+  .fill-red { background: #ef4444; }
+  .fill-amber { background: #f59e0b; }
+  .progress-label { font-size: 10px; color: #78716c; white-space: nowrap; }
+
+  .task-item {
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .task-item:last-child { margin-bottom: 0; }
+
+  /* Ícone SVG inline */
+  .icon {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+  }
+  .icon-muted { color: #78716c; }
+  .icon-green { color: #16a34a; }
+  .icon-amber { color: #d97706; }
+
+  /* Widget desempenho */
+  .perf-card {
+    background: white;
+    border: 1px solid #bbf7d0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .perf-header {
+    background: linear-gradient(to right, #f0fdf4, #ecfdf5);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #bbf7d0;
+  }
+  .perf-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #14532d;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .perf-link { font-size: 11px; color: #16a34a; text-decoration: none; }
+  .perf-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .perf-cell {
+    padding: 12px 16px;
+    text-align: center;
+    border-right: 1px solid #f0f0f0;
+  }
+  .perf-cell:last-child { border-right: none; }
+  .perf-value { font-size: 22px; font-weight: 700; }
+  .perf-label { font-size: 10px; color: #78716c; margin-top: 2px; }
+  .perf-green { color: #16a34a; }
+  .perf-red { color: #dc2626; }
+  .perf-amber { color: #d97706; }
+
+  .perf-footer {
+    padding: 10px 16px 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-top: 1px solid #f0fdf4;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid #e7e5e4;
+    border-radius: 6px;
+    font-size: 11px;
+    color: #44403c;
+    background: white;
+    cursor: pointer;
+  }
+
+  .section-icon {
+    width: 16px; height: 16px;
+    stroke: currentColor; fill: none;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    color: #78716c;
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-title">Minha Semana — sem emojis</div>
+
+<div class="space-y">
+
+  <!-- Header -->
+  <div class="header-card">
+    <div>
+      <div class="title">Minha Semana</div>
+      <div class="sub">Janela: 28/03 até 03/04 (America/Cuiaba)</div>
+      <div class="sub">Atualizado em 29/03/2026 às 09:14</div>
+    </div>
+    <button class="btn">
+      <svg class="icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Atualizar
+    </button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stat-grid">
+    <div class="stat-box stat-red">
+      <div class="stat-value">3</div>
+      <div class="stat-label">Tarefas vencidas</div>
+    </div>
+    <div class="stat-box stat-amber">
+      <div class="stat-value">5</div>
+      <div class="stat-label">Vencem esta semana</div>
+    </div>
+    <div class="stat-box stat-blue">
+      <div class="stat-value">8</div>
+      <div class="stat-label">Em andamento</div>
+    </div>
+    <div class="stat-box stat-green">
+      <div class="stat-value">2</div>
+      <div class="stat-label">Obras ativas</div>
+    </div>
+  </div>
+
+  <!-- Obras -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="section-icon" viewBox="0 0 24 24"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7-7H4a2 2 0 0 0-2 2v17z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Obras em andamento
+      </div>
+      <span class="badge badge-outline">2 obras</span>
+    </div>
+    <div class="card-body">
+      <div class="obra-item ok">
+        <div class="item-row">
+          <div>
+            <div class="item-name">Instalação Solar — Rua das Flores 42</div>
+            <div class="item-meta">Fase: Execução · Prazo: 15/04/2026</div>
+          </div>
+          <span class="badge badge-green">3 dias restantes</span>
+        </div>
+        <div class="progress-row">
+          <div class="progress-track">
+            <div class="progress-fill fill-green" style="width:70%"></div>
+          </div>
+          <span class="progress-label">7 dias / meta 10 dias</span>
+        </div>
+      </div>
+      <div class="obra-item late">
+        <div class="item-row">
+          <div>
+            <div class="item-name">Troca de Medidor — Av. Central 100</div>
+            <div class="item-meta">Fase: Projeto · Prazo: 10/04/2026</div>
+          </div>
+          <span class="badge badge-red">2 dias atrasada</span>
+        </div>
+        <div class="progress-row">
+          <div class="progress-track">
+            <div class="progress-fill fill-red" style="width:100%"></div>
+          </div>
+          <span class="progress-label">7 dias / meta 5 dias</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tarefas -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">
+        <svg class="section-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="11" y2="17"/></svg>
+        Tarefas em andamento
+      </div>
+      <span class="badge badge-outline">5 tarefas</span>
+    </div>
+    <div class="card-body">
+      <div class="task-item">
+        <div class="item-row">
+          <div class="item-name">Cadastro contrato João Silva</div>
+          <span class="badge badge-amber">Em Andamento</span>
+        </div>
+        <div class="item-meta">Cadastro · Prioridade URGENT · Prazo: 30/03/2026</div>
+        <div class="progress-row" style="margin-top:6px;">
+          <div class="progress-track">
+            <div class="progress-fill fill-amber" style="width:40%"></div>
+          </div>
+          <span class="progress-label">2 dias / meta 3 dias</span>
+        </div>
+      </div>
+      <div class="task-item">
+        <div class="item-row">
+          <div class="item-name">Revisão documentação Energisa</div>
+          <span class="badge badge-outline">A Fazer</span>
+        </div>
+        <div class="item-meta">Energia · Prioridade HIGH · Prazo: 02/04/2026</div>
+        <div class="progress-row" style="margin-top:6px;">
+          <div class="progress-track">
+            <div class="progress-fill fill-green" style="width:20%"></div>
+          </div>
+          <span class="progress-label">1 dia / meta 5 dias</span>
+        </div>
+      </div>
+      <div style="text-align:center; padding: 8px 0 2px;">
+        <a href="#" style="font-size:11px; color:#16a34a; text-decoration:none;">Ver mais 3 tarefas</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Widget desempenho — sem emojis, ícones SVG -->
+  <div class="perf-card">
+    <div class="perf-header">
+      <div class="perf-title">
+        <svg style="width:15px;height:15px;stroke:#16a34a;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Seu desempenho esta semana
+      </div>
+      <a href="#" class="perf-link">Ver histórico completo →</a>
+    </div>
+    <div class="perf-grid">
+      <div class="perf-cell">
+        <div class="perf-value perf-green">4</div>
+        <div class="perf-label">Dentro do prazo</div>
+      </div>
+      <div class="perf-cell">
+        <div class="perf-value perf-red">1</div>
+        <div class="perf-label">Fora do prazo</div>
+      </div>
+      <div class="perf-cell">
+        <div class="perf-value perf-amber">80%</div>
+        <div class="perf-label">Taxa no prazo</div>
+      </div>
+    </div>
+    <div class="perf-footer">
+      <span class="badge badge-amber">Recorde pessoal em Cadastro</span>
+      <span class="badge badge-green">3 dias seguidos no prazo</span>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

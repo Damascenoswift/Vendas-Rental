@@ -2,6 +2,7 @@ import type { User, SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/database'
 import { hasInternalChatAccess } from '@/lib/internal-chat-access'
 import { hasWhatsAppInboxAccess } from '@/lib/whatsapp-inbox-access'
+import { hasTaskAnalystAccess } from '@/lib/task-analyst-access'
 
 export type UserRole =
   | 'vendedor_externo'
@@ -25,6 +26,7 @@ export type UserProfile = {
   salesAccess?: boolean | null
   internalChatAccess?: boolean | null
   whatsappInboxAccess?: boolean | null
+  taskAnalystAccess?: boolean | null
   department?: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro' | null
   allowedBrands: Brand[]
   name?: string
@@ -89,10 +91,15 @@ export function buildUserProfile(user: User | null): UserProfile | null {
   const allowedBrands = getAllowedBrands(normalizedRole)
   const salesAccess = (user.user_metadata?.sales_access as boolean | undefined) ?? null
   const internalChatAccessMeta = user.user_metadata?.internal_chat_access as boolean | undefined
+  const taskAnalystAccessMeta = user.user_metadata?.task_analyst_access as boolean | undefined
   const internalChatAccess = hasInternalChatAccess({
     role: normalizedRole,
     department,
     internal_chat_access: typeof internalChatAccessMeta === "boolean" ? internalChatAccessMeta : null,
+  })
+  const taskAnalystAccess = hasTaskAnalystAccess({
+    role: normalizedRole,
+    task_analyst_access: typeof taskAnalystAccessMeta === "boolean" ? taskAnalystAccessMeta : null,
   })
 
   return {
@@ -102,6 +109,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
     supervisedCompanyName,
     salesAccess,
     internalChatAccess,
+    taskAnalystAccess,
     department,
     allowedBrands,
     name: user.user_metadata?.nome,
@@ -111,7 +119,7 @@ export function buildUserProfile(user: User | null): UserProfile | null {
 }
 
 export async function getProfile(supabase: SupabaseClient<Database>, userId: string): Promise<UserProfile | null> {
-  let selectColumns = 'role, department, allowed_brands, sales_access, internal_chat_access, whatsapp_inbox_access, name, phone, email, company_name, supervised_company_name'
+  let selectColumns = 'role, department, allowed_brands, sales_access, internal_chat_access, whatsapp_inbox_access, task_analyst_access, name, phone, email, company_name, supervised_company_name'
 
   let { data, error } = await supabase
     .from('users')
@@ -124,8 +132,15 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     error && /could not find the 'internal_chat_access' column/i.test(error.message ?? '')
   const missingWhatsAppInboxAccessColumn =
     error && /could not find the 'whatsapp_inbox_access' column/i.test(error.message ?? '')
+  const missingTaskAnalystAccessColumn =
+    error && /could not find the 'task_analyst_access' column/i.test(error.message ?? '')
 
-  if (missingSalesAccessColumn || missingInternalChatAccessColumn || missingWhatsAppInboxAccessColumn) {
+  if (
+    missingSalesAccessColumn ||
+    missingInternalChatAccessColumn ||
+    missingWhatsAppInboxAccessColumn ||
+    missingTaskAnalystAccessColumn
+  ) {
     const fallbackColumns = [
       'role',
       'department',
@@ -152,6 +167,17 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
           ? fallbackColumns.indexOf('sales_access') + 1
           : 3
       fallbackColumns.splice(insertIndex, 0, 'whatsapp_inbox_access')
+    }
+
+    if (!missingTaskAnalystAccessColumn) {
+      const insertIndex = fallbackColumns.includes('whatsapp_inbox_access')
+        ? fallbackColumns.indexOf('whatsapp_inbox_access') + 1
+        : fallbackColumns.includes('internal_chat_access')
+          ? fallbackColumns.indexOf('internal_chat_access') + 1
+          : fallbackColumns.includes('sales_access')
+            ? fallbackColumns.indexOf('sales_access') + 1
+            : 3
+      fallbackColumns.splice(insertIndex, 0, 'task_analyst_access')
     }
 
     selectColumns = fallbackColumns.join(', ')
@@ -182,6 +208,7 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
     sales_access?: boolean | null
     internal_chat_access?: boolean | null
     whatsapp_inbox_access?: boolean | null
+    task_analyst_access?: boolean | null
   }
 
   // Converter tipos do banco para tipos da aplicação
@@ -205,6 +232,11 @@ export async function getProfile(supabase: SupabaseClient<Database>, userId: str
       role: normalizedRole,
       whatsapp_inbox_access:
         typeof row.whatsapp_inbox_access === "boolean" ? row.whatsapp_inbox_access : null,
+    }),
+    taskAnalystAccess: hasTaskAnalystAccess({
+      role: normalizedRole,
+      task_analyst_access:
+        typeof row.task_analyst_access === "boolean" ? row.task_analyst_access : null,
     }),
     department,
     allowedBrands,

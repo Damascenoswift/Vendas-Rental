@@ -1,0 +1,72 @@
+<h2>O que ganha pontos (XP)?</h2>
+<p class="subtitle">Escolha os eventos que devem recompensar os funcionários. Pode selecionar vários.</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="task-done" onclick="toggleSelect(this)">
+    <div class="letter">✅</div>
+    <div class="content">
+      <h3>Concluir tarefa</h3>
+      <p>+10 XP ao mover tarefa para DONE. Base do sistema — todo setor ganha.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="task-ontime" onclick="toggleSelect(this)">
+    <div class="letter">⏰</div>
+    <div class="content">
+      <h3>Concluir tarefa no prazo</h3>
+      <p>+15 XP (bônus) quando a tarefa é concluída antes ou na data limite. Incentiva respeitar prazos.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="obra-phase" onclick="toggleSelect(this)">
+    <div class="letter">⚒️</div>
+    <div class="content">
+      <h3>Avançar fase de obra</h3>
+      <p>+20 XP ao concluir uma fase (PROJETO → EXECUÇÃO → FECHADA). Maior peso por ser mais complexo.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="obra-ontime" onclick="toggleSelect(this)">
+    <div class="letter">🏗️</div>
+    <div class="content">
+      <h3>Obra concluída no prazo</h3>
+      <p>+30 XP bônus quando obra fecha dentro do prazo de execução. Alto valor, difícil de atingir.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="checklist" onclick="toggleSelect(this)">
+    <div class="letter">📋</div>
+    <div class="content">
+      <h3>Completar item de checklist</h3>
+      <p>+5 XP por item de checklist marcado como concluído. Recompensa trabalho granular.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="blocker-resolve" onclick="toggleSelect(this)">
+    <div class="letter">🔓</div>
+    <div class="content">
+      <h3>Resolver um bloqueio</h3>
+      <p>+12 XP ao marcar um bloqueador como resolvido. Incentiva destravar o time.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="streak" onclick="toggleSelect(this)">
+    <div class="letter">🔥</div>
+    <div class="content">
+      <h3>Sequência de dias ativos</h3>
+      <p>+5 XP/dia em dias consecutivos com pelo menos 1 ação concluída. Mantém engajamento diário.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="priority-urgent" onclick="toggleSelect(this)">
+    <div class="letter">🚨</div>
+    <div class="content">
+      <h3>Concluir tarefa URGENTE</h3>
+      <p>+25 XP por tarefa com prioridade URGENT finalizada. Reconhece esforço extra em crises.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:20px;">Selecione todos que fazem sentido para sua equipe. Mínimo recomendado: ✅ + ⏰ + ⚒️</p>

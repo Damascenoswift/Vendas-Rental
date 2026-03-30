@@ -19,6 +19,7 @@ import { Pencil } from "lucide-react"
 import { roleHasSalesAccessByDefault } from "@/lib/sales-access"
 import { roleHasInternalChatAccessByDefault } from "@/lib/internal-chat-access"
 import { roleHasWhatsAppInboxAccessByDefault } from "@/lib/whatsapp-inbox-access"
+import { roleHasTaskAnalystAccessByDefault } from "@/lib/task-analyst-access"
 
 const initialState: CreateUserState = {
     success: false,
@@ -35,6 +36,7 @@ interface EditUserDialogProps {
         sales_access?: boolean | null
         internal_chat_access?: boolean | null
         whatsapp_inbox_access?: boolean | null
+        task_analyst_access?: boolean | null
         phone?: string
         department?: string
         allowed_brands?: string[]
@@ -68,6 +70,11 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
         typeof user.whatsapp_inbox_access === "boolean"
             ? user.whatsapp_inbox_access
             : roleHasWhatsAppInboxAccessByDefault(user.role)
+    )
+    const [taskAnalystAccess, setTaskAnalystAccess] = useState(
+        typeof user.task_analyst_access === "boolean"
+            ? user.task_analyst_access
+            : roleHasTaskAnalystAccessByDefault(user.role)
     )
 
     // Close dialog on success
@@ -146,6 +153,7 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                                 setSalesAccess(roleHasSalesAccessByDefault(nextRole))
                                 setInternalChatAccess(roleHasInternalChatAccessByDefault(nextRole))
                                 setWhatsAppInboxAccess(roleHasWhatsAppInboxAccessByDefault(nextRole))
+                                setTaskAnalystAccess(roleHasTaskAnalystAccessByDefault(nextRole))
                             }}
                         >
                             <option value="vendedor_externo">Vendedor Externo</option>
@@ -222,6 +230,29 @@ export function EditUserDialog({ user, supervisors = [] }: EditUserDialogProps) 
                                 type="checkbox"
                                 checked={whatsAppInboxAccess}
                                 onChange={(e) => setWhatsAppInboxAccess(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <input
+                            type="hidden"
+                            name="task_analyst_access"
+                            value={taskAnalystAccess ? "true" : "false"}
+                        />
+                        <div className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2">
+                            <div>
+                                <Label htmlFor={`task_analyst_access_toggle_${user.id}`}>Acesso ao Analista IA</Label>
+                                <p className="text-[10px] text-muted-foreground">
+                                    Permite visualizar e executar o módulo Analista IA.
+                                </p>
+                            </div>
+                            <input
+                                id={`task_analyst_access_toggle_${user.id}`}
+                                type="checkbox"
+                                checked={taskAnalystAccess}
+                                onChange={(e) => setTaskAnalystAccess(e.target.checked)}
                                 className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                             />
                         </div>

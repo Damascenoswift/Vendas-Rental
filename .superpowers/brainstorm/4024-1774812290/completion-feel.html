@@ -1,0 +1,137 @@
+<h2>Como o funcionário sente que completou algo bem?</h2>
+<p class="subtitle">O momento da conclusão — o que aparece na tela quando a tarefa é marcada como DONE</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="time-card" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:160px; display:flex; align-items:center; justify-content:center;">
+      <div style="background:linear-gradient(135deg,#052e16,#14532d); border:1px solid #16a34a; border-radius:10px; padding:16px; width:100%; max-width:260px; text-align:center;">
+        <div style="font-size:28px; margin-bottom:6px;">✅</div>
+        <div style="color:#4ade80; font-weight:bold; font-size:14px; margin-bottom:2px;">Tarefa concluída!</div>
+        <div style="color:#86efac; font-size:11px; margin-bottom:12px;">Contrato de Aluguel · Cadastro</div>
+        <div style="display:flex; justify-content:center; gap:16px; margin-bottom:10px;">
+          <div>
+            <div style="color:#94a3b8; font-size:9px;">VOCÊ LEVOU</div>
+            <div style="color:white; font-size:18px; font-weight:bold;">2 dias</div>
+          </div>
+          <div style="color:#334155; font-size:20px; display:flex; align-items:center;">vs</div>
+          <div>
+            <div style="color:#94a3b8; font-size:9px;">META</div>
+            <div style="color:#fbbf24; font-size:18px; font-weight:bold;">3 dias</div>
+          </div>
+        </div>
+        <div style="background:#166534; border-radius:20px; padding:4px 12px; display:inline-block; color:#4ade80; font-size:11px; font-weight:bold;">⚡ 1 dia antes do prazo</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Cartão de desempenho</h3>
+      <p>Um popup/toast aparece ao concluir: mostra tempo real vs meta. Verde = dentro, vermelho = fora, dourado = recorde pessoal.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="inline-bar" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:160px;">
+      <div style="color:#94a3b8; font-size:10px; margin-bottom:10px;">TAREFAS DA SEMANA</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="background:#1e293b; border-radius:6px; padding:8px 10px;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+            <span style="color:#e2e8f0; font-size:11px;">Contrato Aluguel</span>
+            <span style="color:#4ade80; font-size:10px; font-weight:bold;">✅ 2d / meta 3d</span>
+          </div>
+          <div style="background:#334155; border-radius:4px; height:5px;">
+            <div style="background:#4ade80; width:66%; height:100%; border-radius:4px;"></div>
+          </div>
+        </div>
+        <div style="background:#1e293b; border-radius:6px; padding:8px 10px;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+            <span style="color:#e2e8f0; font-size:11px;">Transferência Energia</span>
+            <span style="color:#f87171; font-size:10px; font-weight:bold;">⚠️ 12d / meta 10d</span>
+          </div>
+          <div style="background:#334155; border-radius:4px; height:5px;">
+            <div style="background:#f87171; width:100%; height:100%; border-radius:4px;"></div>
+          </div>
+        </div>
+        <div style="background:#1e293b; border-radius:6px; padding:8px 10px;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+            <span style="color:#e2e8f0; font-size:11px;">Fase Execução Obra</span>
+            <span style="color:#fbbf24; font-size:10px; font-weight:bold;">🏆 8d / meta 10d (recorde!)</span>
+          </div>
+          <div style="background:#334155; border-radius:4px; height:5px;">
+            <div style="background:linear-gradient(90deg,#fbbf24,#f59e0b); width:80%; height:100%; border-radius:4px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Barras inline na lista</h3>
+      <p>Cada tarefa/obra na lista já mostra barra de tempo real vs meta, sem popup. Tudo visível de uma vez.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="personal-history" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:160px;">
+      <div style="color:#a5b4fc; font-size:11px; font-weight:bold; margin-bottom:8px;">📈 SEU HISTÓRICO — Contrato Aluguel</div>
+      <div style="display:flex; align-items:flex-end; gap:6px; height:70px; margin-bottom:8px;">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:2px; flex:1;">
+          <div style="background:#4ade80; width:100%; border-radius:2px 2px 0 0;" style="height:40px;"></div>
+          <div style="width:100%; background:#4ade80; border-radius:2px 2px 0 0; height:40px;"></div>
+          <div style="color:#64748b; font-size:8px;">Jan</div>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:2px; flex:1;">
+          <div style="background:#4ade80; width:100%; border-radius:2px 2px 0 0; height:50px;"></div>
+          <div style="color:#64748b; font-size:8px;">Fev</div>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:2px; flex:1;">
+          <div style="background:#f87171; width:100%; border-radius:2px 2px 0 0; height:65px;"></div>
+          <div style="color:#64748b; font-size:8px;">Mar</div>
+        </div>
+        <div style="display:flex; flex-direction:column; align-items:center; gap:2px; flex:1;">
+          <div style="background:#fbbf24; width:100%; border-radius:2px 2px 0 0; height:30px;"></div>
+          <div style="color:#64748b; font-size:8px;">Abr ⭐</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; font-size:9px; color:#64748b;">
+        <span style="color:#4ade80;">■ dentro</span>
+        <span style="color:#f87171;">■ fora</span>
+        <span style="color:#fbbf24;">■ recorde</span>
+        <span>— meta: 3d</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Histórico pessoal por categoria</h3>
+      <p>Na Arena, cada funcionário vê um gráfico de evolução por tipo de tarefa. "Você está melhorando em Cadastro."</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="all-three" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:160px; display:flex; flex-direction:column; gap:8px; justify-content:center;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <div style="background:#052e16; border:1px solid #16a34a; border-radius:6px; padding:6px 10px; flex:1; text-align:center;">
+          <div style="font-size:16px;">✅</div>
+          <div style="color:#4ade80; font-size:9px; font-weight:bold;">Cartão popup</div>
+          <div style="color:#64748b; font-size:8px;">ao concluir</div>
+        </div>
+        <div style="color:#334155; font-size:12px;">+</div>
+        <div style="background:#1e1b4b; border:1px solid #4338ca; border-radius:6px; padding:6px 10px; flex:1; text-align:center;">
+          <div style="font-size:16px;">📊</div>
+          <div style="color:#a5b4fc; font-size:9px; font-weight:bold;">Barras inline</div>
+          <div style="color:#64748b; font-size:8px;">na lista</div>
+        </div>
+        <div style="color:#334155; font-size:12px;">+</div>
+        <div style="background:#1c1917; border:1px solid #78350f; border-radius:6px; padding:6px 10px; flex:1; text-align:center;">
+          <div style="font-size:16px;">📈</div>
+          <div style="color:#fbbf24; font-size:9px; font-weight:bold;">Histórico</div>
+          <div style="color:#64748b; font-size:8px;">na Arena</div>
+        </div>
+      </div>
+      <div style="background:#1e293b; border-radius:6px; padding:8px; text-align:center; color:#94a3b8; font-size:10px;">
+        Popup ao concluir → barras visíveis na lista → histórico aprofundado na Arena
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Camadas progressivas <span style="background:#4338ca;color:#a5b4fc;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;">Recomendado</span></h3>
+      <p>Cada camada aprofunda a experiência: popup rápido → barras no dia a dia → histórico para quem quiser se aprofundar.</p>
+    </div>
+  </div>
+
+</div>

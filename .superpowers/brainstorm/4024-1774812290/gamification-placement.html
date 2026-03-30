@@ -1,0 +1,125 @@
+<h2>Onde a gamificação vai viver no app?</h2>
+<p class="subtitle">Onde os funcionários encontram seus pontos, nível e ranking</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="expand-semana" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:150px; font-size:11px;">
+      <div style="background:#1e293b; border-radius:6px; padding:8px 12px; margin-bottom:8px;">
+        <div style="color:#94a3b8; font-size:10px; margin-bottom:6px;">MINHA SEMANA</div>
+        <div style="display:flex; gap:8px; border-bottom:1px solid #334155; padding-bottom:8px; margin-bottom:8px;">
+          <span style="color:#60a5fa; border-bottom:2px solid #60a5fa; padding-bottom:2px; cursor:pointer;">📋 Tarefas</span>
+          <span style="color:#94a3b8; cursor:pointer;">⚒️ Obras</span>
+          <span style="color:#94a3b8; cursor:pointer;">🏆 Gamificação</span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <div style="background:#172033; border-radius:4px; padding:6px 10px; flex:1; text-align:center;">
+            <div style="color:#c084fc; font-weight:bold;">Nível 8</div>
+            <div style="color:#64748b; font-size:9px;">⚡ 340 XP</div>
+          </div>
+          <div style="background:#172033; border-radius:4px; padding:6px 10px; flex:1; text-align:center;">
+            <div style="color:#fbbf24; font-weight:bold;">#2</div>
+            <div style="color:#64748b; font-size:9px;">Ranking</div>
+          </div>
+          <div style="background:#172033; border-radius:4px; padding:6px 10px; flex:1; text-align:center;">
+            <div style="color:#22c55e; font-weight:bold;">🔥5</div>
+            <div style="color:#64748b; font-size:9px;">Streak</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Expandir o "Minha Semana"</h3>
+      <p>Adiciona abas: Tarefas · Obras · Gamificação. Tudo num lugar só, sem criar nova rota.</p>
+      <p style="font-size:12px; color:#888;">Simples de implementar, não muda navegação atual</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="new-page" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:150px; font-size:11px; display:flex; gap:10px;">
+      <div style="background:#1e293b; border-radius:6px; padding:8px; width:90px; flex-shrink:0;">
+        <div style="color:#475569; font-size:9px; margin-bottom:8px;">MENU</div>
+        <div style="color:#94a3b8; padding:4px 6px; border-radius:3px; margin-bottom:3px;">📋 Tarefas</div>
+        <div style="color:#94a3b8; padding:4px 6px; border-radius:3px; margin-bottom:3px;">⚒️ Obras</div>
+        <div style="background:#3730a3; color:#a5b4fc; padding:4px 6px; border-radius:3px; font-weight:bold; margin-bottom:3px;">🎮 Arena</div>
+        <div style="color:#94a3b8; padding:4px 6px; border-radius:3px;">📅 Semana</div>
+      </div>
+      <div style="flex:1; display:flex; flex-direction:column; gap:6px;">
+        <div style="color:#a5b4fc; font-weight:bold; font-size:12px;">🎮 Arena</div>
+        <div style="background:#1e293b; border-radius:4px; padding:8px;">
+          <div style="color:#c084fc; font-size:11px; font-weight:bold;">⚡ NÍVEL 8</div>
+          <div style="background:#334155; border-radius:4px; height:6px; margin-top:4px;">
+            <div style="background:linear-gradient(90deg,#c084fc,#818cf8); width:65%; height:100%; border-radius:4px;"></div>
+          </div>
+        </div>
+        <div style="background:#1e293b; border-radius:4px; padding:8px; font-size:10px; color:#94a3b8;">🏆 Ranking · Missões · Badges</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Página dedicada "Arena"</h3>
+      <p>Nova rota no menu principal (ex: /arena). Espaço completo para ranking, missões, histórico de XP e badges.</p>
+      <p style="font-size:12px; color:#888;">Experiência rica, mas exige que o usuário navegue até lá</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="widget-semana" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:150px; font-size:11px;">
+      <div style="background:#1e293b; border-radius:6px; padding:10px; margin-bottom:6px;">
+        <div style="color:#94a3b8; font-size:10px; margin-bottom:6px;">MINHA SEMANA — Tarefas + Obras</div>
+        <div style="color:#475569; font-size:10px;">[ lista de tarefas e obras aqui... ]</div>
+      </div>
+      <div style="background:linear-gradient(135deg, #1e1b4b, #312e81); border-radius:6px; padding:10px; border:1px solid #4338ca;">
+        <div style="color:#a5b4fc; font-size:10px; font-weight:bold; margin-bottom:6px;">⚡ SUA SEMANA EM JOGO</div>
+        <div style="display:flex; gap:8px;">
+          <div style="text-align:center; flex:1;">
+            <div style="color:#c084fc; font-size:14px; font-weight:bold;">Nv.8</div>
+            <div style="color:#64748b; font-size:9px;">Nível</div>
+          </div>
+          <div style="text-align:center; flex:1;">
+            <div style="color:#fbbf24; font-size:14px; font-weight:bold;">#2</div>
+            <div style="color:#64748b; font-size:9px;">Rank</div>
+          </div>
+          <div style="text-align:center; flex:1;">
+            <div style="color:#22c55e; font-size:14px; font-weight:bold;">🔥5</div>
+            <div style="color:#64748b; font-size:9px;">Streak</div>
+          </div>
+          <div style="text-align:center; flex:1;">
+            <div style="color:#60a5fa; font-size:14px; font-weight:bold;">340</div>
+            <div style="color:#64748b; font-size:9px;">XP</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Widget no final do "Minha Semana" <span style="background:#4338ca;color:#a5b4fc;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:4px;">Recomendado</span></h3>
+      <p>Minha Semana mostra tarefas + obras normalmente, e no final tem um bloco de gamificação resumido. Link para página Arena com mais detalhes.</p>
+      <p style="font-size:12px; color:#888;">Aparece naturalmente sem forçar — quem quiser se aprofunda clicando</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="both" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:16px; min-height:150px; font-size:11px; display:flex; flex-direction:column; gap:6px;">
+      <div style="display:flex; gap:6px;">
+        <div style="background:#1e293b; border-radius:4px; padding:8px; flex:1; text-align:center;">
+          <div style="color:#94a3b8; font-size:9px; margin-bottom:4px;">MINHA SEMANA</div>
+          <div style="color:#60a5fa; font-size:10px;">Tarefas + Obras<br/>+ mini widget XP</div>
+        </div>
+        <div style="color:#475569; display:flex; align-items:center; font-size:16px;">→</div>
+        <div style="background:linear-gradient(135deg,#1e1b4b,#1e293b); border-radius:4px; padding:8px; flex:1; text-align:center; border:1px solid #4338ca;">
+          <div style="color:#a5b4fc; font-size:9px; margin-bottom:4px;">🎮 ARENA</div>
+          <div style="color:#c084fc; font-size:10px;">Ranking completo<br/>Missões · Badges</div>
+        </div>
+      </div>
+      <div style="background:#172033; border-radius:4px; padding:6px; text-align:center;">
+        <div style="color:#475569; font-size:9px;">Minha Semana mostra obras + tarefas integrados</div>
+        <div style="color:#475569; font-size:9px;">Arena é o hub completo de gamificação</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Os dois juntos</h3>
+      <p>Minha Semana recebe obras + mini-widget de XP. Arena é uma página separada com tudo aprofundado.</p>
+      <p style="font-size:12px; color:#888;">Experiência mais completa, mais trabalho para implementar</p>
+    </div>
+  </div>
+
+</div>

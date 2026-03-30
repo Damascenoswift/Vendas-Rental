@@ -1,0 +1,127 @@
+<h2>Design — Minha Semana expandido</h2>
+<p class="subtitle">Tarefas + Obras integrados, widget de desempenho pessoal no final</p>
+
+<div class="mockup">
+  <div class="mockup-header">Minha Semana — visão do funcionário</div>
+  <div class="mockup-body" style="font-size:12px; display:flex; flex-direction:column; gap:12px;">
+
+    <!-- Header resumo -->
+    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">
+      <div style="background:#1e293b; border-radius:6px; padding:10px; text-align:center;">
+        <div style="color:#f87171; font-size:18px; font-weight:bold;">3</div>
+        <div style="color:#94a3b8; font-size:10px;">Vencidas</div>
+      </div>
+      <div style="background:#1e293b; border-radius:6px; padding:10px; text-align:center;">
+        <div style="color:#fbbf24; font-size:18px; font-weight:bold;">5</div>
+        <div style="color:#94a3b8; font-size:10px;">Vencem esta semana</div>
+      </div>
+      <div style="background:#1e293b; border-radius:6px; padding:10px; text-align:center;">
+        <div style="color:#60a5fa; font-size:18px; font-weight:bold;">8</div>
+        <div style="color:#94a3b8; font-size:10px;">Em andamento</div>
+      </div>
+      <div style="background:#1e293b; border-radius:6px; padding:10px; text-align:center;">
+        <div style="color:#22c55e; font-size:18px; font-weight:bold;">2</div>
+        <div style="color:#94a3b8; font-size:10px;">Obras ativas</div>
+      </div>
+    </div>
+
+    <!-- Seção obras -->
+    <div style="background:#1e293b; border-radius:8px; overflow:hidden;">
+      <div style="background:#292524; padding:8px 12px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="color:#d6d3d1; font-size:11px; font-weight:bold;">⚒️ OBRAS EM ANDAMENTO</div>
+        <div style="color:#78716c; font-size:10px;">2 obras</div>
+      </div>
+      <div style="padding:10px; display:flex; flex-direction:column; gap:8px;">
+        <!-- Obra 1 - dentro do prazo -->
+        <div style="background:#0f172a; border-radius:6px; padding:10px; border-left:3px solid #22c55e;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <div>
+              <div style="color:#e2e8f0; font-size:11px; font-weight:bold;">Instalação Solar — Rua das Flores 42</div>
+              <div style="color:#64748b; font-size:10px;">Fase: EXECUÇÃO · Prazo: 15/04</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="color:#22c55e; font-size:10px; font-weight:bold;">✅ 3 dias restantes</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <div style="background:#334155; border-radius:4px; height:5px; flex:1;">
+              <div style="background:#22c55e; width:70%; height:100%; border-radius:4px;"></div>
+            </div>
+            <div style="color:#64748b; font-size:9px; white-space:nowrap;">7d / meta 10d</div>
+          </div>
+        </div>
+        <!-- Obra 2 - atrasada -->
+        <div style="background:#0f172a; border-radius:6px; padding:10px; border-left:3px solid #f87171;">
+          <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <div>
+              <div style="color:#e2e8f0; font-size:11px; font-weight:bold;">Troca de Medidor — Av. Central 100</div>
+              <div style="color:#64748b; font-size:10px;">Fase: PROJETO · Prazo: 10/04</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="color:#f87171; font-size:10px; font-weight:bold;">⚠️ 2 dias atrasada</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <div style="background:#334155; border-radius:4px; height:5px; flex:1;">
+              <div style="background:#f87171; width:100%; height:100%; border-radius:4px;"></div>
+            </div>
+            <div style="color:#64748b; font-size:9px; white-space:nowrap;">7d / meta 5d</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tarefas (resumo) -->
+    <div style="background:#1e293b; border-radius:8px; overflow:hidden;">
+      <div style="background:#1e3a1e; padding:8px 12px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="color:#d1fae5; font-size:11px; font-weight:bold;">📋 TAREFAS DA SEMANA</div>
+        <div style="color:#6b7280; font-size:10px;">5 tarefas</div>
+      </div>
+      <div style="padding:10px; display:flex; flex-direction:column; gap:6px;">
+        <div style="background:#0f172a; border-radius:6px; padding:8px 10px; border-left:3px solid #fbbf24; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="color:#e2e8f0; font-size:11px;">Cadastro contrato João Silva</div>
+            <div style="color:#64748b; font-size:10px;">Cadastro · URGENTE</div>
+          </div>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <div style="background:#334155; border-radius:4px; height:4px; width:60px;">
+              <div style="background:#fbbf24; width:40%; height:100%; border-radius:4px;"></div>
+            </div>
+            <div style="color:#64748b; font-size:9px;">2d / meta 3d</div>
+          </div>
+        </div>
+        <div style="color:#475569; font-size:10px; text-align:center; padding:4px;">+ 4 outras tarefas</div>
+      </div>
+    </div>
+
+    <!-- Widget gamificação -->
+    <div style="background:linear-gradient(135deg, #1e1b4b 0%, #1e293b 100%); border-radius:8px; border:1px solid #4338ca; padding:14px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        <div style="color:#a5b4fc; font-size:12px; font-weight:bold;">⚡ SEU DESEMPENHO — Esta Semana</div>
+        <a href="#" style="color:#6366f1; font-size:10px; text-decoration:none;">Ver histórico completo →</a>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px;">
+        <div style="background:rgba(255,255,255,0.05); border-radius:6px; padding:8px; text-align:center;">
+          <div style="color:#22c55e; font-size:20px; font-weight:bold;">4</div>
+          <div style="color:#94a3b8; font-size:9px;">Dentro do prazo</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.05); border-radius:6px; padding:8px; text-align:center;">
+          <div style="color:#f87171; font-size:20px; font-weight:bold;">1</div>
+          <div style="color:#94a3b8; font-size:9px;">Fora do prazo</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.05); border-radius:6px; padding:8px; text-align:center;">
+          <div style="color:#fbbf24; font-size:20px; font-weight:bold;">80%</div>
+          <div style="color:#94a3b8; font-size:9px;">Taxa no prazo</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <span style="background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.3); color:#fbbf24; font-size:10px; padding:3px 8px; border-radius:10px;">🏆 Recorde pessoal em Cadastro</span>
+        <span style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); color:#86efac; font-size:10px; padding:3px 8px; border-radius:10px;">✅ 3 dias seguidos no prazo</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:16px;">Este é o "Minha Semana" expandido. Obras aparecem logo no topo, com barra de progresso de tempo. O widget de desempenho fica no final com link para a Arena.</p>
+<p class="subtitle">Isso está como você imaginou?</p>

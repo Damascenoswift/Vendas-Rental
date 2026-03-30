@@ -28,6 +28,7 @@ import { Trash2, User } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { EditUserDialog } from "./edit-user-dialog"
 import { hasWhatsAppInboxAccess } from "@/lib/whatsapp-inbox-access"
+import { hasTaskAnalystAccess } from "@/lib/task-analyst-access"
 
 interface UserListItem {
     id: string
@@ -37,6 +38,7 @@ interface UserListItem {
     sales_access?: boolean | null
     internal_chat_access?: boolean | null
     whatsapp_inbox_access?: boolean | null
+    task_analyst_access?: boolean | null
     phone?: string | null
     department?: string | null
     allowed_brands?: string[] | null
@@ -110,6 +112,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                         <TableHead>Vendas</TableHead>
                         <TableHead>Chat interno</TableHead>
                         <TableHead>WhatsApp</TableHead>
+                        <TableHead>Analista IA</TableHead>
                         <TableHead>Marcas</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -121,6 +124,13 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                             whatsapp_inbox_access:
                                 typeof user.whatsapp_inbox_access === "boolean"
                                     ? user.whatsapp_inbox_access
+                                    : null,
+                        })
+                        const taskAnalystAccess = hasTaskAnalystAccess({
+                            role: user.role ?? null,
+                            task_analyst_access:
+                                typeof user.task_analyst_access === "boolean"
+                                    ? user.task_analyst_access
                                     : null,
                         })
 
@@ -154,6 +164,11 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                                 </Badge>
                             </TableCell>
                             <TableCell>
+                                <Badge variant={taskAnalystAccess ? "success" : "secondary"}>
+                                    {taskAnalystAccess ? "Ativo" : "Inativo"}
+                                </Badge>
+                            </TableCell>
+                            <TableCell>
                                 <div className="flex gap-1">
                                     {user.allowed_brands?.map((brand: string) => (
                                         <Badge key={brand} variant="secondary" className="text-xs">
@@ -173,6 +188,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                                             sales_access: user.sales_access,
                                             internal_chat_access: user.internal_chat_access,
                                             whatsapp_inbox_access: user.whatsapp_inbox_access,
+                                            task_analyst_access: user.task_analyst_access,
                                             phone: user.phone || undefined,
                                             department: user.department || undefined,
                                             allowed_brands: user.allowed_brands || undefined,
@@ -191,7 +207,7 @@ export function UsersList({ users, supervisors = [] }: UsersListProps) {
                     })}
                     {users.length === 0 && (
                         <TableRow>
-                            <TableCell colSpan={8} className="h-24 text-center">
+                            <TableCell colSpan={9} className="h-24 text-center">
                                 Nenhum usuário encontrado.
                             </TableCell>
                         </TableRow>

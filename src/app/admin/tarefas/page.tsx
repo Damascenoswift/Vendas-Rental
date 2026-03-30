@@ -15,6 +15,7 @@ import { getActiveWorksForUser, getTaskPersonalWeeklySummary } from "@/services/
 import { getDefaultBenchmarkForDepartment, getWeeklyPerformanceSummary } from "@/services/task-benchmark-service"
 import type { WeeklyPerformanceSummary } from "@/services/task-benchmark-service"
 import { differenceInBusinessDays } from "@/lib/business-days"
+import { hasTaskAnalystAccess } from "@/lib/task-analyst-access"
 import Link from "next/link"
 
 type TaskScope = "all" | "mine" | "department"
@@ -60,7 +61,10 @@ export default async function TasksPage({
     }
 
     const tasks = await getTasks({ showAll: true, brand, assigneeId, department, search })
-    const canViewTaskAnalyst = profile?.role === "adm_mestre"
+    const canViewTaskAnalyst = hasTaskAnalystAccess({
+        role: profile?.role ?? null,
+        task_analyst_access: profile?.taskAnalystAccess ?? null,
+    })
     const activeView = normalizeView(resolvedSearchParams?.view, canViewTaskAnalyst)
     const taskAnalystSummary = canViewTaskAnalyst && activeView === "analyst" ? await getTaskAnalystDashboardSummary() : null
     const taskPersonalWeeklySummary = activeView === "my-week"

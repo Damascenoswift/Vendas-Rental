@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { createClient } from "@/lib/supabase/server"
 import { getProfile } from "@/lib/auth"
+import { hasTaskAnalystAccess } from "@/lib/task-analyst-access"
 import { runTaskAnalyst } from "@/services/task-analyst-service"
 
 export const runtime = "nodejs"
@@ -61,8 +62,13 @@ export async function POST(request: Request) {
     }
 
     const profile = await getProfile(supabase, user.id)
-    if (!profile || profile.role !== "adm_mestre") {
-      return forbidden("Apenas adm_mestre pode executar manualmente o analista.")
+    const canRunTaskAnalyst = hasTaskAnalystAccess({
+      role: profile?.role ?? null,
+      task_analyst_access: profile?.taskAnalystAccess ?? null,
+    })
+
+    if (!profile || !canRunTaskAnalyst) {
+      return forbidden("Acesso ao Analista IA não permitido para este usuário.")
     }
   }
 

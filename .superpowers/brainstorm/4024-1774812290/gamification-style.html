@@ -1,0 +1,115 @@
+<h2>Que estilo de gamificação combina com sua equipe?</h2>
+<p class="subtitle">Isso define a "personalidade" do sistema — visual, tom e motivação</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="rpg" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); padding: 20px; min-height: 140px; display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span style="font-size:24px;">⚔️</span>
+        <div>
+          <div style="color:#e94560; font-weight:bold; font-size:13px;">GUERREIRO DAS OBRAS</div>
+          <div style="color:#ffd700; font-size:11px;">Nível 12 · 4.200 XP</div>
+        </div>
+      </div>
+      <div style="background:#0f3460; border-radius:6px; padding:8px;">
+        <div style="color:#a8dadc; font-size:11px; margin-bottom:4px;">BARRA DE EXPERIÊNCIA</div>
+        <div style="background:#1a1a2e; border-radius:10px; height:10px; overflow:hidden;">
+          <div style="background: linear-gradient(90deg, #e94560, #ffd700); width:72%; height:100%; border-radius:10px;"></div>
+        </div>
+        <div style="color:#8892b0; font-size:10px; margin-top:3px;">3.600 / 5.000 XP para Nível 13</div>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <span style="background:#e94560; color:white; font-size:10px; padding:2px 7px; border-radius:10px;">🔥 Sequência 7 dias</span>
+        <span style="background:#ffd700; color:#1a1a2e; font-size:10px; padding:2px 7px; border-radius:10px;">👑 Top 3</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>RPG / Aventura</h3>
+      <p>Níveis, XP, missões diárias, sequências (streaks), emblemas de conquista. Tom de jogo épico.</p>
+      <p style="font-size:12px; color:#888;">Ideal para: equipes jovens, cultura descontraída, competição saudável</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="sports" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #1e3a1e 0%, #145214 100%); padding: 20px; min-height: 140px; display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="color:#7fff7f; font-weight:bold; font-size:13px;">🏆 RANKING DA SEMANA</div>
+        <div style="color:#ffd700; font-size:12px;">Seg–Sex</div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <div style="display:flex; align-items:center; gap:8px; background:rgba(255,215,0,0.15); padding:5px 8px; border-radius:6px;">
+          <span style="color:#ffd700; font-weight:bold; width:16px;">1</span>
+          <span style="color:white; font-size:12px; flex:1;">Carlos · Obras</span>
+          <span style="color:#7fff7f; font-size:12px; font-weight:bold;">47 pts</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); padding:5px 8px; border-radius:6px;">
+          <span style="color:#c0c0c0; font-weight:bold; width:16px;">2</span>
+          <span style="color:white; font-size:12px; flex:1;">Ana · Cadastro</span>
+          <span style="color:#7fff7f; font-size:12px; font-weight:bold;">43 pts</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.05); padding:5px 8px; border-radius:6px;">
+          <span style="color:#cd7f32; font-weight:bold; width:16px;">3</span>
+          <span style="color:white; font-size:12px; flex:1;">Você · Vendas</span>
+          <span style="color:#7fff7f; font-size:12px; font-weight:bold;">38 pts</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Esportivo / Ranking</h3>
+      <p>Placar semanal, ranking por setor e individual, metas coletivas, campeão da semana.</p>
+      <p style="font-size:12px; color:#888;">Ideal para: times competitivos, foco em resultados, metas de equipe</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="progress" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 100%); padding: 20px; min-height: 140px; display:flex; flex-direction:column; gap:10px;">
+      <div style="color:#60a5fa; font-weight:bold; font-size:13px; margin-bottom:4px;">📊 SEU PROGRESSO</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+        <div style="background:rgba(96,165,250,0.1); border:1px solid rgba(96,165,250,0.3); border-radius:6px; padding:8px; text-align:center;">
+          <div style="color:#60a5fa; font-size:20px; font-weight:bold;">12</div>
+          <div style="color:#94a3b8; font-size:10px;">Tarefas concluídas</div>
+        </div>
+        <div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); border-radius:6px; padding:8px; text-align:center;">
+          <div style="color:#22c55e; font-size:20px; font-weight:bold;">94%</div>
+          <div style="color:#94a3b8; font-size:10px;">Taxa no prazo</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap;">
+        <span style="background:rgba(251,191,36,0.15); border:1px solid rgba(251,191,36,0.4); color:#fbbf24; font-size:10px; padding:2px 8px; border-radius:10px;">✅ Sem atraso — 2ª semana</span>
+        <span style="background:rgba(96,165,250,0.15); border:1px solid rgba(96,165,250,0.4); color:#60a5fa; font-size:10px; padding:2px 8px; border-radius:10px;">⚡ Produtivo</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Progresso / Conquistas</h3>
+      <p>Métricas pessoais, badges silenciosos, histórico de evolução. Tom profissional e motivador.</p>
+      <p style="font-size:12px; color:#888;">Ideal para: equipes maduras, foco em autodesenvolvimento, menos pressão</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="mixed" onclick="toggleSelect(this)">
+    <div class="card-image" style="background: linear-gradient(135deg, #1a0533 0%, #2d1b69 50%, #0f3460 100%); padding: 20px; min-height: 140px; display:flex; flex-direction:column; gap:8px;">
+      <div style="display:flex; justify-content:space-between;">
+        <div style="color:#c084fc; font-size:11px; font-weight:bold;">⚡ NÍVEL 8 · OBRAS</div>
+        <div style="color:#ffd700; font-size:11px;">🏆 #2 esta semana</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.05); border-radius:6px; padding:8px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; text-align:center;">
+        <div><div style="color:#c084fc; font-size:16px; font-weight:bold;">340</div><div style="color:#94a3b8; font-size:9px;">XP semana</div></div>
+        <div><div style="color:#22c55e; font-size:16px; font-weight:bold;">8</div><div style="color:#94a3b8; font-size:9px;">Concluídas</div></div>
+        <div><div style="color:#fbbf24; font-size:16px; font-weight:bold;">🔥5</div><div style="color:#94a3b8; font-size:9px;">Dias seguidos</div></div>
+      </div>
+      <div style="display:flex; gap:5px; justify-content:center; flex-wrap:wrap;">
+        <span style="font-size:18px;" title="Sem atrasos">🎯</span>
+        <span style="font-size:18px;" title="Sequência">🔥</span>
+        <span style="font-size:18px;" title="Missão obras">⚒️</span>
+        <span style="font-size:18px; filter:grayscale(1); opacity:0.4;" title="Bloqueado">🛡️</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Misto (Recomendado)</h3>
+      <p>Combina XP + ranking semanal + badges de conquista. O melhor dos três mundos, balanceado.</p>
+      <p style="font-size:12px; color:#888;">Engaja sem pressionar demais — funciona para perfis diferentes</p>
+    </div>
+  </div>
+
+</div>
