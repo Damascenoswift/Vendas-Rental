@@ -1,5 +1,3 @@
-"use server"
-
 import { createClient } from "@/lib/supabase/server"
 import { differenceInBusinessDays } from "@/lib/business-days"
 import type { Department } from "@/services/task-service"
@@ -180,6 +178,7 @@ export async function evaluateCurrentUserTaskCompletion(
     startedAt: Date,
     completedAt: Date
 ): Promise<PerformanceResult | null> {
+    "use server"
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return null
@@ -316,6 +315,7 @@ export async function createBenchmark(data: {
     label: string
     expected_business_days: number
 }): Promise<{ error?: string }> {
+    "use server"
     const supabase = await createClient()
     const { error } = await supabase
         .from("task_time_benchmarks")
@@ -329,6 +329,7 @@ export async function updateBenchmark(
     id: string,
     data: Partial<Pick<TaskTimeBenchmark, "label" | "expected_business_days" | "active">>
 ): Promise<{ error?: string }> {
+    "use server"
     const supabase = await createClient()
     const { error } = await supabase
         .from("task_time_benchmarks")
