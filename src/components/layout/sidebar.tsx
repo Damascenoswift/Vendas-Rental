@@ -22,6 +22,7 @@ import {
     Bell,
     MessageSquareText,
     Hammer,
+    Wrench,
     PanelLeftClose,
     PanelLeftOpen,
 } from "lucide-react"
@@ -261,6 +262,10 @@ export function Sidebar({ className }: SidebarProps) {
 
                         {canAccessWhatsAppInbox && (
                             <NavItem collapsed={isCollapsed} href="/admin/whatsapp" label="WhatsApp" icon={MessageCircle} />
+                        )}
+
+                        {['adm_mestre', 'adm_dorata'].includes(role) && (
+                            <NavItem collapsed={isCollapsed} href="/admin/automacoes" label="Automações" icon={Wrench} />
                         )}
                     </div>
                 </div>

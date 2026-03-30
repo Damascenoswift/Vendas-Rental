@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analista de Vendas – Design Completo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Inter', 'Geist Sans', sans-serif;
+    background: #f0fdf4;
+    color: #1a2e22;
+    min-height: 100vh;
+    padding: 32px 24px 60px;
+  }
+
+  .page-header { text-align: center; margin-bottom: 32px; }
+  .page-header h1 { font-size: 20px; font-weight: 700; color: #14532d; }
+  .page-header p  { font-size: 13px; color: #4b7a5e; margin-top: 5px; }
+
+  .screens-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  @media (max-width: 720px) { .screens-grid { grid-template-columns: 1fr; } }
+
+  .screen-card {
+    background: white;
+    border: 1.5px solid #d1fae5;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .screen-label {
+    padding: 10px 14px 8px;
+    font-size: 11px; font-weight: 700; color: #065f46;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid #ecfdf5;
+    background: #f0fdf4;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .screen-label svg { width: 12px; height: 12px; }
+
+  /* APP CHROME */
+  .app-bar {
+    background: #ecfdf5; border-bottom: 1px solid #d1fae5;
+    padding: 7px 12px; display: flex; align-items: center; gap: 6px;
+  }
+  .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .app-title { font-size: 10.5px; font-weight: 600; color: #065f46; margin-left: 3px; flex: 1; }
+
+  .tab-row {
+    display: flex; background: white; border-bottom: 1px solid #e5e7eb; padding: 0 12px;
+  }
+  .tab {
+    padding: 6px 10px; font-size: 10px; font-weight: 500; color: #9ca3af;
+    border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 4px;
+  }
+  .tab svg { width: 10px; height: 10px; }
+  .tab.active { color: #059669; border-bottom-color: #059669; font-weight: 600; }
+
+  .body { padding: 10px 12px; }
+
+  /* BADGES */
+  .badge {
+    display: inline-flex; align-items: center; gap: 2px;
+    padding: 1.5px 6px; border-radius: 99px; font-size: 8.5px; font-weight: 600;
+  }
+  .b-gray   { background: #f3f4f6; color: #374151; }
+  .b-blue   { background: #dbeafe; color: #1e40af; }
+  .b-yellow { background: #fef9c3; color: #854d0e; }
+  .b-red    { background: #fee2e2; color: #991b1b; }
+  .b-green  { background: #dcfce7; color: #166534; }
+  .b-orange { background: #ffedd5; color: #9a3412; }
+
+  /* MARGIN BAR */
+  .mbar { width: 40px; height: 4px; background: #e5e7eb; border-radius: 99px; overflow: hidden; }
+  .mfill { height: 100%; border-radius: 99px; }
+  .mg { background: #10b981; }
+  .mm { background: #f59e0b; }
+  .ml { background: #ef4444; }
+
+  /* ── SCREEN 1: Lista (tab padrão) ── */
+  .list-item {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 9px; margin-bottom: 5px;
+    background: white; font-size: 10.5px; cursor: pointer; transition: background 150ms;
+  }
+  .li-left { display: flex; flex-direction: column; gap: 2px; }
+  .li-name { font-weight: 600; color: #111827; font-size: 11px; }
+  .li-meta { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: #9ca3af; }
+  .li-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .li-val { font-size: 11px; font-weight: 700; color: #059669; }
+
+  /* ── SCREEN 2: Analista tab ── */
+  .alert-row {
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 6px 9px; margin-bottom: 8px; font-size: 10px; color: #92400e;
+    display: flex; gap: 6px; align-items: flex-start;
+  }
+  .alert-row svg { width: 12px; height: 12px; flex-shrink: 0; margin-top: 1px; }
+
+  .analyst-item {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 9px; margin-bottom: 5px;
+    background: white; font-size: 10.5px;
+  }
+  .ai-left { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+  .ai-name { font-weight: 600; color: #111827; font-size: 11px; }
+  .ai-preview { font-size: 9.5px; color: #6b7280; line-height: 1.3; }
+  .ai-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex-shrink: 0; margin-left: 8px; }
+  .days-num { font-size: 10px; font-weight: 700; }
+  .d-red { color: #dc2626; }
+  .d-yellow { color: #d97706; }
+  .d-green { color: #059669; }
+
+  /* ── SCREEN 3: Panorama ── */
+  .kpi-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .kpi { flex: 1; border-radius: 9px; padding: 7px 9px; text-align: center; }
+  .kpi-num { font-size: 15px; font-weight: 800; line-height: 1; }
+  .kpi-sub { font-size: 8.5px; font-weight: 500; margin-top: 2px; opacity: 0.85; }
+  .kpi-blue   { background: #dbeafe; color: #1e40af; }
+  .kpi-yellow { background: #fef9c3; color: #b45309; }
+  .kpi-green  { background: #dcfce7; color: #15803d; }
+  .kpi-red    { background: #fee2e2; color: #dc2626; }
+
+  .section-title {
+    font-size: 9px; font-weight: 700; color: #6b7280;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+
+  .pano-item {
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 9px; margin-bottom: 4px;
+    background: white; font-size: 10px;
+  }
+  .pi-left { display: flex; flex-direction: column; gap: 2px; }
+  .pi-name { font-weight: 600; color: #111827; font-size: 10.5px; }
+  .pi-meta { display: flex; gap: 5px; align-items: center; font-size: 9px; color: #9ca3af; }
+  .pi-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .pi-val { font-size: 10.5px; font-weight: 700; color: #059669; }
+
+  .conv-row {
+    background: #f0fdf4; border: 1px solid #d1fae5; border-radius: 8px;
+    padding: 7px 9px; margin-top: 8px; font-size: 9.5px;
+  }
+  .conv-title { font-weight: 700; color: #065f46; margin-bottom: 5px; font-size: 9px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .bar-label { font-size: 8.5px; color: #6b7280; width: 52px; text-align: right; }
+  .bar-track { flex: 1; background: #e5e7eb; border-radius: 99px; height: 5px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 99px; background: #059669; }
+  .bar-val   { font-size: 8.5px; font-weight: 700; color: #374151; width: 24px; }
+
+  /* ── SCREEN 4: Orçamento aberto + chat ── */
+  .split { display: flex; min-height: 210px; }
+  .split-main { flex: 3; padding: 10px 12px; border-right: 1px solid #e5e7eb; font-size: 10.5px; }
+  .split-chat { flex: 2.2; padding: 9px; background: #f8fafc; display: flex; flex-direction: column; gap: 5px; }
+
+  .prop-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; border-bottom: 1px solid #f3f4f6;
+  }
+  .prop-row:last-child { border-bottom: none; }
+  .pr-name { font-size: 10.5px; font-weight: 500; color: #374151; }
+  .pr-val  { font-size: 10.5px; color: #6b7280; }
+
+  .status-selector {
+    display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px;
+  }
+  .ss-opt {
+    padding: 3px 7px; border-radius: 99px; font-size: 8.5px; font-weight: 600;
+    border: 1px solid #e5e7eb; color: #6b7280; background: white; cursor: pointer;
+  }
+  .ss-opt.active { background: #059669; color: white; border-color: #059669; }
+
+  .chat-label-row {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 9px; font-weight: 700; color: #059669;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .chat-label-row svg { width: 10px; height: 10px; }
+
+  .bbl {
+    background: #059669; color: white;
+    border-radius: 9px 9px 9px 2px; padding: 6px 8px; font-size: 10px; line-height: 1.4;
+  }
+  .bbr {
+    background: white; border: 1px solid #d1fae5; color: #374151;
+    border-radius: 9px 9px 2px 9px; padding: 6px 8px; font-size: 10px; line-height: 1.4;
+    align-self: flex-end; max-width: 92%;
+  }
+
+  .status-suggestion {
+    background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 7px;
+    padding: 5px 8px; font-size: 9.5px; color: #065f46;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  }
+  .ss-btn {
+    background: #059669; color: white; border-radius: 5px;
+    padding: 2px 7px; font-size: 8.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+
+  .chat-input-mock {
+    margin-top: auto; background: white; border: 1px solid #d1fae5;
+    border-radius: 7px; padding: 5px 8px; font-size: 9.5px; color: #9ca3af;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sbtn { width: 16px; height: 16px; background: #059669; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Design das Telas — Analista de Vendas Dorata</h1>
+  <p>As 4 telas principais do sistema. Confirme se o fluxo está correto.</p>
+</div>
+
+<div class="screens-grid">
+
+  <!-- SCREEN 1: Lista de orçamentos -->
+  <div class="screen-card">
+    <div class="screen-label">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h8M2 12h6"/></svg>
+      Tela 1 — Aba Lista (padrão)
+    </div>
+    <div class="app-bar">
+      <div class="dot" style="background:#f87171"></div>
+      <div class="dot" style="background:#fbbf24"></div>
+      <div class="dot" style="background:#4ade80"></div>
+      <span class="app-title">Orçamentos – Dorata</span>
+      <span style="font-size:9px;background:#059669;color:white;padding:2px 7px;border-radius:6px;font-weight:600">+ Novo</span>
+    </div>
+    <div class="tab-row">
+      <div class="tab active">Lista</div>
+      <div class="tab">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.5 7h5M5.5 9.5h3"/></svg>
+        Analista
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12l4-4 3 3 5-6"/></svg>
+        Panorama
+      </div>
+    </div>
+    <div class="body">
+      <div class="list-item">
+        <div class="li-left">
+          <span class="li-name">João Silva</span>
+          <span class="li-meta"><span class="badge b-blue">Em negociação</span><span>12 dias</span></span>
+        </div>
+        <div class="li-right">
+          <span class="li-val">R$ 48.000</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <div class="mbar"><div class="mfill mg" style="width:80%"></div></div>
+            <span style="font-size:8.5px;color:#059669;font-weight:600">21%</span>
+          </div>
+        </div>
+      </div>
+      <div class="list-item">
+        <div class="li-left">
+          <span class="li-name">Maria Costa</span>
+          <span class="li-meta"><span class="badge b-yellow">Followup</span><span>7 dias</span></span>
+        </div>
+        <div class="li-right">
+          <span class="li-val">R$ 32.000</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <div class="mbar"><div class="mfill mm" style="width:45%"></div></div>
+            <span style="font-size:8.5px;color:#d97706;font-weight:600">12%</span>
+          </div>
+        </div>
+      </div>
+      <div class="list-item">
+        <div class="li-left">
+          <span class="li-name">Pedro Alves</span>
+          <span class="li-meta"><span class="badge b-red">Parado</span><span>21 dias</span></span>
+        </div>
+        <div class="li-right">
+          <span class="li-val">R$ 61.000</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <div class="mbar"><div class="mfill ml" style="width:20%"></div></div>
+            <span style="font-size:8.5px;color:#dc2626;font-weight:600">7%</span>
+          </div>
+        </div>
+      </div>
+      <div class="list-item">
+        <div class="li-left">
+          <span class="li-name">Ana Lima</span>
+          <span class="li-meta"><span class="badge b-gray">Sem contato</span><span>2 dias</span></span>
+        </div>
+        <div class="li-right">
+          <span class="li-val">R$ 29.000</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <div class="mbar"><div class="mfill mg" style="width:70%"></div></div>
+            <span style="font-size:8.5px;color:#059669;font-weight:600">19%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: Aba Analista -->
+  <div class="screen-card">
+    <div class="screen-label">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.5 7h5M5.5 9.5h3"/></svg>
+      Tela 2 — Aba Analista (prioridades)
+    </div>
+    <div class="app-bar">
+      <div class="dot" style="background:#f87171"></div>
+      <div class="dot" style="background:#fbbf24"></div>
+      <div class="dot" style="background:#4ade80"></div>
+      <span class="app-title">Orçamentos – Dorata</span>
+    </div>
+    <div class="tab-row">
+      <div class="tab">Lista</div>
+      <div class="tab active">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.5 7h5M5.5 9.5h3"/></svg>
+        Analista
+      </div>
+      <div class="tab">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12l4-4 3 3 5-6"/></svg>
+        Panorama
+      </div>
+    </div>
+    <div class="body">
+      <div class="alert-row">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l6 12H2L8 2z"/><path d="M8 7v3M8 11.5v.5"/></svg>
+        <span><strong>Pedro Alves</strong> está parado há 21 dias sem nenhum registro. Precisa de ação imediata.</span>
+      </div>
+      <div class="analyst-item">
+        <div class="ai-left">
+          <span class="ai-name">Pedro Alves <span class="badge b-red" style="margin-left:4px">Parado</span></span>
+          <span class="ai-preview">"Qual foi a última objeção que ele apresentou?"</span>
+        </div>
+        <div class="ai-right">
+          <span class="days-num d-red">21 dias</span>
+          <span style="font-size:8.5px;color:#9ca3af">R$ 61k · 7%</span>
+        </div>
+      </div>
+      <div class="analyst-item">
+        <div class="ai-left">
+          <span class="ai-name">João Silva <span class="badge b-blue" style="margin-left:4px">Negociação</span></span>
+          <span class="ai-preview">"O que ele sinalizou sobre o prazo de decisão?"</span>
+        </div>
+        <div class="ai-right">
+          <span class="days-num d-yellow">12 dias</span>
+          <span style="font-size:8.5px;color:#9ca3af">R$ 48k · 21%</span>
+        </div>
+      </div>
+      <div class="analyst-item">
+        <div class="ai-left">
+          <span class="ai-name">Maria Costa <span class="badge b-yellow" style="margin-left:4px">Followup</span></span>
+          <span class="ai-preview">"Retorno agendado para 02/04. Já preparou a abordagem?"</span>
+        </div>
+        <div class="ai-right">
+          <span class="days-num d-yellow">7 dias</span>
+          <span style="font-size:8.5px;color:#9ca3af">R$ 32k · 12%</span>
+        </div>
+      </div>
+      <div class="analyst-item">
+        <div class="ai-left">
+          <span class="ai-name">Ana Lima <span class="badge b-gray" style="margin-left:4px">Sem contato</span></span>
+          <span class="ai-preview">"Orçamento novo, ainda não houve contato."</span>
+        </div>
+        <div class="ai-right">
+          <span class="days-num d-green">2 dias</span>
+          <span style="font-size:8.5px;color:#9ca3af">R$ 29k · 19%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3: Panorama -->
+  <div class="screen-card">
+    <div class="screen-label">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12l4-4 3 3 5-6"/></svg>
+      Tela 3 — Aba Panorama (KPIs + métricas)
+    </div>
+    <div class="app-bar">
+      <div class="dot" style="background:#f87171"></div>
+      <div class="dot" style="background:#fbbf24"></div>
+      <div class="dot" style="background:#4ade80"></div>
+      <span class="app-title">Orçamentos – Dorata</span>
+    </div>
+    <div class="tab-row">
+      <div class="tab">Lista</div>
+      <div class="tab">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.5 7h5M5.5 9.5h3"/></svg>
+        Analista
+      </div>
+      <div class="tab active">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12l4-4 3 3 5-6"/></svg>
+        Panorama
+      </div>
+    </div>
+    <div class="body">
+      <div class="kpi-row">
+        <div class="kpi kpi-blue"><div class="kpi-num">R$ 284k</div><div class="kpi-sub">Em aberto</div></div>
+        <div class="kpi kpi-yellow"><div class="kpi-num">R$ 127k</div><div class="kpi-sub">Em fechamento</div></div>
+        <div class="kpi kpi-green"><div class="kpi-num">R$ 96k</div><div class="kpi-sub">Concluído</div></div>
+        <div class="kpi kpi-red"><div class="kpi-num">3</div><div class="kpi-sub">Parados</div></div>
+      </div>
+      <div class="section-title">Orçamentos em aberto</div>
+      <div class="pano-item">
+        <div class="pi-left">
+          <span class="pi-name">João Silva</span>
+          <span class="pi-meta"><span class="badge b-blue">Negociação</span><span>12 dias</span></span>
+        </div>
+        <div class="pi-right">
+          <span class="pi-val">R$ 48.000</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <div class="mbar"><div class="mfill mg" style="width:80%"></div></div>
+            <span style="font-size:8.5px;color:#059669;font-weight:600">21%</span>
+          </div>
+        </div>
+      </div>
+      <div class="pano-item">
+        <div class="pi-left">
+          <span class="pi-name">Pedro Alves</span>
+          <span class="pi-meta"><span class="badge b-red">Parado</span><span>21 dias</span></span>
+        </div>
+        <div class="pi-right">
+          <span class="pi-val">R$ 61.000</span>
+          <div style="display:flex;align-items:center;gap:3px">
+            <div class="mbar"><div class="mfill ml" style="width:20%"></div></div>
+            <span style="font-size:8.5px;color:#dc2626;font-weight:600">7%</span>
+          </div>
+        </div>
+      </div>
+      <div class="conv-row">
+        <div class="conv-title">Tempo médio até conversão</div>
+        <div class="bar-row">
+          <div class="bar-label">Janeiro</div>
+          <div class="bar-track"><div class="bar-fill" style="width:65%"></div></div>
+          <div class="bar-val">18d</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Fevereiro</div>
+          <div class="bar-track"><div class="bar-fill" style="width:50%"></div></div>
+          <div class="bar-val">14d</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Março</div>
+          <div class="bar-track"><div class="bar-fill" style="width:38%"></div></div>
+          <div class="bar-val">11d</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 4: Orçamento aberto com chat -->
+  <div class="screen-card">
+    <div class="screen-label">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h12v8H9l-3 3v-3H2z"/></svg>
+      Tela 4 — Orçamento aberto + chat lateral
+    </div>
+    <div class="app-bar">
+      <div class="dot" style="background:#f87171"></div>
+      <div class="dot" style="background:#fbbf24"></div>
+      <div class="dot" style="background:#4ade80"></div>
+      <span class="app-title">Orçamento #4521 – João Silva</span>
+      <span class="badge b-blue">Em negociação</span>
+    </div>
+    <div class="split">
+      <div class="split-main">
+        <div class="prop-row">
+          <span class="pr-name">Valor total</span>
+          <span class="pr-val" style="color:#059669;font-weight:700">R$ 48.000</span>
+        </div>
+        <div class="prop-row">
+          <span class="pr-name">Potência</span>
+          <span class="pr-val">8,5 kWp</span>
+        </div>
+        <div class="prop-row">
+          <span class="pr-name">Margem</span>
+          <span class="pr-val" style="color:#059669;font-weight:600">21%</span>
+        </div>
+        <div class="prop-row">
+          <span class="pr-name">Validade</span>
+          <span class="pr-val">15/04/2026</span>
+        </div>
+        <div style="margin-top:8px">
+          <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:5px">Status da negociação</div>
+          <div class="status-selector">
+            <span class="ss-opt">Sem contato</span>
+            <span class="ss-opt active">Negociação</span>
+            <span class="ss-opt">Followup</span>
+            <span class="ss-opt">Parado</span>
+            <span class="ss-opt">Perdido</span>
+          </div>
+        </div>
+      </div>
+      <div class="split-chat">
+        <div class="chat-label-row">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M5.5 7h5M5.5 9.5h3"/></svg>
+          Analista
+        </div>
+        <div class="bbl">Esse orçamento está há 12 dias em negociação. O João sinalizou algo sobre prazo de decisão?</div>
+        <div class="bbr">Está comparando com outra empresa</div>
+        <div class="bbl">Qual diferencial você ainda não apresentou pra ele fechar com vocês?</div>
+        <div class="bbr">Ainda não mostrei o financiamento</div>
+        <div class="status-suggestion">
+          <span>Sugestão: mudar para <strong>Followup</strong></span>
+          <span class="ss-btn">Confirmar</span>
+        </div>
+        <div class="chat-input-mock">
+          <span>Responda...</span>
+          <div class="sbtn"><svg width="8" height="8" viewBox="0 0 10 10" fill="none"><path d="M1 5h8M5 1l4 4-4 4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

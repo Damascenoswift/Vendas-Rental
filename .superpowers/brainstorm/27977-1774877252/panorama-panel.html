@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panorama Geral – Analista de Vendas</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'Inter', 'Geist Sans', sans-serif;
+    background: #f0fdf4;
+    color: #1a2e22;
+    min-height: 100vh;
+    padding: 28px 24px 60px;
+  }
+
+  .page-header {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+  .page-header h1 { font-size: 20px; font-weight: 700; color: #14532d; letter-spacing: -0.3px; }
+  .page-header p  { font-size: 13px; color: #4b7a5e; margin-top: 5px; }
+
+  .options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 20px;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  .option-card {
+    background: white;
+    border: 2px solid #d1fae5;
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 200ms ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    position: relative;
+  }
+  .option-card:hover { border-color: #10b981; box-shadow: 0 8px 24px rgba(16,185,129,0.15); transform: translateY(-2px); }
+  .option-card.selected { border-color: #059669; box-shadow: 0 0 0 3px rgba(5,150,105,0.2), 0 8px 24px rgba(16,185,129,0.2); }
+
+  .option-badge {
+    position: absolute; top: 14px; left: 14px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #ecfdf5; border: 1.5px solid #6ee7b7;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #065f46; z-index: 2;
+  }
+  .option-card.selected .option-badge { background: #059669; border-color: #059669; color: white; }
+
+  .check-mark {
+    position: absolute; top: 14px; right: 14px;
+    width: 20px; height: 20px; background: #059669; border-radius: 50%;
+    display: none; align-items: center; justify-content: center;
+  }
+  .option-card.selected .check-mark { display: flex; }
+
+  .option-header {
+    padding: 13px 44px 11px 50px;
+    border-bottom: 1px solid #f0fdf4;
+  }
+  .option-header h3 { font-size: 13.5px; font-weight: 700; color: #14532d; }
+  .option-header p  { font-size: 11.5px; color: #6b7280; margin-top: 3px; line-height: 1.4; }
+
+  /* ── shared mockup styles ── */
+  .shell { background: #f8fafc; }
+  .app-bar {
+    background: #ecfdf5; border-bottom: 1px solid #d1fae5;
+    padding: 7px 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .app-title { font-size: 11px; font-weight: 600; color: #065f46; margin-left: 4px; flex: 1; }
+
+  .badge {
+    display: inline-flex; align-items: center;
+    padding: 2px 7px; border-radius: 99px;
+    font-size: 9px; font-weight: 600; gap: 3px;
+  }
+  .badge svg { width: 8px; height: 8px; }
+  .b-green  { background: #dcfce7; color: #166534; }
+  .b-yellow { background: #fef9c3; color: #854d0e; }
+  .b-red    { background: #fee2e2; color: #991b1b; }
+  .b-blue   { background: #dbeafe; color: #1e40af; }
+  .b-gray   { background: #f3f4f6; color: #374151; }
+
+  /* ── OPTION A: KPI cards + list ── */
+  .body-pad { padding: 10px 12px; }
+
+  .kpi-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .kpi {
+    flex: 1; border-radius: 10px; padding: 8px 10px; text-align: center;
+  }
+  .kpi-num   { font-size: 18px; font-weight: 800; line-height: 1; }
+  .kpi-sub   { font-size: 9px; font-weight: 500; margin-top: 3px; opacity: 0.85; }
+  .kpi-green  { background: #dcfce7; color: #15803d; }
+  .kpi-blue   { background: #dbeafe; color: #1e40af; }
+  .kpi-yellow { background: #fef9c3; color: #b45309; }
+  .kpi-red    { background: #fee2e2; color: #dc2626; }
+
+  .section-label {
+    font-size: 9.5px; font-weight: 700; color: #6b7280;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+
+  .prop-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: white; border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 7px 10px; margin-bottom: 5px; font-size: 10.5px;
+  }
+  .prop-left { display: flex; flex-direction: column; gap: 2px; }
+  .prop-name { font-weight: 600; color: #111827; font-size: 11px; }
+  .prop-meta { font-size: 9.5px; color: #9ca3af; display: flex; gap: 6px; align-items: center; }
+  .prop-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .prop-value { font-size: 11px; font-weight: 700; color: #059669; }
+
+  .margin-bar { width: 48px; height: 4px; background: #e5e7eb; border-radius: 99px; overflow: hidden; }
+  .margin-fill { height: 100%; border-radius: 99px; }
+  .margin-good { background: #10b981; }
+  .margin-mid  { background: #f59e0b; }
+  .margin-low  { background: #ef4444; }
+
+  /* ── OPTION B: column board ── */
+  .col-board { display: flex; gap: 6px; padding: 10px 10px; overflow-x: auto; }
+  .col {
+    flex: 1; min-width: 100px;
+    background: white; border: 1px solid #e5e7eb; border-radius: 10px;
+    padding: 7px 8px;
+  }
+  .col-head {
+    font-size: 9.5px; font-weight: 700; color: #374151;
+    margin-bottom: 6px; padding-bottom: 5px;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .col-count {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #f3f4f6; font-size: 9px; font-weight: 700; color: #6b7280;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mini-card {
+    background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 6px;
+    padding: 5px 7px; margin-bottom: 4px; font-size: 9.5px;
+  }
+  .mini-name { font-weight: 600; color: #111827; }
+  .mini-val  { color: #059669; font-weight: 600; font-size: 9px; margin-top: 1px; }
+  .mini-days { font-size: 8.5px; color: #9ca3af; margin-top: 1px; }
+
+  /* ── OPTION C: split — painel esq + chat dir ── */
+  .split-layout { display: flex; min-height: 220px; }
+  .split-left {
+    flex: 3; padding: 10px 12px;
+    border-right: 1px solid #e5e7eb; overflow: hidden;
+  }
+  .split-right {
+    flex: 2; padding: 10px; background: #f8fafc;
+    display: flex; flex-direction: column; gap: 5px;
+  }
+
+  .value-total-box {
+    background: linear-gradient(135deg, #059669, #10b981);
+    border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; color: white;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .vt-label { font-size: 9.5px; opacity: 0.9; }
+  .vt-val   { font-size: 17px; font-weight: 800; }
+
+  .chat-header { font-size: 9px; font-weight: 700; color: #059669; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .bbl { background: #059669; color: white; border-radius: 8px 8px 8px 2px; padding: 6px 8px; font-size: 10px; line-height: 1.4; }
+  .bbr { background: white; border: 1px solid #d1fae5; color: #374151; border-radius: 8px 8px 2px 8px; padding: 6px 8px; font-size: 10px; line-height: 1.4; align-self: flex-end; max-width: 90%; }
+  .chat-input {
+    margin-top: auto; background: white; border: 1px solid #d1fae5;
+    border-radius: 7px; padding: 5px 8px; font-size: 9.5px; color: #9ca3af;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sbtn { width: 16px; height: 16px; background: #059669; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+
+  .selected-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #059669; color: white; text-align: center;
+    padding: 13px; font-size: 13px; font-weight: 600;
+    display: none; animation: slideUp 200ms ease; z-index: 100;
+  }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>Como o painel geral organiza os orçamentos?</h1>
+  <p>Escolha o formato que deixa mais fácil visualizar o que está acontecendo</p>
+</div>
+
+<div class="options-grid">
+
+  <!-- A: KPI + Lista por margem/status -->
+  <div class="option-card" onclick="sel(this,'a')" data-choice="a">
+    <div class="option-badge">A</div>
+    <div class="check-mark"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="option-header">
+      <h3>KPIs + lista com indicador de margem</h3>
+      <p>Cards de totais no topo, lista abaixo com barra de margem e status de cada orçamento</p>
+    </div>
+    <div class="shell">
+      <div class="app-bar">
+        <div class="dot" style="background:#f87171"></div>
+        <div class="dot" style="background:#fbbf24"></div>
+        <div class="dot" style="background:#4ade80"></div>
+        <span class="app-title">Panorama de Orçamentos – Dorata</span>
+      </div>
+      <div class="body-pad">
+        <div class="kpi-row">
+          <div class="kpi kpi-blue"><div class="kpi-num">R$ 284k</div><div class="kpi-sub">Em aberto</div></div>
+          <div class="kpi kpi-yellow"><div class="kpi-num">R$ 127k</div><div class="kpi-sub">Em fechamento</div></div>
+          <div class="kpi kpi-green"><div class="kpi-num">R$ 96k</div><div class="kpi-sub">Concluído</div></div>
+        </div>
+        <div class="section-label">Orçamentos em aberto</div>
+        <div class="prop-item">
+          <div class="prop-left">
+            <span class="prop-name">João Silva</span>
+            <span class="prop-meta">
+              <span class="badge b-blue">Negociação</span>
+              <span>12 dias</span>
+            </span>
+          </div>
+          <div class="prop-right">
+            <span class="prop-value">R$ 48.000</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <div class="margin-bar"><div class="margin-fill margin-good" style="width:80%"></div></div>
+              <span style="font-size:9px;color:#059669;font-weight:600">21%</span>
+            </div>
+          </div>
+        </div>
+        <div class="prop-item">
+          <div class="prop-left">
+            <span class="prop-name">Maria Costa</span>
+            <span class="prop-meta">
+              <span class="badge b-yellow">Followup</span>
+              <span>7 dias</span>
+            </span>
+          </div>
+          <div class="prop-right">
+            <span class="prop-value">R$ 32.000</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <div class="margin-bar"><div class="margin-fill margin-mid" style="width:45%"></div></div>
+              <span style="font-size:9px;color:#d97706;font-weight:600">12%</span>
+            </div>
+          </div>
+        </div>
+        <div class="prop-item">
+          <div class="prop-left">
+            <span class="prop-name">Pedro Alves</span>
+            <span class="prop-meta">
+              <span class="badge b-red">Parado</span>
+              <span>21 dias</span>
+            </span>
+          </div>
+          <div class="prop-right">
+            <span class="prop-value">R$ 61.000</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <div class="margin-bar"><div class="margin-fill margin-low" style="width:25%"></div></div>
+              <span style="font-size:9px;color:#dc2626;font-weight:600">7%</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B: Colunas por status -->
+  <div class="option-card" onclick="sel(this,'b')" data-choice="b">
+    <div class="option-badge">B</div>
+    <div class="check-mark"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="option-header">
+      <h3>Colunas por status (estilo kanban)</h3>
+      <p>Cada coluna agrupa orçamentos pelo status — visão rápida de onde está cada negociação</p>
+    </div>
+    <div class="shell">
+      <div class="app-bar">
+        <div class="dot" style="background:#f87171"></div>
+        <div class="dot" style="background:#fbbf24"></div>
+        <div class="dot" style="background:#4ade80"></div>
+        <span class="app-title">Panorama de Orçamentos – Dorata</span>
+      </div>
+      <div class="col-board">
+        <div class="col">
+          <div class="col-head"><span>Sem contato</span><span class="col-count">2</span></div>
+          <div class="mini-card"><div class="mini-name">Ana Lima</div><div class="mini-val">R$ 29k</div><div class="mini-days">3 dias</div></div>
+          <div class="mini-card"><div class="mini-name">José Neto</div><div class="mini-val">R$ 41k</div><div class="mini-days">1 dia</div></div>
+        </div>
+        <div class="col">
+          <div class="col-head"><span>Negociação</span><span class="col-count">3</span></div>
+          <div class="mini-card"><div class="mini-name">João Silva</div><div class="mini-val">R$ 48k</div><div class="mini-days" style="color:#d97706">12 dias</div></div>
+          <div class="mini-card"><div class="mini-name">Maria Costa</div><div class="mini-val">R$ 32k</div><div class="mini-days">7 dias</div></div>
+        </div>
+        <div class="col">
+          <div class="col-head"><span>Followup</span><span class="col-count">2</span></div>
+          <div class="mini-card"><div class="mini-name">Pedro Alves</div><div class="mini-val">R$ 61k</div><div class="mini-days" style="color:#dc2626">21 dias</div></div>
+        </div>
+        <div class="col">
+          <div class="col-head"><span>Concluído</span><span class="col-count">5</span></div>
+          <div class="mini-card"><div class="mini-name">Carla Ramos</div><div class="mini-val">R$ 55k</div><div class="mini-days" style="color:#059669">Fechado</div></div>
+          <div class="mini-card"><div class="mini-name">Bruno Dias</div><div class="mini-val">R$ 38k</div><div class="mini-days" style="color:#059669">Fechado</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C: Split painel + chat integrado -->
+  <div class="option-card" onclick="sel(this,'c')" data-choice="c">
+    <div class="option-badge">C</div>
+    <div class="check-mark"><svg width="11" height="11" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div class="option-header">
+      <h3>Painel + chat integrado do analista</h3>
+      <p>Lista de orçamentos à esquerda, chat do analista à direita — clica num orçamento e já conversa</p>
+    </div>
+    <div class="shell">
+      <div class="app-bar">
+        <div class="dot" style="background:#f87171"></div>
+        <div class="dot" style="background:#fbbf24"></div>
+        <div class="dot" style="background:#4ade80"></div>
+        <span class="app-title">Analista de Vendas – Dorata</span>
+      </div>
+      <div class="split-layout">
+        <div class="split-left">
+          <div class="value-total-box">
+            <div><div class="vt-label">Total em aberto</div><div class="vt-val">R$ 284k</div></div>
+            <div style="text-align:right"><div class="vt-label">Concluído</div><div class="vt-val" style="font-size:14px">R$ 96k</div></div>
+          </div>
+          <div class="prop-item" style="border-color:#059669;background:#f0fdf4">
+            <div class="prop-left">
+              <span class="prop-name">João Silva</span>
+              <span class="prop-meta"><span class="badge b-blue">Negociação</span><span>12 dias</span></span>
+            </div>
+            <div class="prop-right">
+              <span class="prop-value">R$ 48k</span>
+              <div style="display:flex;align-items:center;gap:4px">
+                <div class="margin-bar"><div class="margin-fill margin-good" style="width:80%"></div></div>
+                <span style="font-size:9px;color:#059669;font-weight:600">21%</span>
+              </div>
+            </div>
+          </div>
+          <div class="prop-item">
+            <div class="prop-left">
+              <span class="prop-name">Maria Costa</span>
+              <span class="prop-meta"><span class="badge b-yellow">Followup</span><span>7 dias</span></span>
+            </div>
+            <div class="prop-right">
+              <span class="prop-value">R$ 32k</span>
+              <div style="display:flex;align-items:center;gap:4px">
+                <div class="margin-bar"><div class="margin-fill margin-mid" style="width:45%"></div></div>
+                <span style="font-size:9px;color:#d97706;font-weight:600">12%</span>
+              </div>
+            </div>
+          </div>
+          <div class="prop-item">
+            <div class="prop-left">
+              <span class="prop-name">Pedro Alves</span>
+              <span class="prop-meta"><span class="badge b-red">Parado</span><span>21 dias</span></span>
+            </div>
+            <div class="prop-right">
+              <span class="prop-value">R$ 61k</span>
+              <div style="display:flex;align-items:center;gap:4px">
+                <div class="margin-bar"><div class="margin-fill margin-low" style="width:25%"></div></div>
+                <span style="font-size:9px;color:#dc2626;font-weight:600">7%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="split-right">
+          <div class="chat-header">Analista — João Silva</div>
+          <div class="bbl">Margem em 21%, boa. O que o João sinalizou sobre fechar esse mês?</div>
+          <div class="bbr">Ele está comparando com outra empresa</div>
+          <div class="bbl">Qual é a vantagem que você ainda não apresentou pra ele?</div>
+          <div class="chat-input">
+            <span>Responda...</span>
+            <div class="sbtn"><svg width="8" height="8" viewBox="0 0 10 10" fill="none"><path d="M1 5h8M5 1l4 4-4 4" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="selected-bar" id="bar">Opcao selecionada — responda no terminal para continuar</div>
+
+<script>
+  function sel(el, choice) {
+    document.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('bar').style.display = 'block';
+    try {
+      fetch('/__brainstorm/event', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({type:'click', choice, text: el.querySelector('h3').textContent, timestamp: Date.now()})
+      });
+    } catch(e){}
+  }
+</script>
+</body>
+</html>
