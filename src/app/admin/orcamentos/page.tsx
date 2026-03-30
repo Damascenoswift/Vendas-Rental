@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { Plus } from "lucide-react"
-import { format } from "date-fns"
+import { format, differenceInDays, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
@@ -18,6 +18,12 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { ProposalRowActions } from "@/components/admin/proposals/proposal-row-actions"
+import { ProposalsTabsClient } from "@/components/admin/proposals/proposals-tabs-client"
+import { ProposalsListTab } from "@/components/admin/proposals/proposals-list-tab"
+import { ProposalsAnalystTab } from "@/components/admin/proposals/proposals-analyst-tab"
+import { ProposalsPanoramaTab } from "@/components/admin/proposals/proposals-panorama-tab"
+import { getSalesAnalystPanorama } from "@/app/actions/sales-analyst"
+import type { NegotiationStatus } from "@/services/sales-analyst-service"
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -239,6 +245,38 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
         }
     })
 
+    // Load negotiation statuses for all proposals
+    const proposalIds = (proposals ?? []).map((p) => p.id)
+    let negotiationMap: Record<string, NegotiationStatus> = {}
+    if (proposalIds.length > 0) {
+        const { data: negotiations } = await supabaseAdmin
+            .from("proposal_negotiations")
+            .select("proposal_id, negotiation_status")
+            .in("proposal_id", proposalIds)
+        for (const n of negotiations ?? []) {
+            negotiationMap[n.proposal_id] = n.negotiation_status as NegotiationStatus
+        }
+    }
+
+    // Panorama data (only for admin roles)
+    const isAdmin = role === "adm_mestre" || role === "adm_dorata"
+    const panoramaData = isAdmin ? await getSalesAnalystPanorama().catch(() => null) : null
+
+    const proposalListItems = (proposals ?? []).map((p) => ({
+        id: p.id,
+        clientName: (() => {
+            const arr = Array.isArray(p.contato) ? p.contato : p.contato ? [p.contato] : []
+            const c = arr[0] as { full_name?: string | null; first_name?: string | null; last_name?: string | null } | undefined
+            if (!c) return "Cliente"
+            if (c.full_name?.trim()) return c.full_name.trim()
+            return [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || "Cliente"
+        })(),
+        totalValue: p.total_value ?? null,
+        profitMargin: (p as unknown as { profit_margin?: number | null }).profit_margin ?? null,
+        daysSinceUpdate: p.updated_at ? differenceInDays(new Date(), parseISO(p.updated_at)) : 0,
+        negotiationStatus: negotiationMap[p.id] ?? "sem_contato" as NegotiationStatus,
+    }))
+
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
@@ -257,6 +295,22 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                     ) : null}
                 </div>
             </div>
+
+            <ProposalsTabsClient
+                listaContent={<ProposalsListTab proposals={proposalListItems} />}
+                analistaContent={<ProposalsAnalystTab proposals={proposalListItems} />}
+                panoramaContent={
+                    panoramaData
+                        ? <ProposalsPanoramaTab data={panoramaData} />
+                        : <p className="text-center py-12 text-muted-foreground text-sm">Sem acesso ao panorama.</p>
+                }
+            />
+
+            {proposalsError ? (
+                <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+                    <p className="text-sm">Erro ao carregar orçamentos: {proposalsError.message}</p>
+                </div>
+            ) : null}
 
             <div className="rounded-md border">
                 <Table>
