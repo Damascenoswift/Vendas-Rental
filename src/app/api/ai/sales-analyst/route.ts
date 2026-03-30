@@ -83,11 +83,8 @@ export async function POST(request: Request) {
     }
 
     // If user sent a message, save it first
-    const userId = (await service
-      .from("users")
-      .select("id")
-      .eq("auth_id", user.id)
-      .maybeSingle()).data?.id ?? null
+    // users.id = auth.uid() in this project (no separate auth_id column)
+    const userId = user.id
 
     if (message) {
       await service.from("proposal_analyst_conversations").insert({

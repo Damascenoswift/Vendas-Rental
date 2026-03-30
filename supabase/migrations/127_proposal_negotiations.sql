@@ -34,7 +34,7 @@ create policy "proposal_negotiations_seller_select"
   using (
     proposal_id in (
       select id from public.proposals
-      where seller_id = (select id from public.users where auth_id = auth.uid())
+      where seller_id = auth.uid()
     )
   );
 
@@ -45,7 +45,7 @@ create policy "proposal_negotiations_seller_write"
   with check (
     proposal_id in (
       select id from public.proposals
-      where seller_id = (select id from public.users where auth_id = auth.uid())
+      where seller_id = auth.uid()
     )
   );
 
@@ -55,7 +55,7 @@ create policy "proposal_negotiations_seller_update"
   using (
     proposal_id in (
       select id from public.proposals
-      where seller_id = (select id from public.users where auth_id = auth.uid())
+      where seller_id = auth.uid()
     )
   );
 
@@ -66,14 +66,14 @@ create policy "proposal_negotiations_admin_access"
   using (
     exists (
       select 1 from public.users
-      where auth_id = auth.uid()
+      where users.id = auth.uid()
       and role in ('adm_mestre', 'adm_dorata')
     )
   )
   with check (
     exists (
       select 1 from public.users
-      where auth_id = auth.uid()
+      where users.id = auth.uid()
       and role in ('adm_mestre', 'adm_dorata')
     )
   );

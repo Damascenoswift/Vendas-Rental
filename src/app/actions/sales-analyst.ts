@@ -16,8 +16,8 @@ async function assertAccess() {
   const role = (profile?.role ?? user.user_metadata?.role) as UserRole | undefined
   if (!role || !ALLOWED_ROLES.includes(role)) throw new Error("Acesso negado")
   const service = createSupabaseServiceClient()
-  const { data: dbUser } = await service.from("users").select("id").eq("auth_id", user.id).single()
-  return { userId: dbUser?.id ?? null, role, service }
+  // users.id = auth.uid() in this project (no separate auth_id column)
+  return { userId: user.id, role, service }
 }
 
 export async function getSalesAnalystConversation(proposalId: string) {

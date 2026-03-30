@@ -27,13 +27,13 @@ create policy "pac_seller_access"
   using (
     proposal_id in (
       select id from public.proposals
-      where seller_id = (select id from public.users where auth_id = auth.uid())
+      where seller_id = auth.uid()
     )
   )
   with check (
     proposal_id in (
       select id from public.proposals
-      where seller_id = (select id from public.users where auth_id = auth.uid())
+      where seller_id = auth.uid()
     )
   );
 
@@ -44,14 +44,14 @@ create policy "pac_admin_access"
   using (
     exists (
       select 1 from public.users
-      where auth_id = auth.uid()
+      where users.id = auth.uid()
       and role in ('adm_mestre', 'adm_dorata')
     )
   )
   with check (
     exists (
       select 1 from public.users
-      where auth_id = auth.uid()
+      where users.id = auth.uid()
       and role in ('adm_mestre', 'adm_dorata')
     )
   );
