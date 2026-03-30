@@ -159,19 +159,6 @@ export async function evaluateTaskCompletion(
     }
 }
 
-/** Server Action wrapper — resolve userId da sessão atual. */
-export async function evaluateCurrentUserTaskCompletion(
-    department: Department,
-    startedAt: Date,
-    completedAt: Date
-): Promise<PerformanceResult | null> {
-    "use server"
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return null
-    return evaluateTaskCompletion(user.id, department, startedAt, completedAt)
-}
-
 export type PersonalHistoryEntry = {
     benchmark: TaskTimeBenchmark
     record: TaskPersonalRecord | null
@@ -296,33 +283,3 @@ export async function getWeeklyPerformanceSummary(
     return { withinDeadline, outsideDeadline, rate, badges }
 }
 
-/** CRUD para admin */
-export async function createBenchmark(data: {
-    department: Department
-    label: string
-    expected_business_days: number
-}): Promise<{ error?: string }> {
-    "use server"
-    const supabase = await createClient()
-    const { error } = await supabase
-        .from("task_time_benchmarks")
-        .insert({ ...data, active: true })
-
-    if (error) return { error: error.message }
-    return {}
-}
-
-export async function updateBenchmark(
-    id: string,
-    data: Partial<Pick<TaskTimeBenchmark, "label" | "expected_business_days" | "active">>
-): Promise<{ error?: string }> {
-    "use server"
-    const supabase = await createClient()
-    const { error } = await supabase
-        .from("task_time_benchmarks")
-        .update({ ...data, updated_at: new Date().toISOString() })
-        .eq("id", id)
-
-    if (error) return { error: error.message }
-    return {}
-}

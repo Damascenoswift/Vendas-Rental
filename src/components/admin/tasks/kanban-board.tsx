@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Task, TaskStatus, updateTaskStatus } from "@/services/task-service"
-import { evaluateCurrentUserTaskCompletion } from "@/services/task-benchmark-service"
+import { evaluateCurrentUserTaskCompletion } from "@/services/task-benchmark-actions"
 import { TaskColumn } from "./task-column"
 import { TaskDetailsDialog } from "./task-details-dialog"
 import { useToast } from "@/hooks/use-toast"

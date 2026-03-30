@@ -22,7 +22,8 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { createBenchmark, updateBenchmark, type TaskTimeBenchmark } from "@/services/task-benchmark-service"
+import { createBenchmark, updateBenchmark } from "@/services/task-benchmark-actions"
+import type { TaskTimeBenchmark } from "@/services/task-benchmark-service"
 import type { Department } from "@/services/task-service"
 
 const DEPARTMENTS = [
