@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
-import { differenceInBusinessDays } from "@/lib/business-days"
 import type { Department } from "@/services/task-service"
+import { computeActualBusinessDays, shouldUpdatePersonalRecord } from "@/lib/task-benchmark-utils"
+
+export { computeActualBusinessDays, shouldUpdatePersonalRecord }
 
 export type TaskTimeBenchmark = {
     id: string
@@ -25,21 +27,6 @@ export type PerformanceResult = {
     actual_business_days: number
     is_personal_best: boolean
     previous_best: number | null
-}
-
-/** Calcula dias úteis entre duas datas. Mínimo 1. */
-export function computeActualBusinessDays(start: Date, end: Date): number {
-    const diff = differenceInBusinessDays(start, end)
-    return Math.max(1, diff + 1)
-}
-
-/** Retorna true se `newDays` é melhor (menor) que o recorde atual. */
-export function shouldUpdatePersonalRecord(
-    currentBest: number | null,
-    newDays: number
-): boolean {
-    if (currentBest === null) return true
-    return newDays < currentBest
 }
 
 /** Busca todos os benchmarks ativos de um departamento. */
