@@ -1210,7 +1210,7 @@ export function TaskDetailsDialog({
 
                 if (mode === "decision") {
                     return (
-                        <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border px-3 py-3">
+                        <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg border px-4 py-4 shadow-sm">
                             <div className="w-full space-y-2">
                                 <div className="flex flex-wrap gap-2">
                                     {CHECKLIST_DECISION_OPTIONS.map((option) => {
@@ -1230,10 +1230,12 @@ export function TaskDetailsDialog({
                                         )
                                     })}
                                 </div>
-                                <div className="space-y-1">
-                                    <span className={`text-sm ${isApproved ? "line-through text-muted-foreground" : ""}`}>
+                                <div className="space-y-2">
+                                    <p
+                                        className={`min-h-[52px] rounded-md border px-3 py-2 text-base font-bold leading-snug ${isApproved ? "line-through text-muted-foreground" : "bg-muted/30 text-foreground"}`}
+                                    >
                                         {item.title}
-                                    </span>
+                                    </p>
                                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                         {dueDateLabel && <span>Prazo: {dueDateLabel}</span>}
                                         {responsibleName && (
