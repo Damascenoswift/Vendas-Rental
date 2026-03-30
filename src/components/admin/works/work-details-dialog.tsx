@@ -2304,7 +2304,7 @@ export function WorkDetailsDialog({
                                     </span>
                                 </div>
                             ) : null}
-                            <div className="max-h-64 space-y-2 overflow-auto rounded-md border p-2">
+                            <div className="h-[clamp(36rem,90vh,68rem)] space-y-2 overflow-y-auto rounded-md border p-2">
                                 {generalCommentThreads.map(({ comment, replies }) => {
                                     const author = getCommentAuthorLabel(comment)
                                     const isOwnComment = Boolean(comment.user_id && comment.user_id === currentUserId)
