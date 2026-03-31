@@ -330,3 +330,176 @@ export async function deleteProposal(proposalId: string) {
 
   return { success: true }
 }
+
+const ADM_ROLES = ["adm_mestre", "adm_dorata"]
+
+export type ProposalSummaryData = {
+  id: string
+  clientName: string
+  // Financeiro
+  totalValue: number | null
+  materialValue: number | null
+  profitMargin: number | null
+  // Pagamento
+  entrada: number | null          // valor entrada
+  parcelaMensal: number | null
+  totalPago: number | null
+  jurosPagos: number | null
+  saldoPosCarencia: number | null
+  qtdParcelas: number | null
+  mesesCarencia: number | null
+  // Sistema
+  totalPower: number | null
+  kWp: number | null
+  kWhMensal: number | null        // kWh estimado por mês
+  kWhAnual: number | null         // kWh estimado por ano
+  indiceProducao: number | null
+  // Comercial
+  economiaMensal: number | null
+  economiaAnual: number | null
+  tarifaKwh: number | null
+  // Equipamentos
+  qtdModulos: number | null
+  potenciaModuloW: number | null
+  moduleName: string | null
+  inverterType: string | null
+  inverterNames: string[]
+}
+
+export async function getProposalSummary(proposalId: string): Promise<ProposalSummaryData | null> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return null
+
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  const { data: proposal, error: proposalError } = await supabaseAdmin
+    .from("proposals")
+    .select(`
+      id, total_value, profit_margin, total_power, calculation,
+      cliente:indicacoes!proposals_client_id_fkey(nome),
+      contato:contacts!proposals_contact_id_fkey(full_name, first_name, last_name)
+    `)
+    .eq("id", proposalId)
+    .maybeSingle()
+
+  if (proposalError || !proposal) return null
+
+  const { data: items } = await supabaseAdmin
+    .from("proposal_items")
+    .select("product_id, quantity, products(id, name, type)")
+    .eq("proposal_id", proposalId)
+
+  // Extract calculation fields
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calc = proposal.calculation as any
+
+  const kWp: number | null = calc?.output?.dimensioning?.kWp ?? null
+  const kWhMensal: number | null = calc?.output?.dimensioning?.kWh_estimado ?? null
+  const kWhAnual: number | null = kWhMensal != null ? kWhMensal * 12 : null
+  const inverterType: string | null =
+    calc?.output?.dimensioning?.inversor?.tipo ??
+    calc?.input?.dimensioning?.tipo_inversor ??
+    null
+  const qtdModulos: number | null = calc?.input?.dimensioning?.qtd_modulos ?? null
+  const potenciaModuloW: number | null = calc?.input?.dimensioning?.potencia_modulo_w ?? null
+  const indiceProducao: number | null = calc?.input?.dimensioning?.indice_producao ?? null
+  const materialValue: number | null = calc?.output?.totals?.views?.view_material ?? null
+  // Pagamento
+  const entrada: number | null = calc?.output?.finance?.entrada_percentual != null && calc?.output?.totals?.total_a_vista != null
+    ? calc.output.finance.entrada_percentual / 100 * calc.output.totals.total_a_vista
+    : null
+  const parcelaMensal: number | null = calc?.output?.finance?.parcela_mensal ?? null
+  const totalPago: number | null = calc?.output?.finance?.total_pago ?? null
+  const jurosPagos: number | null = calc?.output?.finance?.juros_pagos ?? null
+  const saldoPosCarencia: number | null = calc?.output?.finance?.saldo_pos_carencia ?? null
+  const qtdParcelas: number | null = calc?.output?.finance?.parcela_mensal != null ? (calc?.params?.parcelas ?? null) : null
+  const mesesCarencia: number | null = calc?.params?.meses_carencia ?? null
+  // Comercial
+  const economiaMensal: number | null = calc?.output?.commercial?.economia_mensal_estimada ?? null
+  const economiaAnual: number | null = calc?.output?.commercial?.economia_anual_estimada ?? null
+  const tarifaKwh: number | null = calc?.output?.commercial?.tarifa_kwh ?? null
+
+  // Extract product names from items
+  let moduleName: string | null = null
+  const inverterNames: string[] = []
+
+  for (const item of items ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const product = Array.isArray((item as any).products) ? (item as any).products[0] : (item as any).products
+    if (!product) continue
+    const type: string = (product.type ?? "").toLowerCase()
+    if (type === "module" && !moduleName) {
+      moduleName = product.name ?? null
+    } else if (type === "inverter") {
+      if (product.name) inverterNames.push(product.name)
+    }
+  }
+
+  // Derive client name
+  const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
+  const contato = Array.isArray(proposal.contato) ? (proposal.contato[0] ?? null) : proposal.contato
+
+  const clienteNome = (cliente?.nome ?? "").trim()
+  const contatoFullName = (contato?.full_name ?? "").trim()
+  const contatoByParts = [contato?.first_name, contato?.last_name].filter(Boolean).join(" ").trim()
+  const clientName = clienteNome || contatoFullName || contatoByParts || "Cliente"
+
+  return {
+    id: proposal.id,
+    clientName,
+    totalValue: proposal.total_value ?? null,
+    materialValue,
+    profitMargin: proposal.profit_margin ?? null,
+    totalPower: proposal.total_power ?? null,
+    kWp,
+    kWhMensal,
+    kWhAnual,
+    indiceProducao,
+    inverterType,
+    qtdModulos,
+    potenciaModuloW,
+    entrada,
+    parcelaMensal,
+    totalPago,
+    jurosPagos,
+    saldoPosCarencia,
+    qtdParcelas,
+    mesesCarencia,
+    economiaMensal,
+    economiaAnual,
+    tarifaKwh,
+    moduleName,
+    inverterNames,
+  }
+}
+
+export async function updateProposalMargin(
+  proposalId: string,
+  margin: number
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: "Não autenticado" }
+
+  const profile = await getProfile(supabase, user.id)
+  const role = (profile?.role ?? user.user_metadata?.role) as string | undefined
+  if (!role || !ADM_ROLES.includes(role)) return { error: "Acesso negado" }
+
+  if (margin < 0 || margin > 60) return { error: "Margem inválida (0–60%)" }
+
+  const service = createSupabaseServiceClient()
+  const { error } = await service
+    .from("proposals")
+    .update({ profit_margin: margin })
+    .eq("id", proposalId)
+
+  if (error) return { error: "Erro ao salvar margem" }
+
+  revalidatePath("/admin/orcamentos")
+  return {}
+}
+

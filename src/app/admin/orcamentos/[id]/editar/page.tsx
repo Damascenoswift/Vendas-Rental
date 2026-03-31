@@ -3,6 +3,11 @@ import { getProducts } from "@/services/product-service"
 import { getPricingRules, getProposalEditorData, getProposalSellerAssignmentContext } from "@/services/proposal-service"
 import { ProposalCalculator } from "@/components/admin/proposals/proposal-calculator"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
+import { ProposalAnalystChat } from "@/components/admin/proposals/proposal-analyst-chat"
+import { getSalesAnalystConversation, getNegotiationRecord } from "@/app/actions/sales-analyst"
+import type { NegotiationStatus } from "@/services/sales-analyst-service"
+import { getProposalPriceApproval } from "@/app/actions/price-approval"
+import { ProposalPriceApproval } from "@/components/admin/proposals/proposal-price-approval"
 
 export const dynamic = "force-dynamic"
 
@@ -143,24 +148,69 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
         }
     }
 
+    // Load analyst conversation and negotiation status
+    let analystMessages: Awaited<ReturnType<typeof getSalesAnalystConversation>> = []
+    let negotiationStatus: NegotiationStatus = "sem_contato"
+
+    let initialApproval: Awaited<ReturnType<typeof getProposalPriceApproval>> = null
+
+    try {
+        const [msgs, neg, approval] = await Promise.all([
+            getSalesAnalystConversation(id),
+            getNegotiationRecord(id),
+            getProposalPriceApproval(id),
+        ])
+        analystMessages = msgs
+        negotiationStatus = (neg?.negotiation_status ?? "sem_contato") as NegotiationStatus
+        initialApproval = approval
+    } catch {
+        // Non-blocking — chat is additive, page still works without it
+    }
+
     return (
-        <div className="flex-1 space-y-4 p-8 pt-6">
-            <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Editar Orçamento</h2>
+        <div className="flex gap-4 h-[calc(100vh-4rem)] overflow-hidden">
+            {/* Left: existing proposal calculator */}
+            <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 space-y-4 p-8 pt-6">
+                    <div className="flex items-center justify-between space-y-2">
+                        <h2 className="text-3xl font-bold tracking-tight">Editar Orçamento</h2>
+                    </div>
+
+                    <ProposalCalculator
+                        products={products}
+                        pricingRules={pricingRules}
+                        initialProposal={proposal}
+                        initialMode={initialMode}
+                        intent="edit"
+                        upgradeFromSimple={shouldUpgradeToComplete}
+                        sellerOptions={sellerAssignment?.sellers ?? []}
+                        canAssignSeller={sellerAssignment?.canAssignToOthers ?? false}
+                        currentUserId={sellerAssignment?.currentUserId ?? null}
+                        mergeCandidates={mergeCandidates}
+                    />
+                </div>
             </div>
 
-            <ProposalCalculator
-                products={products}
-                pricingRules={pricingRules}
-                initialProposal={proposal}
-                initialMode={initialMode}
-                intent="edit"
-                upgradeFromSimple={shouldUpgradeToComplete}
-                sellerOptions={sellerAssignment?.sellers ?? []}
-                canAssignSeller={sellerAssignment?.canAssignToOthers ?? false}
-                currentUserId={sellerAssignment?.currentUserId ?? null}
-                mergeCandidates={mergeCandidates}
-            />
+            {/* Right: analyst chat panel */}
+            <div className="w-80 flex-shrink-0 border-l border-border bg-card px-4 py-4 overflow-hidden flex flex-col">
+                <h2 className="text-sm font-bold text-foreground mb-3">Analista de Vendas</h2>
+                <ProposalAnalystChat
+                    proposalId={id}
+                    initialMessages={analystMessages.map((m) => ({
+                        role: m.role as "analyst" | "user",
+                        content: m.content,
+                        status_suggestion: m.status_suggestion as NegotiationStatus | null,
+                        created_at: m.created_at,
+                    }))}
+                    initialStatus={negotiationStatus}
+                />
+                <ProposalPriceApproval
+                    proposalId={id}
+                    initialApproval={initialApproval}
+                    currentMargin={proposal.profit_margin ?? null}
+                    currentValue={proposal.total_value ?? null}
+                />
+            </div>
         </div>
     )
 }

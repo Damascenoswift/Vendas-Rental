@@ -51,6 +51,7 @@ export type ProposalEditorData = {
     seller_id: string | null
     total_power: number | null
     total_value: number | null
+    profit_margin: number | null
     calculation: ProposalCalculation | null
     contact: ProposalContactInput | null
     items: ProposalItem[]
@@ -941,10 +942,11 @@ export async function getProposalEditorData(proposalId: string): Promise<Proposa
             "calculation",
             "total_power",
             "total_value",
+            "profit_margin",
             "cliente:indicacoes!proposals_client_id_fkey(id, nome)",
             "contato:contacts(id, full_name, first_name, last_name, email, whatsapp, phone, mobile)",
         ]
-        if (includeSourceMode) columns.splice(8, 0, "source_mode")
+        if (includeSourceMode) columns.splice(9, 0, "source_mode")
 
         const { data: proposal, error } = await supabaseAdmin
             .from("proposals")
@@ -998,6 +1000,7 @@ export async function getProposalEditorData(proposalId: string): Promise<Proposa
             seller_id: (proposalRecord.seller_id as string | null) ?? null,
             total_power: (proposalRecord.total_power as number | null) ?? null,
             total_value: (proposalRecord.total_value as number | null) ?? null,
+            profit_margin: (proposalRecord.profit_margin as number | null) ?? null,
             calculation: asProposalCalculation(proposalRecord.calculation),
             contact: contato
                 ? {

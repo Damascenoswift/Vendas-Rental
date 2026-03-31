@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import Link from "next/link"
 import { Plus } from "lucide-react"
-import { format } from "date-fns"
+import { format, differenceInDays, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { redirect } from "next/navigation"
 import { getProfile } from "@/lib/auth"
@@ -18,6 +18,14 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { ProposalRowActions } from "@/components/admin/proposals/proposal-row-actions"
+import { ProposalsTabsClient } from "@/components/admin/proposals/proposals-tabs-client"
+import { ProposalsKanbanTab } from "@/components/admin/proposals/proposals-kanban-tab"
+import { ProposalsAnalystTab } from "@/components/admin/proposals/proposals-analyst-tab"
+import { ProposalsPanoramaTab } from "@/components/admin/proposals/proposals-panorama-tab"
+import { getSalesAnalystPanorama } from "@/app/actions/sales-analyst"
+import type { NegotiationStatus } from "@/services/sales-analyst-service"
+import { getPendingApprovals } from "@/app/actions/price-approval"
+import { ProposalsAdmApprovals } from "@/components/admin/proposals/proposals-adm-approvals"
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -59,6 +67,8 @@ type ProposalQueryRow = {
         | Array<{ id?: string; nome?: string | null }>
         | null
     contato?: ProposalContactRow | ProposalContactRow[] | null
+    profit_margin?: number | null
+    total_power?: number | null
     [key: string]: unknown
 }
 
@@ -239,10 +249,57 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
         }
     })
 
+    // Load negotiation statuses for all proposals
+    const proposalIds = (proposals ?? []).map((p) => p.id)
+    let negotiationMap: Record<string, NegotiationStatus> = {}
+    if (proposalIds.length > 0) {
+        const { data: negotiations } = await supabaseAdmin
+            .from("proposal_negotiations")
+            .select("proposal_id, negotiation_status")
+            .in("proposal_id", proposalIds)
+        for (const n of negotiations ?? []) {
+            negotiationMap[n.proposal_id] = n.negotiation_status as NegotiationStatus
+        }
+    }
+
+    // Panorama data (only for admin roles)
+    const isAdmin = role === "adm_mestre" || role === "adm_dorata"
+    const panoramaData = isAdmin ? await getSalesAnalystPanorama().catch(() => null) : null
+    const pendingApprovals = isAdmin
+        ? await getPendingApprovals().catch(() => [])
+        : []
+
+    const proposalListItems = (proposals ?? []).map((p) => ({
+        id: p.id,
+        clientName: (() => {
+            const arr = Array.isArray(p.contato) ? p.contato : p.contato ? [p.contato] : []
+            const c = arr[0] as { full_name?: string | null; first_name?: string | null; last_name?: string | null } | undefined
+            if (!c) return "Cliente"
+            if (c.full_name?.trim()) return c.full_name.trim()
+            return [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || "Cliente"
+        })(),
+        totalValue: p.total_value ?? null,
+        profitMargin: p.profit_margin ?? null,
+        daysSinceUpdate: p.updated_at ? differenceInDays(new Date(), parseISO(p.updated_at)) : 0,
+        negotiationStatus: negotiationMap[p.id] ?? "sem_contato" as NegotiationStatus,
+        materialValue: (() => {
+            const calc = p.calculation as { output?: { totals?: { views?: { view_material?: number } } } } | null
+            return calc?.output?.totals?.views?.view_material ?? null
+        })(),
+        totalPower: p.total_power ?? null,
+    }))
+
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Orçamentos</h2>
+                <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+                  Orçamentos
+                  {pendingApprovals.length > 0 && (
+                    <span className="inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold h-5 px-1.5 min-w-5">
+                      {pendingApprovals.length}
+                    </span>
+                  )}
+                </h2>
                 <div className="flex items-center space-x-2">
                     <Link href="/admin/orcamentos/novo">
                         <Button>
@@ -257,6 +314,25 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                     ) : null}
                 </div>
             </div>
+
+            {isAdmin && pendingApprovals.length > 0 && (
+              <ProposalsAdmApprovals initialPending={pendingApprovals} />
+            )}
+            <ProposalsTabsClient
+                kanbanContent={<ProposalsKanbanTab proposals={proposalListItems} isAdmin={isAdmin} />}
+                analistaContent={<ProposalsAnalystTab proposals={proposalListItems} />}
+                panoramaContent={
+                    panoramaData
+                        ? <ProposalsPanoramaTab data={panoramaData} />
+                        : <p className="text-center py-12 text-muted-foreground text-sm">Sem acesso ao panorama.</p>
+                }
+            />
+
+            {proposalsError ? (
+                <div className="rounded-md bg-destructive/10 p-4 text-destructive">
+                    <p className="text-sm">Erro ao carregar orçamentos: {proposalsError.message}</p>
+                </div>
+            ) : null}
 
             <div className="rounded-md border">
                 <Table>

@@ -1054,6 +1054,137 @@ export interface Database {
           }
         ]
       }
+      proposal_negotiations: {
+        Row: {
+          id: string
+          proposal_id: string
+          negotiation_status: Database['public']['Enums']['negotiation_status_enum']
+          followup_date: string | null
+          client_signal: string | null
+          objections: string | null
+          updated_by: string | null
+          updated_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          proposal_id: string
+          negotiation_status?: Database['public']['Enums']['negotiation_status_enum']
+          followup_date?: string | null
+          client_signal?: string | null
+          objections?: string | null
+          updated_by?: string | null
+          updated_at?: string
+          created_at?: string
+        }
+        Update: {
+          negotiation_status?: Database['public']['Enums']['negotiation_status_enum']
+          followup_date?: string | null
+          client_signal?: string | null
+          objections?: string | null
+          updated_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          { foreignKeyName: "proposal_negotiations_proposal_id_fkey"; columns: ["proposal_id"]; referencedRelation: "proposals"; referencedColumns: ["id"] },
+          { foreignKeyName: "proposal_negotiations_updated_by_fkey"; columns: ["updated_by"]; referencedRelation: "users"; referencedColumns: ["id"] }
+        ]
+      }
+      proposal_price_approvals: {
+        Row: {
+          id: string
+          proposal_id: string
+          requested_by: string
+          approved_by: string | null
+          status: string
+          vendedor_note: string | null
+          original_margin: number | null
+          original_value: number | null
+          adm_min_margin: number | null
+          new_value: number | null
+          adm_note: string | null
+          requested_at: string
+          resolved_at: string | null
+        }
+        Insert: {
+          id?: string
+          proposal_id: string
+          requested_by: string
+          approved_by?: string | null
+          status?: string
+          vendedor_note?: string | null
+          original_margin?: number | null
+          original_value?: number | null
+          adm_min_margin?: number | null
+          new_value?: number | null
+          adm_note?: string | null
+          requested_at?: string
+          resolved_at?: string | null
+        }
+        Update: {
+          id?: string
+          proposal_id?: string
+          requested_by?: string
+          approved_by?: string | null
+          status?: string
+          vendedor_note?: string | null
+          original_margin?: number | null
+          original_value?: number | null
+          adm_min_margin?: number | null
+          new_value?: number | null
+          adm_note?: string | null
+          requested_at?: string
+          resolved_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposal_price_approvals_proposal_id_fkey"
+            columns: ["proposal_id"]
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_price_approvals_requested_by_fkey"
+            columns: ["requested_by"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_price_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      proposal_analyst_conversations: {
+        Row: {
+          id: string
+          proposal_id: string
+          user_id: string | null
+          role: Database['public']['Enums']['analyst_conversation_role_enum']
+          content: string
+          status_suggestion: Database['public']['Enums']['negotiation_status_enum'] | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          proposal_id: string
+          user_id?: string | null
+          role: Database['public']['Enums']['analyst_conversation_role_enum']
+          content: string
+          status_suggestion?: Database['public']['Enums']['negotiation_status_enum'] | null
+          created_at?: string
+        }
+        Update: {
+          content?: string
+          status_suggestion?: Database['public']['Enums']['negotiation_status_enum'] | null
+        }
+        Relationships: [
+          { foreignKeyName: "pac_proposal_id_fkey"; columns: ["proposal_id"]; referencedRelation: "proposals"; referencedColumns: ["id"] },
+          { foreignKeyName: "pac_user_id_fkey"; columns: ["user_id"]; referencedRelation: "users"; referencedColumns: ["id"] }
+        ]
+      }
       proposal_items: {
         Row: {
           id: string
@@ -1622,6 +1753,8 @@ export interface Database {
       department_enum: 'vendas' | 'cadastro' | 'energia' | 'juridico' | 'financeiro' | 'ti' | 'diretoria' | 'obras' | 'outro'
       product_type_enum: 'module' | 'inverter' | 'structure' | 'cable' | 'transformer' | 'other'
       proposal_status_enum: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
+      negotiation_status_enum: 'sem_contato' | 'em_negociacao' | 'followup' | 'parado' | 'perdido' | 'convertido'
+      analyst_conversation_role_enum: 'analyst' | 'user'
       stock_movement_type: 'IN' | 'OUT' | 'RESERVE' | 'RELEASE'
     }
     CompositeTypes: {
