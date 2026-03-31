@@ -190,11 +190,11 @@ function ProposalCardView({
         </div>
       )}
 
-      {/* Desconto + days */}
+      {/* Lucro + days */}
       <div className="mt-1.5 flex items-center justify-between gap-1">
         {margin != null ? (
           <span className={`text-xs font-bold ${marginColor}`}>
-            Desc: {margin}%
+            Lucro: {margin}%
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">—</span>
