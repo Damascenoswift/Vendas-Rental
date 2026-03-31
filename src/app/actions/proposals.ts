@@ -330,3 +330,32 @@ export async function deleteProposal(proposalId: string) {
 
   return { success: true }
 }
+
+const ADM_ROLES = ["adm_mestre", "adm_dorata"]
+
+export async function updateProposalMargin(
+  proposalId: string,
+  margin: number
+): Promise<{ error?: string }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: "Não autenticado" }
+
+  const profile = await getProfile(supabase, user.id)
+  const role = (profile?.role ?? user.user_metadata?.role) as string | undefined
+  if (!role || !ADM_ROLES.includes(role)) return { error: "Acesso negado" }
+
+  if (margin < 0 || margin > 60) return { error: "Margem inválida (0–60%)" }
+
+  const service = createSupabaseServiceClient()
+  const { error } = await service
+    .from("proposals")
+    .update({ profit_margin: margin })
+    .eq("id", proposalId)
+
+  if (error) return { error: "Erro ao salvar margem" }
+
+  revalidatePath("/admin/orcamentos")
+  return {}
+}
+

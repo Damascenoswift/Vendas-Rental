@@ -319,7 +319,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
               <ProposalsAdmApprovals initialPending={pendingApprovals} />
             )}
             <ProposalsTabsClient
-                kanbanContent={<ProposalsKanbanTab proposals={proposalListItems} />}
+                kanbanContent={<ProposalsKanbanTab proposals={proposalListItems} isAdmin={isAdmin} />}
                 analistaContent={<ProposalsAnalystTab proposals={proposalListItems} />}
                 panoramaContent={
                     panoramaData
