@@ -46,17 +46,17 @@ crm_cards.stage_entered_at = date the card entered that stage
 
 ### New KPI: Average margin
 
-- Compute across all non-lost, non-expired proposals.
-- Formula: `avg(profit_margin)` where `profit_margin IS NOT NULL` and negotiation status not in `('perdido')`.
+- Compute across all proposals that have a recorded margin.
+- Formula: `avg(profit_margin)` where `profit_margin IS NOT NULL` (proposals without a margin are simply excluded — no join to `proposal_negotiations` needed).
 - Display as a new emerald KPI card: **"18,4% — Margem média"**.
 
 ### New breakdown: Solo vs Telhado
 
-- Derive installation type from `calculation` JSON:
+- Derive installation type from `calculation` JSON. The correct path is `calculation.input.structure.qtd_placas_solo` and `calculation.input.structure.qtd_placas_telhado` (the `calculation` column stores `{ input: ProposalCalcInput, output: ... }`, and `ProposalCalcInput.structure` holds the plate counts):
   - `qtd_placas_solo > 0` and `qtd_placas_telhado = 0` → **Solo**
   - `qtd_placas_telhado > 0` and `qtd_placas_solo = 0` → **Telhado**
   - Both > 0 → **Misto** (count separately or merge into Telhado for simplicity)
-  - Neither field present → skip from breakdown
+  - Neither field present or `calculation` is null → skip from breakdown
 - Show horizontal bar with percentage + count + R$ value for each type.
 
 ### Type additions
@@ -128,8 +128,17 @@ getProposalPriceApproval(proposalId)
 When ADM sets `adm_min_margin` (e.g. 12%), the new value is:
 
 ```
-new_value = (equipment_cost + labor_cost + additional_cost) / (1 - adm_min_margin / 100)
+new_value = (COALESCE(equipment_cost, 0) + COALESCE(labor_cost, 0) + COALESCE(additional_cost, 0))
+            / (1 - adm_min_margin / 100)
 ```
+
+All three cost columns are nullable on `proposals`, so each must be wrapped in `COALESCE(..., 0)`. If all three are null (i.e. the proposal was created without itemised costs), fall back to:
+
+```
+new_value = original_value * (1 - original_margin / 100) / (1 - adm_min_margin / 100)
+```
+
+where `original_value` and `original_margin` are captured at request time.
 
 This uses the cost columns already on the `proposals` table. The result is stored in `new_value` on the approval record — **the original `proposals` record is not modified**. The vendedor decides whether to present this new value to the client.
 
@@ -153,24 +162,27 @@ This uses the cost columns already on the `proposals` table. The result is store
 
 ### Notification
 
-Uses existing `dispatchNotificationEvent` from `notification-service.ts`.
+Uses existing `dispatchNotificationEvent` from `notification-service.ts` with the `SYSTEM_GENERIC` event key (already present in the `NotificationEventKey` union — no extension needed).
 
 When ADM approves or rejects:
 - Target: the vendedor (`requested_by` user)
+- Event key: `"SYSTEM_GENERIC"`
+- Domain: `"SYSTEM"` (no sector field — `SYSTEM_GENERIC` is domain-agnostic)
 - Title: `"Revisão de margem — [ClientName]"`
 - Message: `"ADM aprovou margem mínima de X%. Novo valor sugerido: R$ Y"` or `"ADM não aprovou a revisão de margem para [ClientName]"`
-- Sector: `"dorata"`
 
 ---
 
 ## Files Changed
+
+> **Context:** `src/app/actions/sales-analyst.ts` was created as part of the preceding Sales Analyst feature (branch `claude/crazy-yalow`). It does not exist on `main` yet; it will be available in this branch after that work merges (or continues here). The "Modify" action below refers to extending that already-created file.
 
 | File | Action | Purpose |
 |------|--------|---------|
 | `supabase/migrations/129_proposal_price_approvals.sql` | Create | New table + RLS + grants |
 | `src/types/database.ts` | Modify | Add `proposal_price_approvals` table type |
 | `src/app/actions/price-approval.ts` | Create | Server actions for approval flow |
-| `src/app/actions/sales-analyst.ts` | Modify | Add avg margin, installation breakdown, CRM date to panorama |
+| `src/app/actions/sales-analyst.ts` | Modify (extends prior feature) | Add avg margin, installation breakdown, CRM date to panorama |
 | `src/components/admin/proposals/proposals-panorama-tab.tsx` | Modify | Render new KPIs and breakdown |
 | `src/components/admin/proposals/proposal-price-approval.tsx` | Create | Vendedor's "solicitar revisão" UI |
 | `src/components/admin/proposals/proposals-adm-approvals.tsx` | Create | ADM queue component |
@@ -191,10 +203,12 @@ When ADM approves or rejects:
 
 ## Auth / Roles
 
-| Action | adm_mestre | adm_dorata | Other roles |
-|--------|-----------|------------|-------------|
-| Request price approval | ✓ | ✓ | ✗ |
+| Action | adm_mestre | adm_dorata | vendedor / funcionario |
+|--------|-----------|------------|------------------------|
+| Request price approval | ✓ | ✓ | ✓ (own proposals only) |
 | See pending approvals queue | ✓ | ✓ | ✗ |
 | Approve / reject | ✓ | ✓ | ✗ |
 | See CRM contract date | ✓ | ✓ | ✗ |
 | See panorama new KPIs | ✓ | ✓ | ✗ |
+
+> **Note:** `requestPriceApproval` is accessible to any authenticated user who owns the proposal (vendedor/funcionario), not only ADM roles. The other actions remain ADM-only.
