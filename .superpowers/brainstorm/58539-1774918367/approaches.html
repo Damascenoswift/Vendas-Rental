@@ -1,0 +1,40 @@
+<h2>3 abordagens para o fluxo de margem</h2>
+<p class="subtitle">A parte mais crítica a decidir é: onde vive o estado de "cliente achou caro" e a aprovação de margem?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Tudo na tabela existente</h3>
+      <p>Adicionar campos em <code>proposal_negotiations</code>: flag <strong>price_objection</strong>, campo <strong>adm_min_margin</strong>, <strong>approved_by</strong> e <strong>approved_at</strong>.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Prós</h4><ul><li>Simples — uma tabela só</li><li>Menos código</li><li>Migração pequena</li></ul></div>
+        <div class="cons"><h4>Contras</h4><ul><li>Sem histórico de aprovações</li><li>Se o ADM aprovar e depois querer revisar, perde o rastro</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Tabela separada de aprovações <span style="font-size:11px;background:#10b981;color:white;padding:2px 6px;border-radius:4px;margin-left:6px">Recomendado</span></h3>
+      <p>Nova tabela <code>proposal_price_approvals</code> com auditoria completa. O ADM define a margem mínima, o sistema recalcula o valor total e registra quem aprovou e quando.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Prós</h4><ul><li>Histórico de aprovações (quem mexeu, quando, de quanto para quanto)</li><li>Permite múltiplas rodadas</li><li>Separação clara de responsabilidade</li><li>Notificação rastreável</li></ul></div>
+        <div class="cons"><h4>Contras</h4><ul><li>Uma migração a mais</li><li>Levemente mais código</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Integrado ao chat do Analista</h3>
+      <p>O vendedor pede a revisão de margem pelo chat do Analista de Vendas. O ADM recebe no painel e responde aprovando com um número.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Prós</h4><ul><li>Contexto completo da negociação junto da aprovação</li><li>Fluxo conversacional natural</li></ul></div>
+        <div class="cons"><h4>Contras</h4><ul><li>ADM precisa entrar no chat de cada orçamento</li><li>Mistura aprovação de preço com análise de vendas</li><li>Mais complexo de implementar</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
