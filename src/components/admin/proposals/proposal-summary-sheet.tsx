@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { getProposalSummary, type ProposalSummaryData } from "@/app/actions/proposals"
 import type { ProposalListItem } from "./proposals-list-tab"
 
@@ -146,168 +146,172 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
   const hasCommercial = data && (data.economiaMensal != null || data.economiaAnual != null)
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[420px] max-w-full overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle className="text-base leading-tight pr-6">{proposal.clientName}</SheetTitle>
-          <SheetDescription className="text-xs">Orçamento #{shortId}</SheetDescription>
-        </SheetHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto p-5 sm:p-6">
+        <DialogHeader>
+          <DialogTitle className="text-base leading-tight pr-6">{proposal.clientName}</DialogTitle>
+          <DialogDescription className="text-xs">Orçamento #{shortId}</DialogDescription>
+        </DialogHeader>
 
         {loading && <LoadingSkeleton />}
 
         {!loading && data && (
-          <div className="mt-2 pb-8">
+          <div className="mt-2 pb-2">
+            <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+              <div>
+                {/* KPIs de produção */}
+                {(data.kWhMensal != null || data.kWhAnual != null) && (
+                  <>
+                    <SectionLabel>Produção Estimada</SectionLabel>
+                    <div className="grid grid-cols-2 gap-2">
+                      {data.kWhMensal != null && (
+                        <KpiCard
+                          label="Mensal"
+                          value={`${num(data.kWhMensal, 2)} kWh`}
+                        />
+                      )}
+                      {data.kWhAnual != null && (
+                        <KpiCard
+                          label="Anual"
+                          value={`${num(data.kWhAnual, 2)} kWh`}
+                        />
+                      )}
+                      {data.economiaMensal != null && (
+                        <KpiCard
+                          label="Economia Mensal"
+                          value={brlFull(data.economiaMensal)}
+                          accent="emerald"
+                        />
+                      )}
+                      {data.economiaAnual != null && (
+                        <KpiCard
+                          label="Economia Anual"
+                          value={brlFull(data.economiaAnual)}
+                          sub={data.tarifaKwh != null ? `Tarifa: R$ ${num(data.tarifaKwh, 4)}/kWh` : undefined}
+                          accent="emerald"
+                        />
+                      )}
+                    </div>
+                  </>
+                )}
 
-            {/* KPIs de produção */}
-            {(data.kWhMensal != null || data.kWhAnual != null) && (
-              <>
-                <SectionLabel>Produção Estimada</SectionLabel>
-                <div className="grid grid-cols-2 gap-2">
-                  {data.kWhMensal != null && (
-                    <KpiCard
-                      label="Mensal"
-                      value={`${num(data.kWhMensal, 2)} kWh`}
-                    />
-                  )}
-                  {data.kWhAnual != null && (
-                    <KpiCard
-                      label="Anual"
-                      value={`${num(data.kWhAnual, 2)} kWh`}
-                    />
-                  )}
-                  {data.economiaMensal != null && (
-                    <KpiCard
-                      label="Economia Mensal"
-                      value={brlFull(data.economiaMensal)}
-                      accent="emerald"
-                    />
-                  )}
-                  {data.economiaAnual != null && (
-                    <KpiCard
-                      label="Economia Anual"
-                      value={brlFull(data.economiaAnual)}
-                      sub={data.tarifaKwh != null ? `Tarifa: R$ ${num(data.tarifaKwh, 4)}/kWh` : undefined}
-                      accent="emerald"
-                    />
-                  )}
+                {/* Resumo Financeiro */}
+                <SectionLabel>Resumo Financeiro</SectionLabel>
+                <div className="rounded-lg border border-border bg-card px-3 py-1">
+                  <Row label="Valor Total à Vista" value={brlFull(data.totalValue)} />
+                  <Row label="Custo do Material" value={brlFull(data.materialValue)} />
+                  <Row
+                    label="Margem de Lucro"
+                    value={
+                      data.profitMargin != null ? (
+                        <span className={
+                          data.profitMargin >= 18 ? "text-emerald-600" :
+                          data.profitMargin >= 10 ? "text-amber-600" :
+                          "text-red-600"
+                        }>
+                          {num(data.profitMargin, 1)}%
+                        </span>
+                      ) : "—"
+                    }
+                  />
                 </div>
-              </>
-            )}
+                {/* Pagamento */}
+                {hasFinance && (
+                  <>
+                    <SectionLabel>Pagamento</SectionLabel>
+                    <div className="grid grid-cols-2 gap-2 mb-2">
+                      {data.entrada != null && (
+                        <KpiCard label="Entrada" value={brlFull(data.entrada)} accent="blue" />
+                      )}
+                      {data.parcelaMensal != null && (
+                        <KpiCard
+                          label="Parcela Mensal"
+                          value={brlFull(data.parcelaMensal)}
+                          sub={data.qtdParcelas != null ? `${data.qtdParcelas}× parcelas` : undefined}
+                          accent="blue"
+                        />
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-border bg-card px-3 py-1">
+                      {data.saldoPosCarencia != null && (
+                        <Row label="Saldo pós-carência" value={brlFull(data.saldoPosCarencia)} />
+                      )}
+                      {data.mesesCarencia != null && (
+                        <Row label="Meses de carência" value={`${data.mesesCarencia} meses`} />
+                      )}
+                      {data.totalPago != null && (
+                        <Row label="Total pago c/ juros" value={brlFull(data.totalPago)} />
+                      )}
+                      {data.jurosPagos != null && (
+                        <Row label="Juros pagos" value={brlFull(data.jurosPagos)} />
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
 
-            {/* Resumo Financeiro */}
-            <SectionLabel>Resumo Financeiro</SectionLabel>
-            <div className="rounded-lg border border-border bg-card px-3 py-1">
-              <Row label="Valor Total à Vista" value={brlFull(data.totalValue)} />
-              <Row label="Custo do Material" value={brlFull(data.materialValue)} />
-              <Row
-                label="Margem de Lucro"
-                value={
-                  data.profitMargin != null ? (
-                    <span className={
-                      data.profitMargin >= 18 ? "text-emerald-600" :
-                      data.profitMargin >= 10 ? "text-amber-600" :
-                      "text-red-600"
-                    }>
-                      {num(data.profitMargin, 1)}%
-                    </span>
-                  ) : "—"
-                }
-              />
-            </div>
-
-            {/* Pagamento */}
-            {hasFinance && (
-              <>
-                <SectionLabel>Pagamento</SectionLabel>
+              <div>
+                {/* Sistema Solar */}
+                <SectionLabel>Sistema Solar</SectionLabel>
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                  {data.entrada != null && (
-                    <KpiCard label="Entrada" value={brlFull(data.entrada)} accent="blue" />
-                  )}
-                  {data.parcelaMensal != null && (
+                  {(data.kWp ?? data.totalPower) != null && (
                     <KpiCard
-                      label="Parcela Mensal"
-                      value={brlFull(data.parcelaMensal)}
-                      sub={data.qtdParcelas != null ? `${data.qtdParcelas}× parcelas` : undefined}
-                      accent="blue"
+                      label="Potência"
+                      value={`${num(data.kWp ?? data.totalPower, 2)} kWp`}
+                      accent="violet"
+                    />
+                  )}
+                  {data.indiceProducao != null && (
+                    <KpiCard
+                      label="Índice de Produção"
+                      value={`${num(data.indiceProducao, 0)} kWh/kWp`}
+                      accent="violet"
                     />
                   )}
                 </div>
                 <div className="rounded-lg border border-border bg-card px-3 py-1">
-                  {data.saldoPosCarencia != null && (
-                    <Row label="Saldo pós-carência" value={brlFull(data.saldoPosCarencia)} />
-                  )}
-                  {data.mesesCarencia != null && (
-                    <Row label="Meses de carência" value={`${data.mesesCarencia} meses`} />
-                  )}
-                  {data.totalPago != null && (
-                    <Row label="Total pago c/ juros" value={brlFull(data.totalPago)} />
-                  )}
-                  {data.jurosPagos != null && (
-                    <Row label="Juros pagos" value={brlFull(data.jurosPagos)} />
+                  <Row label="Quantidade de Módulos" value={modulesLabel} />
+                  {data.qtdModulos != null && data.potenciaModuloW != null && (
+                    <Row
+                      label="Potência Total Módulos"
+                      value={`${num((data.qtdModulos * data.potenciaModuloW) / 1000, 2)} kWp`}
+                    />
                   )}
                 </div>
-              </>
-            )}
 
-            {/* Sistema Solar */}
-            <SectionLabel>Sistema Solar</SectionLabel>
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              {(data.kWp ?? data.totalPower) != null && (
-                <KpiCard
-                  label="Potência"
-                  value={`${num(data.kWp ?? data.totalPower, 2)} kWp`}
-                  accent="violet"
-                />
-              )}
-              {data.indiceProducao != null && (
-                <KpiCard
-                  label="Índice de Produção"
-                  value={`${num(data.indiceProducao, 0)} kWh/kWp`}
-                  accent="violet"
-                />
-              )}
-            </div>
-            <div className="rounded-lg border border-border bg-card px-3 py-1">
-              <Row label="Quantidade de Módulos" value={modulesLabel} />
-              {data.qtdModulos != null && data.potenciaModuloW != null && (
-                <Row
-                  label="Potência Total Módulos"
-                  value={`${num((data.qtdModulos * data.potenciaModuloW) / 1000, 2)} kWp`}
-                />
-              )}
-            </div>
-
-            {/* Equipamentos */}
-            <SectionLabel>Equipamentos</SectionLabel>
-            <div className="rounded-lg border border-border bg-card px-3 py-1">
-              <Row label="Módulo" value={data.moduleName ?? "—"} />
-              <Row
-                label="Tipo Inversor"
-                value={data.inverterType ?? "—"}
-              />
-              {data.inverterNames.length > 0 && (
-                <Row label="Inversor" value={inverterLabel} />
-              )}
-            </div>
-
-            {!hasCommercial && data.tarifaKwh != null && (
-              <>
-                <SectionLabel>Tarifa</SectionLabel>
+                {/* Equipamentos */}
+                <SectionLabel>Equipamentos</SectionLabel>
                 <div className="rounded-lg border border-border bg-card px-3 py-1">
-                  <Row label="Tarifa kWh" value={`R$ ${num(data.tarifaKwh, 4)}`} />
+                  <Row label="Módulo" value={data.moduleName ?? "—"} />
+                  <Row
+                    label="Tipo Inversor"
+                    value={data.inverterType ?? "—"}
+                  />
+                  {data.inverterNames.length > 0 && (
+                    <Row label="Inversor" value={inverterLabel} />
+                  )}
                 </div>
-              </>
-            )}
 
-            {/* Botão */}
-            <div className="mt-6">
-              <Link
-                href={`/admin/orcamentos/${proposal.id}/editar`}
-                className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                onClick={() => onOpenChange(false)}
-              >
-                Abrir orçamento completo →
-              </Link>
+                {!hasCommercial && data.tarifaKwh != null && (
+                  <>
+                    <SectionLabel>Tarifa</SectionLabel>
+                    <div className="rounded-lg border border-border bg-card px-3 py-1">
+                      <Row label="Tarifa kWh" value={`R$ ${num(data.tarifaKwh, 4)}`} />
+                    </div>
+                  </>
+                )}
+
+                {/* Botão */}
+                <div className="mt-6">
+                  <Link
+                    href={`/admin/orcamentos/${proposal.id}/editar`}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Abrir orçamento completo →
+                  </Link>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -317,7 +321,7 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
             Não foi possível carregar os dados.
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }

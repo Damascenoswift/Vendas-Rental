@@ -85,6 +85,8 @@ export type PanoramaKpis = {
 export type PanoramaProposal = {
   id: string
   clientName: string
+  sellerId: string | null
+  sellerName: string | null
   negotiationStatus: NegotiationStatus
   totalValue: number | null
   profitMargin: number | null
@@ -116,6 +118,7 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
     .select(`
       id,
       client_id,
+      seller_id,
       total_value,
       profit_margin,
       total_power,
@@ -123,6 +126,7 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
       updated_at,
       created_at,
       contato:contacts(full_name),
+      seller:users(name, email),
       proposal_negotiations(negotiation_status, updated_at)
     `)
     .order("updated_at", { ascending: false })
@@ -165,6 +169,7 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
   }
 
   type ContactRow = { full_name?: string | null }
+  type SellerRow = { name?: string | null; email?: string | null }
   type NegRow = { negotiation_status: string; updated_at: string } | null
 
   const FECHAMENTO_STATUSES: NegotiationStatus[] = ['em_negociacao', 'followup']
@@ -191,6 +196,8 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
     const profitMargin = p.profit_margin ?? null
     const contactArr = Array.isArray(p.contato) ? p.contato : p.contato ? [p.contato] : []
     const clientName = (contactArr[0] as ContactRow)?.full_name ?? "Cliente"
+    const sellerRow = (Array.isArray(p.seller) ? p.seller[0] : p.seller) as SellerRow | null
+    const sellerName = sellerRow?.name?.trim() || sellerRow?.email?.trim() || null
     const daysSinceUpdate = p.updated_at ? differenceInDays(new Date(), parseISO(p.updated_at)) : 0
     const crmContractDate = (p.client_id ? contractDateMap[p.client_id] : undefined) ?? null
 
@@ -219,6 +226,8 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
     panoramaProposals.push({
       id: p.id,
       clientName,
+      sellerId: p.seller_id ?? null,
+      sellerName,
       negotiationStatus: status,
       totalValue: p.total_value,
       profitMargin,

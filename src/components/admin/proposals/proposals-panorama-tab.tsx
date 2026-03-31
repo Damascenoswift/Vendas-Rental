@@ -1,10 +1,26 @@
 // src/components/admin/proposals/proposals-panorama-tab.tsx
+"use client"
+
+import { useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import type { PanoramaData } from "@/app/actions/sales-analyst"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { STATUS_LABELS, STATUS_VARIANTS, MarginBar } from "./proposals-list-tab"
 import { format, parseISO } from "date-fns"
 import { ptBR } from "date-fns/locale"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  buildSellerOptions,
+  computeAverageMargin,
+  computeKpisFromProposals,
+  summarizeClosedSales,
+} from "@/lib/sales-panorama-utils"
 
 function KpiCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
@@ -66,19 +82,89 @@ function InstallationBreakdown({
 
 export function ProposalsPanoramaTab({ data }: { data: PanoramaData }) {
   const maxDays = Math.max(...data.conversionByMonth.map((m) => m.avgDays), 1)
+  const [selectedSellerId, setSelectedSellerId] = useState("all")
+
+  const sellerOptions = useMemo(() => buildSellerOptions(data.proposals), [data.proposals])
+
+  const sellerLabel = useMemo(() => {
+    if (selectedSellerId === "all") return "Todos os vendedores"
+    const found = sellerOptions.find((option) => option.id === selectedSellerId)
+    return found?.label ?? "Vendedor"
+  }, [selectedSellerId, sellerOptions])
+
+  const filteredProposals = useMemo(() => {
+    if (selectedSellerId === "all") return data.proposals
+    return data.proposals.filter((proposal) => proposal.sellerId === selectedSellerId)
+  }, [data.proposals, selectedSellerId])
+
+  const openProposals = useMemo(
+    () =>
+      filteredProposals.filter(
+        (proposal) =>
+          proposal.negotiationStatus !== "convertido" && proposal.negotiationStatus !== "perdido"
+      ),
+    [filteredProposals]
+  )
+
+  const closedTotal = useMemo(() => summarizeClosedSales(data.proposals), [data.proposals])
+  const closedBySeller = useMemo(
+    () => summarizeClosedSales(filteredProposals),
+    [filteredProposals]
+  )
+  const filteredKpis = useMemo(
+    () => computeKpisFromProposals(filteredProposals),
+    [filteredProposals]
+  )
+  const filteredAvgMargin = useMemo(
+    () => computeAverageMargin(filteredProposals),
+    [filteredProposals]
+  )
 
   return (
     <div className="space-y-5">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[220px] flex-1 max-w-sm">
+            <p className="mb-1 text-xs font-bold text-muted-foreground uppercase tracking-wide">
+              Vendedor
+            </p>
+            <Select value={selectedSellerId} onValueChange={setSelectedSellerId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione um vendedor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os vendedores</SelectItem>
+                {sellerOptions.map((seller) => (
+                  <SelectItem key={seller.id} value={seller.id}>
+                    {seller.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <KpiCard
+            label={`Fechado total (${closedTotal.count} vendas)`}
+            value={formatBRL(closedTotal.totalValue)}
+            color="bg-emerald-50 text-emerald-800"
+          />
+          <KpiCard
+            label={`${sellerLabel} (${closedBySeller.count} vendas)`}
+            value={formatBRL(closedBySeller.totalValue)}
+            color="bg-teal-50 text-teal-800"
+          />
+        </div>
+      </div>
+
       {/* KPIs */}
       <div className="flex gap-3 flex-wrap">
-        <KpiCard label="Em aberto" value={formatBRL(data.kpis.totalAberto)} color="bg-blue-50 text-blue-800" />
-        <KpiCard label="Em fechamento" value={formatBRL(data.kpis.totalFechamento)} color="bg-amber-50 text-amber-800" />
-        <KpiCard label="Concluído" value={formatBRL(data.kpis.totalConcluido)} color="bg-emerald-50 text-emerald-800" />
-        <KpiCard label="Parados" value={String(data.kpis.qtdParados)} color="bg-red-50 text-red-800" />
-        {data.avgMargin != null && (
+        <KpiCard label="Em aberto" value={formatBRL(filteredKpis.totalAberto)} color="bg-blue-50 text-blue-800" />
+        <KpiCard label="Em fechamento" value={formatBRL(filteredKpis.totalFechamento)} color="bg-amber-50 text-amber-800" />
+        <KpiCard label="Concluído" value={formatBRL(filteredKpis.totalConcluido)} color="bg-emerald-50 text-emerald-800" />
+        <KpiCard label="Parados" value={String(filteredKpis.qtdParados)} color="bg-red-50 text-red-800" />
+        {filteredAvgMargin != null && (
           <KpiCard
             label="Margem média"
-            value={`${data.avgMargin.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+            value={`${filteredAvgMargin.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
             color="bg-emerald-50 text-emerald-800"
           />
         )}
@@ -93,15 +179,14 @@ export function ProposalsPanoramaTab({ data }: { data: PanoramaData }) {
           Orçamentos em aberto
         </h3>
         <div className="space-y-2">
-          {data.proposals
-            .filter((p) => p.negotiationStatus !== "convertido" && p.negotiationStatus !== "perdido")
-            .map((p) => (
+          {openProposals.map((p) => (
               <div
                 key={p.id}
                 className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-2.5"
               >
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-semibold">{p.clientName}</span>
+                  <span className="text-xs text-muted-foreground">{p.sellerName ?? "Sem vendedor"}</span>
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant={STATUS_VARIANTS[p.negotiationStatus as NegotiationStatus]} className="text-xs">
                       {STATUS_LABELS[p.negotiationStatus as NegotiationStatus]}
@@ -125,6 +210,11 @@ export function ProposalsPanoramaTab({ data }: { data: PanoramaData }) {
                 </div>
               </div>
             ))}
+          {openProposals.length === 0 && (
+            <div className="rounded-lg border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+              Nenhum orçamento em aberto para o filtro selecionado.
+            </div>
+          )}
         </div>
       </div>
 
