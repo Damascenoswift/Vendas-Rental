@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import {
   DndContext,
@@ -10,18 +10,17 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
+  useDraggable,
   type DragStartEvent,
   type DragOverEvent,
   type DragEndEvent,
 } from "@dnd-kit/core"
-import { useDroppable } from "@dnd-kit/core"
-import { useDraggable } from "@dnd-kit/core"
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable"
 import { GripVertical } from "lucide-react"
 import { updateNegotiationStatus } from "@/app/actions/sales-analyst"
 import { useToast } from "@/hooks/use-toast"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
-import { MarginBar, type ProposalListItem } from "./proposals-list-tab"
+import { STATUS_LABELS, MarginBar, type ProposalListItem } from "./proposals-list-tab"
 
 type ProposalsKanbanTabProps = {
   proposals: ProposalListItem[]
@@ -38,42 +37,42 @@ type ColumnDef = {
 const COLUMNS: ColumnDef[] = [
   {
     id: "sem_contato",
-    label: "Sem contato",
+    label: STATUS_LABELS["sem_contato"],
     borderColor: "border-l-slate-400",
     badgeBg: "bg-slate-100",
     badgeText: "text-slate-700",
   },
   {
     id: "em_negociacao",
-    label: "Em negociação",
+    label: STATUS_LABELS["em_negociacao"],
     borderColor: "border-l-blue-500",
     badgeBg: "bg-blue-100",
     badgeText: "text-blue-700",
   },
   {
     id: "followup",
-    label: "Followup",
+    label: STATUS_LABELS["followup"],
     borderColor: "border-l-violet-500",
     badgeBg: "bg-violet-100",
     badgeText: "text-violet-700",
   },
   {
     id: "parado",
-    label: "Parado",
+    label: STATUS_LABELS["parado"],
     borderColor: "border-l-red-400",
     badgeBg: "bg-red-100",
     badgeText: "text-red-600",
   },
   {
     id: "perdido",
-    label: "Perdido",
+    label: STATUS_LABELS["perdido"],
     borderColor: "border-l-red-700",
     badgeBg: "bg-red-200",
     badgeText: "text-red-800",
   },
   {
     id: "convertido",
-    label: "Convertido",
+    label: STATUS_LABELS["convertido"],
     borderColor: "border-l-emerald-500",
     badgeBg: "bg-emerald-100",
     badgeText: "text-emerald-700",
@@ -92,19 +91,21 @@ function formatColumnValue(total: number): string {
   return `R$ ${total.toLocaleString("pt-BR")}`
 }
 
-// ── Card ─────────────────────────────────────────────────────────────────────
+// ── Card View (pure markup, no hooks) ────────────────────────────────────────
 
-function ProposalCard({
+function ProposalCardView({
   proposal,
+  dragHandleListeners,
+  dragHandleAttributes,
+  isDragging = false,
   isOverlay = false,
 }: {
   proposal: ProposalListItem
+  dragHandleListeners?: React.HTMLAttributes<HTMLElement>
+  dragHandleAttributes?: React.HTMLAttributes<HTMLElement>
+  isDragging?: boolean
   isOverlay?: boolean
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: proposal.id,
-  })
-
   const daysColor =
     proposal.daysSinceUpdate > 10
       ? "text-red-500"
@@ -114,15 +115,14 @@ function ProposalCard({
 
   return (
     <div
-      ref={setNodeRef}
       className={`relative rounded-md border border-border bg-card p-3 shadow-sm transition-opacity ${
         isDragging && !isOverlay ? "opacity-30" : "opacity-100"
       } ${isOverlay ? "shadow-lg rotate-1 cursor-grabbing" : "cursor-grab hover:shadow-md"}`}
     >
       {/* Drag handle */}
       <button
-        {...listeners}
-        {...attributes}
+        {...dragHandleListeners}
+        {...dragHandleAttributes}
         className="absolute top-2 right-2 text-muted-foreground hover:text-foreground touch-none"
         tabIndex={-1}
         aria-label="Arrastar"
@@ -157,11 +157,32 @@ function ProposalCard({
 
       {/* Footer */}
       <div className="mt-2 flex items-center justify-between">
-        <span className={`text-xs ${daysColor}`}>
-          {proposal.daysSinceUpdate} dias
-        </span>
+        {proposal.daysSinceUpdate > 0 && (
+          <span className={`text-xs ${daysColor}`}>
+            {proposal.daysSinceUpdate} dias
+          </span>
+        )}
         <MarginBar margin={proposal.profitMargin} />
       </div>
+    </div>
+  )
+}
+
+// ── Card (adds useDraggable) ──────────────────────────────────────────────────
+
+function ProposalCard({ proposal }: { proposal: ProposalListItem }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: proposal.id,
+  })
+
+  return (
+    <div ref={setNodeRef}>
+      <ProposalCardView
+        proposal={proposal}
+        dragHandleListeners={listeners}
+        dragHandleAttributes={attributes}
+        isDragging={isDragging}
+      />
     </div>
   )
 }
@@ -230,7 +251,12 @@ function KanbanColumn({
 export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKanbanTabProps) {
   const [proposals, setProposals] = useState<ProposalListItem[]>(initialProposals)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const originalStatusRef = useRef<NegotiationStatus | null>(null)
   const { showToast } = useToast()
+
+  useEffect(() => {
+    setProposals(initialProposals)
+  }, [initialProposals])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -238,13 +264,16 @@ export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKan
         distance: 5,
       },
     }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(KeyboardSensor)
   )
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string)
+    const id = event.active.id as string
+    setActiveId(id)
+    const activeItem = proposals.find((p) => p.id === id)
+    if (activeItem) {
+      originalStatusRef.current = activeItem.negotiationStatus
+    }
   }
 
   function handleDragOver(event: DragOverEvent) {
@@ -254,12 +283,22 @@ export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKan
     const activeItem = proposals.find((p) => p.id === active.id)
     if (!activeItem) return
 
-    const isOverColumn = COLUMNS.some((col) => col.id === over.id)
-    if (isOverColumn && activeItem.negotiationStatus !== (over.id as NegotiationStatus)) {
+    // Determine the target column: over a column directly, or over a card
+    let targetStatus: NegotiationStatus | null = null
+    if (COLUMNS.some((col) => col.id === over.id)) {
+      targetStatus = over.id as NegotiationStatus
+    } else {
+      const overItem = proposals.find((p) => p.id === over.id)
+      if (overItem) {
+        targetStatus = overItem.negotiationStatus
+      }
+    }
+
+    if (targetStatus && activeItem.negotiationStatus !== targetStatus) {
       setProposals((prev) =>
         prev.map((p) =>
           p.id === active.id
-            ? { ...p, negotiationStatus: over.id as NegotiationStatus }
+            ? { ...p, negotiationStatus: targetStatus! }
             : p
         )
       )
@@ -270,10 +309,25 @@ export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKan
     const { active, over } = event
     setActiveId(null)
 
-    if (!over) return
+    if (!over) {
+      // Revert to original if dropped outside
+      if (originalStatusRef.current !== null) {
+        const orig = originalStatusRef.current
+        setProposals((prev) =>
+          prev.map((p) =>
+            p.id === active.id ? { ...p, negotiationStatus: orig } : p
+          )
+        )
+      }
+      originalStatusRef.current = null
+      return
+    }
 
     const activeItem = proposals.find((p) => p.id === active.id)
-    if (!activeItem) return
+    if (!activeItem) {
+      originalStatusRef.current = null
+      return
+    }
 
     let newStatus = activeItem.negotiationStatus
 
@@ -286,10 +340,6 @@ export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKan
       }
     }
 
-    // Status may have already been updated optimistically in handleDragOver;
-    // always persist the final status to the server.
-    const previousStatus = activeItem.negotiationStatus
-
     // Apply final optimistic update if different from current state
     if (activeItem.negotiationStatus !== newStatus) {
       setProposals((prev) =>
@@ -299,16 +349,21 @@ export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKan
       )
     }
 
-    if (previousStatus !== newStatus) {
+    const originalStatus = originalStatusRef.current
+    originalStatusRef.current = null
+
+    if (originalStatus !== newStatus) {
       try {
         await updateNegotiationStatus(active.id as string, newStatus)
       } catch {
-        // Revert on error
-        setProposals((prev) =>
-          prev.map((p) =>
-            p.id === active.id ? { ...p, negotiationStatus: previousStatus } : p
+        // Revert to the original status captured at drag start
+        if (originalStatus !== null) {
+          setProposals((prev) =>
+            prev.map((p) =>
+              p.id === active.id ? { ...p, negotiationStatus: originalStatus } : p
+            )
           )
-        )
+        }
         showToast({
           variant: "error",
           title: "Erro ao atualizar",
@@ -343,7 +398,7 @@ export function ProposalsKanbanTab({ proposals: initialProposals }: ProposalsKan
 
       <DragOverlay>
         {activeProposal ? (
-          <ProposalCard proposal={activeProposal} isOverlay />
+          <ProposalCardView proposal={activeProposal} isOverlay />
         ) : null}
       </DragOverlay>
     </DndContext>
