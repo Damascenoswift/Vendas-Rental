@@ -1090,6 +1090,73 @@ export interface Database {
           { foreignKeyName: "proposal_negotiations_updated_by_fkey"; columns: ["updated_by"]; referencedRelation: "users"; referencedColumns: ["id"] }
         ]
       }
+      proposal_price_approvals: {
+        Row: {
+          id: string
+          proposal_id: string
+          requested_by: string
+          approved_by: string | null
+          status: string
+          vendedor_note: string | null
+          original_margin: number | null
+          original_value: number | null
+          adm_min_margin: number | null
+          new_value: number | null
+          adm_note: string | null
+          requested_at: string
+          resolved_at: string | null
+        }
+        Insert: {
+          id?: string
+          proposal_id: string
+          requested_by: string
+          approved_by?: string | null
+          status?: string
+          vendedor_note?: string | null
+          original_margin?: number | null
+          original_value?: number | null
+          adm_min_margin?: number | null
+          new_value?: number | null
+          adm_note?: string | null
+          requested_at?: string
+          resolved_at?: string | null
+        }
+        Update: {
+          id?: string
+          proposal_id?: string
+          requested_by?: string
+          approved_by?: string | null
+          status?: string
+          vendedor_note?: string | null
+          original_margin?: number | null
+          original_value?: number | null
+          adm_min_margin?: number | null
+          new_value?: number | null
+          adm_note?: string | null
+          requested_at?: string
+          resolved_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "proposal_price_approvals_proposal_id_fkey"
+            columns: ["proposal_id"]
+            referencedRelation: "proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_price_approvals_requested_by_fkey"
+            columns: ["requested_by"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "proposal_price_approvals_approved_by_fkey"
+            columns: ["approved_by"]
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       proposal_analyst_conversations: {
         Row: {
           id: string
