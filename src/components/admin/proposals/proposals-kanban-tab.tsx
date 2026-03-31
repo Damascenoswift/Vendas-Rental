@@ -85,13 +85,13 @@ const COLUMNS: ColumnDef[] = [
 function formatColumnValue(total: number): string {
   if (total >= 1_000_000) {
     const val = total / 1_000_000
-    return `R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`
+    return `R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}M`
   }
   if (total >= 1_000) {
     const val = total / 1_000
     return `R$ ${val.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}k`
   }
-  return `R$ ${total.toLocaleString("pt-BR")}`
+  return `R$ ${total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 // ── Inline Margin Editor ──────────────────────────────────────────────────────
@@ -275,11 +275,10 @@ function ProposalCardView({
       <div className="mt-1.5">
         <span className="text-base font-bold text-primary">
           {proposal.totalValue != null
-            ? proposal.totalValue.toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-                maximumFractionDigits: 0,
-              })
+            ? `R$ ${proposal.totalValue.toLocaleString("pt-BR", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`
             : "—"}
         </span>
       </div>
@@ -289,11 +288,10 @@ function ProposalCardView({
         <div className="mt-1.5 flex items-center justify-between gap-1">
           {proposal.materialValue != null ? (
             <span className="text-xs text-muted-foreground">
-              Material:{" "}
+              Material: R${" "}
               {proposal.materialValue.toLocaleString("pt-BR", {
-                style: "currency",
-                currency: "BRL",
-                maximumFractionDigits: 0,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
               })}
             </span>
           ) : (
@@ -315,7 +313,11 @@ function ProposalCardView({
         <span className="flex items-center gap-1">
           {margin != null ? (
             <span className={`text-xs font-bold ${marginColor}`}>
-              Lucro: {margin}%
+              Lucro: R${" "}
+              {margin.toLocaleString("pt-BR", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
