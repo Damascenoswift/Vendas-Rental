@@ -333,6 +333,105 @@ export async function deleteProposal(proposalId: string) {
 
 const ADM_ROLES = ["adm_mestre", "adm_dorata"]
 
+export type ProposalSummaryData = {
+  id: string
+  clientName: string
+  totalValue: number | null
+  materialValue: number | null
+  profitMargin: number | null
+  totalPower: number | null
+  kWp: number | null
+  kWhEstimado: number | null
+  inverterType: string | null
+  qtdModulos: number | null
+  potenciaModuloW: number | null
+  moduleName: string | null
+  inverterNames: string[]
+}
+
+export async function getProposalSummary(proposalId: string): Promise<ProposalSummaryData | null> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return null
+
+  const supabaseAdmin = createSupabaseServiceClient()
+
+  const { data: proposal, error: proposalError } = await supabaseAdmin
+    .from("proposals")
+    .select(`
+      id, total_value, profit_margin, total_power, calculation,
+      cliente:indicacoes!proposals_client_id_fkey(nome),
+      contato:contacts!proposals_contact_id_fkey(full_name, first_name, last_name)
+    `)
+    .eq("id", proposalId)
+    .maybeSingle()
+
+  if (proposalError || !proposal) return null
+
+  const { data: items } = await supabaseAdmin
+    .from("proposal_items")
+    .select("product_id, quantity, products(id, name, type)")
+    .eq("proposal_id", proposalId)
+
+  // Extract calculation fields
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const calc = proposal.calculation as any
+
+  const kWp: number | null = calc?.output?.dimensioning?.kWp ?? null
+  const kWhEstimado: number | null = calc?.output?.dimensioning?.kWh_estimado ?? null
+  const inverterType: string | null =
+    calc?.output?.dimensioning?.inversor?.tipo ??
+    calc?.input?.dimensioning?.tipo_inversor ??
+    null
+  const qtdModulos: number | null = calc?.input?.dimensioning?.qtd_modulos ?? null
+  const potenciaModuloW: number | null = calc?.input?.dimensioning?.potencia_modulo_w ?? null
+  const materialValue: number | null = calc?.output?.totals?.views?.view_material ?? null
+
+  // Extract product names from items
+  let moduleName: string | null = null
+  const inverterNames: string[] = []
+
+  for (const item of items ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const product = Array.isArray((item as any).products) ? (item as any).products[0] : (item as any).products
+    if (!product) continue
+    const type: string = (product.type ?? "").toLowerCase()
+    if (type === "module" && !moduleName) {
+      moduleName = product.name ?? null
+    } else if (type === "inverter") {
+      if (product.name) inverterNames.push(product.name)
+    }
+  }
+
+  // Derive client name
+  const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
+  const contato = Array.isArray(proposal.contato) ? (proposal.contato[0] ?? null) : proposal.contato
+
+  const clienteNome = (cliente?.nome ?? "").trim()
+  const contatoFullName = (contato?.full_name ?? "").trim()
+  const contatoByParts = [contato?.first_name, contato?.last_name].filter(Boolean).join(" ").trim()
+  const clientName = clienteNome || contatoFullName || contatoByParts || "Cliente"
+
+  return {
+    id: proposal.id,
+    clientName,
+    totalValue: proposal.total_value ?? null,
+    materialValue,
+    profitMargin: proposal.profit_margin ?? null,
+    totalPower: proposal.total_power ?? null,
+    kWp,
+    kWhEstimado,
+    inverterType,
+    qtdModulos,
+    potenciaModuloW,
+    moduleName,
+    inverterNames,
+  }
+}
+
 export async function updateProposalMargin(
   proposalId: string,
   margin: number

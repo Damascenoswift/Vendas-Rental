@@ -22,6 +22,7 @@ import { updateProposalMargin } from "@/app/actions/proposals"
 import { useToast } from "@/hooks/use-toast"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { STATUS_LABELS, type ProposalListItem } from "./proposals-list-tab"
+import { ProposalSummarySheet } from "./proposal-summary-sheet"
 
 type ProposalsKanbanTabProps = {
   proposals: ProposalListItem[]
@@ -212,6 +213,7 @@ function ProposalCardView({
   isOverlay = false,
   isAdmin = false,
   onMarginUpdate,
+  onCardClick,
 }: {
   proposal: ProposalListItem
   dragHandleListeners?: React.HTMLAttributes<HTMLElement>
@@ -220,6 +222,7 @@ function ProposalCardView({
   isOverlay?: boolean
   isAdmin?: boolean
   onMarginUpdate?: (proposalId: string, newMargin: number) => void
+  onCardClick?: (proposal: ProposalListItem) => void
 }) {
   const daysColor =
     proposal.daysSinceUpdate > 10
@@ -242,15 +245,17 @@ function ProposalCardView({
     <div
       className={`relative rounded-md border border-border bg-card p-3 shadow-sm transition-opacity ${
         isDragging && !isOverlay ? "opacity-30" : "opacity-100"
-      } ${isOverlay ? "shadow-lg rotate-1 cursor-grabbing" : "cursor-grab hover:shadow-md"}`}
+      } ${isOverlay ? "shadow-lg rotate-1 cursor-grabbing" : "cursor-pointer hover:shadow-md"}`}
+      onClick={() => !isOverlay && onCardClick?.(proposal)}
     >
       {/* Drag handle */}
       <button
         {...dragHandleListeners}
         {...dragHandleAttributes}
-        className="absolute top-2 right-2 text-muted-foreground hover:text-foreground touch-none"
+        className="absolute top-2 right-2 text-muted-foreground hover:text-foreground touch-none cursor-grab"
         tabIndex={-1}
         aria-label="Arrastar"
+        onClick={(e) => e.stopPropagation()}
       >
         <GripVertical className="h-3.5 w-3.5" />
       </button>
@@ -339,10 +344,12 @@ function ProposalCard({
   proposal,
   isAdmin,
   onMarginUpdate,
+  onCardClick,
 }: {
   proposal: ProposalListItem
   isAdmin?: boolean
   onMarginUpdate?: (proposalId: string, newMargin: number) => void
+  onCardClick?: (proposal: ProposalListItem) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: proposal.id,
@@ -357,6 +364,7 @@ function ProposalCard({
         isDragging={isDragging}
         isAdmin={isAdmin}
         onMarginUpdate={onMarginUpdate}
+        onCardClick={onCardClick}
       />
     </div>
   )
@@ -369,11 +377,13 @@ function KanbanColumn({
   proposals,
   isAdmin,
   onMarginUpdate,
+  onCardClick,
 }: {
   column: ColumnDef
   proposals: ProposalListItem[]
   isAdmin?: boolean
   onMarginUpdate?: (proposalId: string, newMargin: number) => void
+  onCardClick?: (proposal: ProposalListItem) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
 
@@ -421,6 +431,7 @@ function KanbanColumn({
                 proposal={p}
                 isAdmin={isAdmin}
                 onMarginUpdate={onMarginUpdate}
+                onCardClick={onCardClick}
               />
             ))}
           </div>
@@ -440,6 +451,13 @@ export function ProposalsKanbanTab({
   const [activeId, setActiveId] = useState<string | null>(null)
   const originalStatusRef = useRef<NegotiationStatus | null>(null)
   const { showToast } = useToast()
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryProposal, setSummaryProposal] = useState<ProposalListItem | null>(null)
+
+  function handleCardClick(proposal: ProposalListItem) {
+    setSummaryProposal(proposal)
+    setSummaryOpen(true)
+  }
 
   useEffect(() => {
     setProposals(initialProposals)
@@ -566,32 +584,43 @@ export function ProposalsKanbanTab({
   const activeProposal = activeId ? proposals.find((p) => p.id === activeId) : null
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCorners}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-    >
-      <div className="overflow-x-auto pb-4">
-        <div className="flex gap-3 min-w-max">
-          {COLUMNS.map((col) => (
-            <KanbanColumn
-              key={col.id}
-              column={col}
-              proposals={proposals.filter((p) => p.negotiationStatus === col.id)}
-              isAdmin={isAdmin}
-              onMarginUpdate={handleMarginUpdate}
-            />
-          ))}
+    <>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-3 min-w-max">
+            {COLUMNS.map((col) => (
+              <KanbanColumn
+                key={col.id}
+                column={col}
+                proposals={proposals.filter((p) => p.negotiationStatus === col.id)}
+                isAdmin={isAdmin}
+                onMarginUpdate={handleMarginUpdate}
+                onCardClick={handleCardClick}
+              />
+            ))}
+          </div>
         </div>
-      </div>
 
-      <DragOverlay>
-        {activeProposal ? (
-          <ProposalCardView proposal={activeProposal} isOverlay />
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay>
+          {activeProposal ? (
+            <ProposalCardView proposal={activeProposal} isOverlay />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+
+      {summaryProposal && (
+        <ProposalSummarySheet
+          proposal={summaryProposal}
+          open={summaryOpen}
+          onOpenChange={setSummaryOpen}
+        />
+      )}
+    </>
   )
 }
