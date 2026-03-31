@@ -336,16 +336,33 @@ const ADM_ROLES = ["adm_mestre", "adm_dorata"]
 export type ProposalSummaryData = {
   id: string
   clientName: string
+  // Financeiro
   totalValue: number | null
   materialValue: number | null
   profitMargin: number | null
+  // Pagamento
+  entrada: number | null          // valor entrada
+  parcelaMensal: number | null
+  totalPago: number | null
+  jurosPagos: number | null
+  saldoPosCarencia: number | null
+  qtdParcelas: number | null
+  mesesCarencia: number | null
+  // Sistema
   totalPower: number | null
   kWp: number | null
-  kWhEstimado: number | null
-  inverterType: string | null
+  kWhMensal: number | null        // kWh estimado por mês
+  kWhAnual: number | null         // kWh estimado por ano
+  indiceProducao: number | null
+  // Comercial
+  economiaMensal: number | null
+  economiaAnual: number | null
+  tarifaKwh: number | null
+  // Equipamentos
   qtdModulos: number | null
   potenciaModuloW: number | null
   moduleName: string | null
+  inverterType: string | null
   inverterNames: string[]
 }
 
@@ -381,14 +398,30 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
   const calc = proposal.calculation as any
 
   const kWp: number | null = calc?.output?.dimensioning?.kWp ?? null
-  const kWhEstimado: number | null = calc?.output?.dimensioning?.kWh_estimado ?? null
+  const kWhMensal: number | null = calc?.output?.dimensioning?.kWh_estimado ?? null
+  const kWhAnual: number | null = kWhMensal != null ? kWhMensal * 12 : null
   const inverterType: string | null =
     calc?.output?.dimensioning?.inversor?.tipo ??
     calc?.input?.dimensioning?.tipo_inversor ??
     null
   const qtdModulos: number | null = calc?.input?.dimensioning?.qtd_modulos ?? null
   const potenciaModuloW: number | null = calc?.input?.dimensioning?.potencia_modulo_w ?? null
+  const indiceProducao: number | null = calc?.input?.dimensioning?.indice_producao ?? null
   const materialValue: number | null = calc?.output?.totals?.views?.view_material ?? null
+  // Pagamento
+  const entrada: number | null = calc?.output?.finance?.entrada_percentual != null && calc?.output?.totals?.total_a_vista != null
+    ? calc.output.finance.entrada_percentual / 100 * calc.output.totals.total_a_vista
+    : null
+  const parcelaMensal: number | null = calc?.output?.finance?.parcela_mensal ?? null
+  const totalPago: number | null = calc?.output?.finance?.total_pago ?? null
+  const jurosPagos: number | null = calc?.output?.finance?.juros_pagos ?? null
+  const saldoPosCarencia: number | null = calc?.output?.finance?.saldo_pos_carencia ?? null
+  const qtdParcelas: number | null = calc?.output?.finance?.parcela_mensal != null ? (calc?.params?.parcelas ?? null) : null
+  const mesesCarencia: number | null = calc?.params?.meses_carencia ?? null
+  // Comercial
+  const economiaMensal: number | null = calc?.output?.commercial?.economia_mensal_estimada ?? null
+  const economiaAnual: number | null = calc?.output?.commercial?.economia_anual_estimada ?? null
+  const tarifaKwh: number | null = calc?.output?.commercial?.tarifa_kwh ?? null
 
   // Extract product names from items
   let moduleName: string | null = null
@@ -423,10 +456,22 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
     profitMargin: proposal.profit_margin ?? null,
     totalPower: proposal.total_power ?? null,
     kWp,
-    kWhEstimado,
+    kWhMensal,
+    kWhAnual,
+    indiceProducao,
     inverterType,
     qtdModulos,
     potenciaModuloW,
+    entrada,
+    parcelaMensal,
+    totalPago,
+    jurosPagos,
+    saldoPosCarencia,
+    qtdParcelas,
+    mesesCarencia,
+    economiaMensal,
+    economiaAnual,
+    tarifaKwh,
     moduleName,
     inverterNames,
   }
