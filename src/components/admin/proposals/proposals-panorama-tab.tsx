@@ -21,6 +21,49 @@ function formatBRL(value: number) {
   return `R$ ${value.toLocaleString("pt-BR")}`
 }
 
+function InstallationBreakdown({
+  breakdown,
+}: {
+  breakdown: PanoramaData["installationBreakdown"]
+}) {
+  const total = breakdown.telhado.count + breakdown.solo.count
+  if (total === 0) return null
+
+  const rows = [
+    { label: "Telhado", data: breakdown.telhado, color: "bg-blue-500" },
+    { label: "Solo", data: breakdown.solo, color: "bg-amber-500" },
+  ] as const
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
+        Tipo de instalação
+      </h3>
+      <div className="space-y-2.5">
+        {rows.map(({ label, data, color }) => {
+          const pct = total > 0 ? Math.round((data.count / total) * 100) : 0
+          return (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground w-14">{label}</span>
+              <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${color}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-xs font-bold text-foreground w-8">{pct}%</span>
+              <span className="text-xs text-muted-foreground w-8">{data.count}x</span>
+              <span className="text-xs font-semibold text-foreground w-20 text-right">
+                {formatBRL(data.totalValue)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function ProposalsPanoramaTab({ data }: { data: PanoramaData }) {
   const maxDays = Math.max(...data.conversionByMonth.map((m) => m.avgDays), 1)
 
@@ -32,7 +75,17 @@ export function ProposalsPanoramaTab({ data }: { data: PanoramaData }) {
         <KpiCard label="Em fechamento" value={formatBRL(data.kpis.totalFechamento)} color="bg-amber-50 text-amber-800" />
         <KpiCard label="Concluído" value={formatBRL(data.kpis.totalConcluido)} color="bg-emerald-50 text-emerald-800" />
         <KpiCard label="Parados" value={String(data.kpis.qtdParados)} color="bg-red-50 text-red-800" />
+        {data.avgMargin != null && (
+          <KpiCard
+            label="Margem média"
+            value={`${data.avgMargin.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+            color="bg-emerald-50 text-emerald-800"
+          />
+        )}
       </div>
+
+      {/* Installation breakdown */}
+      <InstallationBreakdown breakdown={data.installationBreakdown} />
 
       {/* Proposals list */}
       <div>
@@ -49,13 +102,19 @@ export function ProposalsPanoramaTab({ data }: { data: PanoramaData }) {
               >
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-semibold">{p.clientName}</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant={STATUS_VARIANTS[p.negotiationStatus as NegotiationStatus]} className="text-xs">
                       {STATUS_LABELS[p.negotiationStatus as NegotiationStatus]}
                     </Badge>
                     <span className={`text-xs ${p.daysSinceUpdate > 10 ? "text-red-500" : "text-muted-foreground"}`}>
                       {p.daysSinceUpdate} dias
                     </span>
+                    {p.crmContractDate && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        ✓ Contrato{" "}
+                        {format(parseISO(p.crmContractDate), "dd/MM/yy", { locale: ptBR })}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
