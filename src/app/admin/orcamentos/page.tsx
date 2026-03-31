@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table"
 import { ProposalRowActions } from "@/components/admin/proposals/proposal-row-actions"
 import { ProposalsTabsClient } from "@/components/admin/proposals/proposals-tabs-client"
-import { ProposalsListTab } from "@/components/admin/proposals/proposals-list-tab"
+import { ProposalsKanbanTab } from "@/components/admin/proposals/proposals-kanban-tab"
 import { ProposalsAnalystTab } from "@/components/admin/proposals/proposals-analyst-tab"
 import { ProposalsPanoramaTab } from "@/components/admin/proposals/proposals-panorama-tab"
 import { getSalesAnalystPanorama } from "@/app/actions/sales-analyst"
@@ -312,7 +312,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
               <ProposalsAdmApprovals initialPending={pendingApprovals} />
             )}
             <ProposalsTabsClient
-                listaContent={<ProposalsListTab proposals={proposalListItems} />}
+                kanbanContent={<ProposalsKanbanTab proposals={proposalListItems} />}
                 analistaContent={<ProposalsAnalystTab proposals={proposalListItems} />}
                 panoramaContent={
                     panoramaData

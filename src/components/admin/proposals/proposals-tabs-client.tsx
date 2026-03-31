@@ -1,28 +1,28 @@
 // src/components/admin/proposals/proposals-tabs-client.tsx
 "use client"
 import { useState } from "react"
-import { BarChart2, MessageSquare, List } from "lucide-react"
+import { BarChart2, MessageSquare, LayoutDashboard } from "lucide-react"
 
-export type TabKey = "lista" | "analista" | "panorama"
+export type TabKey = "kanban" | "analista" | "panorama"
 
 type ProposalsTabsClientProps = {
-  listaContent: React.ReactNode
+  kanbanContent: React.ReactNode
   analistaContent: React.ReactNode
   panoramaContent: React.ReactNode
   defaultTab?: TabKey
 }
 
 const TABS = [
-  { key: "lista" as TabKey, label: "Lista", Icon: List },
+  { key: "kanban" as TabKey, label: "Kanban", Icon: LayoutDashboard },
   { key: "analista" as TabKey, label: "Analista", Icon: MessageSquare },
   { key: "panorama" as TabKey, label: "Panorama", Icon: BarChart2 },
 ]
 
 export function ProposalsTabsClient({
-  listaContent,
+  kanbanContent,
   analistaContent,
   panoramaContent,
-  defaultTab = "lista",
+  defaultTab = "kanban",
 }: ProposalsTabsClientProps) {
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab)
 
@@ -45,7 +45,7 @@ export function ProposalsTabsClient({
           </button>
         ))}
       </div>
-      {activeTab === "lista" && listaContent}
+      {activeTab === "kanban" && kanbanContent}
       {activeTab === "analista" && analistaContent}
       {activeTab === "panorama" && panoramaContent}
     </div>
