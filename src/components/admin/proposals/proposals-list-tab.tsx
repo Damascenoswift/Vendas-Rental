@@ -10,6 +10,8 @@ export type ProposalListItem = {
   profitMargin: number | null
   daysSinceUpdate: number
   negotiationStatus: NegotiationStatus
+  materialValue: number | null   // kit + structure cost
+  totalPower: number | null      // kWp
 }
 
 export const STATUS_LABELS: Record<NegotiationStatus, string> = {

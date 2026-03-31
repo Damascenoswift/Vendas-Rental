@@ -20,7 +20,7 @@ import { GripVertical } from "lucide-react"
 import { updateNegotiationStatus } from "@/app/actions/sales-analyst"
 import { useToast } from "@/hooks/use-toast"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
-import { STATUS_LABELS, MarginBar, type ProposalListItem } from "./proposals-list-tab"
+import { STATUS_LABELS, type ProposalListItem } from "./proposals-list-tab"
 
 type ProposalsKanbanTabProps = {
   proposals: ProposalListItem[]
@@ -113,6 +113,16 @@ function ProposalCardView({
         ? "text-amber-500"
         : "text-muted-foreground"
 
+  const margin = proposal.profitMargin
+  const marginColor =
+    margin == null
+      ? "text-muted-foreground"
+      : margin >= 18
+        ? "text-emerald-600"
+        : margin >= 10
+          ? "text-amber-600"
+          : "text-red-600"
+
   return (
     <div
       className={`relative rounded-md border border-border bg-card p-3 shadow-sm transition-opacity ${
@@ -141,28 +151,59 @@ function ProposalCardView({
         </span>
       </Link>
 
-      {/* Value */}
+      {/* Total value */}
       <div className="mt-1.5">
-        <span className="text-sm font-bold text-primary">
+        <span className="text-base font-bold text-primary">
           {proposal.totalValue != null
             ? proposal.totalValue.toLocaleString("pt-BR", {
                 style: "currency",
                 currency: "BRL",
-                minimumFractionDigits: 0,
                 maximumFractionDigits: 0,
               })
             : "—"}
         </span>
       </div>
 
-      {/* Footer */}
-      <div className="mt-2 flex items-center justify-between">
+      {/* Material + kWp */}
+      {(proposal.materialValue != null || proposal.totalPower != null) && (
+        <div className="mt-1.5 flex items-center justify-between gap-1">
+          {proposal.materialValue != null ? (
+            <span className="text-xs text-muted-foreground">
+              Material:{" "}
+              {proposal.materialValue.toLocaleString("pt-BR", {
+                style: "currency",
+                currency: "BRL",
+                maximumFractionDigits: 0,
+              })}
+            </span>
+          ) : (
+            <span />
+          )}
+          {proposal.totalPower != null ? (
+            <span className="text-xs text-muted-foreground shrink-0">
+              ⚡ {proposal.totalPower.toLocaleString("pt-BR", {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })} kWp
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      {/* Desconto + days */}
+      <div className="mt-1.5 flex items-center justify-between gap-1">
+        {margin != null ? (
+          <span className={`text-xs font-bold ${marginColor}`}>
+            Desc: {margin}%
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
         {proposal.daysSinceUpdate > 0 && (
           <span className={`text-xs ${daysColor}`}>
             {proposal.daysSinceUpdate} dias
           </span>
         )}
-        <MarginBar margin={proposal.profitMargin} />
       </div>
     </div>
   )
@@ -201,7 +242,7 @@ function KanbanColumn({
   const total = proposals.reduce((sum, p) => sum + (p.totalValue ?? 0), 0)
 
   return (
-    <div className="flex flex-col min-w-[220px] w-[220px] flex-shrink-0">
+    <div className="flex flex-col min-w-[260px] w-[260px] flex-shrink-0">
       {/* Header */}
       <div
         className={`rounded-t-md border-l-4 border border-border bg-card px-3 py-2.5 ${column.borderColor}`}
