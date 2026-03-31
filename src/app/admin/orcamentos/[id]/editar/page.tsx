@@ -207,7 +207,7 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
                 <ProposalPriceApproval
                     proposalId={id}
                     initialApproval={initialApproval}
-                    currentMargin={(proposal as unknown as { profit_margin?: number | null }).profit_margin ?? null}
+                    currentMargin={proposal.profit_margin ?? null}
                     currentValue={proposal.total_value ?? null}
                 />
             </div>

@@ -20,6 +20,10 @@ create table public.proposal_price_approvals (
 create index proposal_price_approvals_proposal_id_idx
   on public.proposal_price_approvals(proposal_id, requested_at desc);
 
+create unique index ppa_one_pending_per_proposal
+  on public.proposal_price_approvals(proposal_id)
+  where status = 'pending';
+
 alter table public.proposal_price_approvals enable row level security;
 
 -- Vendedor: read own proposals' approvals

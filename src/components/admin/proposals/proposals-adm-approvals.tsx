@@ -4,6 +4,7 @@
 import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { ChevronDown, ChevronRight, Clock } from "lucide-react"
 import {
   approvePriceApproval,
@@ -30,6 +31,7 @@ function ApprovalCard({
   onResolved: (id: string) => void
 }) {
   const [admMargin, setAdmMargin] = useState("")
+  const [rejectNote, setRejectNote] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -54,7 +56,7 @@ function ApprovalCard({
     setError(null)
     startTransition(async () => {
       try {
-        await rejectPriceApproval(item.id)
+        await rejectPriceApproval(item.id, rejectNote.trim() || undefined)
         onResolved(item.id)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erro ao rejeitar")
@@ -86,6 +88,15 @@ function ApprovalCard({
           &ldquo;{item.vendedor_note}&rdquo;
         </p>
       )}
+
+      <Textarea
+        placeholder="Motivo da recusa (opcional)"
+        value={rejectNote}
+        onChange={(e) => setRejectNote(e.target.value)}
+        rows={2}
+        className="text-xs resize-none"
+        disabled={isPending}
+      />
 
       <div className="flex items-center gap-2">
         <div className="flex-1">
