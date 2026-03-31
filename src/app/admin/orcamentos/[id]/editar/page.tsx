@@ -6,6 +6,8 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { ProposalAnalystChat } from "@/components/admin/proposals/proposal-analyst-chat"
 import { getSalesAnalystConversation, getNegotiationRecord } from "@/app/actions/sales-analyst"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
+import { getProposalPriceApproval } from "@/app/actions/price-approval"
+import { ProposalPriceApproval } from "@/components/admin/proposals/proposal-price-approval"
 
 export const dynamic = "force-dynamic"
 
@@ -150,13 +152,17 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
     let analystMessages: Awaited<ReturnType<typeof getSalesAnalystConversation>> = []
     let negotiationStatus: NegotiationStatus = "sem_contato"
 
+    let initialApproval: Awaited<ReturnType<typeof getProposalPriceApproval>> = null
+
     try {
-        const [msgs, neg] = await Promise.all([
+        const [msgs, neg, approval] = await Promise.all([
             getSalesAnalystConversation(id),
             getNegotiationRecord(id),
+            getProposalPriceApproval(id),
         ])
         analystMessages = msgs
         negotiationStatus = (neg?.negotiation_status ?? "sem_contato") as NegotiationStatus
+        initialApproval = approval
     } catch {
         // Non-blocking — chat is additive, page still works without it
     }
@@ -197,6 +203,12 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
                         created_at: m.created_at,
                     }))}
                     initialStatus={negotiationStatus}
+                />
+                <ProposalPriceApproval
+                    proposalId={id}
+                    initialApproval={initialApproval}
+                    currentMargin={(proposal as unknown as { profit_margin?: number | null }).profit_margin ?? null}
+                    currentValue={proposal.total_value ?? null}
                 />
             </div>
         </div>
