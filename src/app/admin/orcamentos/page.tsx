@@ -67,6 +67,8 @@ type ProposalQueryRow = {
         | Array<{ id?: string; nome?: string | null }>
         | null
     contato?: ProposalContactRow | ProposalContactRow[] | null
+    profit_margin?: number | null
+    total_power?: number | null
     [key: string]: unknown
 }
 
@@ -277,14 +279,14 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
             return [c.first_name, c.last_name].filter(Boolean).join(" ").trim() || "Cliente"
         })(),
         totalValue: p.total_value ?? null,
-        profitMargin: (p as unknown as { profit_margin?: number | null }).profit_margin ?? null,
+        profitMargin: p.profit_margin ?? null,
         daysSinceUpdate: p.updated_at ? differenceInDays(new Date(), parseISO(p.updated_at)) : 0,
         negotiationStatus: negotiationMap[p.id] ?? "sem_contato" as NegotiationStatus,
         materialValue: (() => {
             const calc = p.calculation as { output?: { totals?: { views?: { view_material?: number } } } } | null
             return calc?.output?.totals?.views?.view_material ?? null
         })(),
-        totalPower: (p as unknown as { total_power?: number | null }).total_power ?? null,
+        totalPower: p.total_power ?? null,
     }))
 
     return (
