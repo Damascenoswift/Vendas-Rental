@@ -24,6 +24,8 @@ import { ProposalsAnalystTab } from "@/components/admin/proposals/proposals-anal
 import { ProposalsPanoramaTab } from "@/components/admin/proposals/proposals-panorama-tab"
 import { getSalesAnalystPanorama } from "@/app/actions/sales-analyst"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
+import { getPendingApprovals } from "@/app/actions/price-approval"
+import { ProposalsAdmApprovals } from "@/components/admin/proposals/proposals-adm-approvals"
 
 function parseMissingColumnError(message?: string | null) {
     if (!message) return null
@@ -261,6 +263,9 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
     // Panorama data (only for admin roles)
     const isAdmin = role === "adm_mestre" || role === "adm_dorata"
     const panoramaData = isAdmin ? await getSalesAnalystPanorama().catch(() => null) : null
+    const pendingApprovals = isAdmin
+        ? await getPendingApprovals().catch(() => [])
+        : []
 
     const proposalListItems = (proposals ?? []).map((p) => ({
         id: p.id,
@@ -280,7 +285,14 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">
             <div className="flex items-center justify-between space-y-2">
-                <h2 className="text-3xl font-bold tracking-tight">Orçamentos</h2>
+                <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+                  Orçamentos
+                  {pendingApprovals.length > 0 && (
+                    <span className="inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-xs font-bold h-5 px-1.5 min-w-5">
+                      {pendingApprovals.length}
+                    </span>
+                  )}
+                </h2>
                 <div className="flex items-center space-x-2">
                     <Link href="/admin/orcamentos/novo">
                         <Button>
@@ -296,6 +308,9 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
                 </div>
             </div>
 
+            {isAdmin && pendingApprovals.length > 0 && (
+              <ProposalsAdmApprovals initialPending={pendingApprovals} />
+            )}
             <ProposalsTabsClient
                 listaContent={<ProposalsListTab proposals={proposalListItems} />}
                 analistaContent={<ProposalsAnalystTab proposals={proposalListItems} />}
