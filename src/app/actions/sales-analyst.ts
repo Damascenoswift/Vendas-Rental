@@ -5,6 +5,7 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile, type UserRole } from "@/lib/auth"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { differenceInDays, parseISO } from "date-fns"
+import { getInstallationType } from "@/lib/price-approval-utils"
 
 const ALLOWED_ROLES: UserRole[] = ['adm_mestre', 'adm_dorata']
 
@@ -89,12 +90,18 @@ export type PanoramaProposal = {
   profitMargin: number | null
   totalPower: number | null
   daysSinceUpdate: number
+  crmContractDate: string | null   // ISO string or null
 }
 
 export type PanoramaData = {
   kpis: PanoramaKpis
   proposals: PanoramaProposal[]
   conversionByMonth: { month: string; avgDays: number }[]
+  avgMargin: number | null
+  installationBreakdown: {
+    telhado: { count: number; totalValue: number }
+    solo: { count: number; totalValue: number }
+  }
 }
 
 export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
@@ -108,9 +115,11 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
     .from("proposals")
     .select(`
       id,
+      client_id,
       total_value,
       profit_margin,
       total_power,
+      calculation,
       updated_at,
       created_at,
       contato:contacts(full_name),
@@ -118,7 +127,42 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
     `)
     .order("updated_at", { ascending: false })
 
-  if (!proposals) return { kpis: { totalAberto: 0, totalFechamento: 0, totalConcluido: 0, qtdParados: 0 }, proposals: [], conversionByMonth: [] }
+  if (!proposals) return { kpis: { totalAberto: 0, totalFechamento: 0, totalConcluido: 0, qtdParados: 0 }, proposals: [], conversionByMonth: [], avgMargin: null, installationBreakdown: { telhado: { count: 0, totalValue: 0 }, solo: { count: 0, totalValue: 0 } } }
+
+  // --- CRM contract date lookup ---
+  const clientIds = proposals.map((p) => p.client_id).filter((id): id is string => !!id)
+
+  let contractDateMap: Record<string, string> = {}
+  if (clientIds.length > 0) {
+    // Find stage IDs for "Contrato Assinado" in the Dorata pipeline
+    const { data: contractStages } = await service
+      .from("crm_stages")
+      .select("id, pipeline_id, crm_pipelines(brand)")
+      .eq("name", "Contrato Assinado")
+      .eq("is_closed", true)
+
+    type PipeRow = { brand?: string | null }
+    const dorataStageIds = (contractStages ?? [])
+      .filter((s) => {
+        const pipe = (Array.isArray(s.crm_pipelines) ? s.crm_pipelines[0] : s.crm_pipelines) as PipeRow | null
+        return pipe?.brand === "dorata"
+      })
+      .map((s) => s.id)
+
+    if (dorataStageIds.length > 0) {
+      const { data: contractCards } = await service
+        .from("crm_cards")
+        .select("indicacao_id, stage_entered_at")
+        .in("stage_id", dorataStageIds)
+        .in("indicacao_id", clientIds)
+
+      for (const card of contractCards ?? []) {
+        if (card.indicacao_id && card.stage_entered_at) {
+          contractDateMap[card.indicacao_id] = card.stage_entered_at
+        }
+      }
+    }
+  }
 
   type ContactRow = { full_name?: string | null }
   type NegRow = { negotiation_status: string; updated_at: string } | null
@@ -130,14 +174,25 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
   let totalAberto = 0, totalFechamento = 0, totalConcluido = 0, qtdParados = 0
   const panoramaProposals: PanoramaProposal[] = []
 
+  // For avg margin
+  let marginSum = 0
+  let marginCount = 0
+
+  // For installation breakdown (misto counts as telhado)
+  const breakdown = {
+    telhado: { count: 0, totalValue: 0 },
+    solo: { count: 0, totalValue: 0 },
+  }
+
   for (const p of proposals) {
     const neg = (Array.isArray(p.proposal_negotiations) ? p.proposal_negotiations[0] : p.proposal_negotiations) as NegRow
-    const status = (neg?.negotiation_status ?? 'sem_contato') as NegotiationStatus
+    const status = (neg?.negotiation_status ?? "sem_contato") as NegotiationStatus
     const value = p.total_value ?? 0
-    const profitMargin = p.profit_margin ?? null    // use top-level column
+    const profitMargin = p.profit_margin ?? null
     const contactArr = Array.isArray(p.contato) ? p.contato : p.contato ? [p.contato] : []
     const clientName = (contactArr[0] as ContactRow)?.full_name ?? "Cliente"
     const daysSinceUpdate = p.updated_at ? differenceInDays(new Date(), parseISO(p.updated_at)) : 0
+    const crmContractDate = (p.client_id ? contractDateMap[p.client_id] : undefined) ?? null
 
     if (CONCLUIDO_STATUSES.includes(status)) totalConcluido += value
     else if (FECHAMENTO_STATUSES.includes(status)) { totalAberto += value; totalFechamento += value }
@@ -145,8 +200,35 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
 
     if (PARADO_STATUSES.includes(status)) qtdParados++
 
-    panoramaProposals.push({ id: p.id, clientName, negotiationStatus: status, totalValue: p.total_value, profitMargin, daysSinceUpdate, totalPower: p.total_power ?? null })
+    // Avg margin accumulation
+    if (profitMargin != null) {
+      marginSum += profitMargin
+      marginCount++
+    }
+
+    // Installation breakdown
+    const installType = getInstallationType(p.calculation)
+    if (installType === "solo") {
+      breakdown.solo.count++
+      breakdown.solo.totalValue += value
+    } else if (installType === "telhado" || installType === "misto") {
+      breakdown.telhado.count++
+      breakdown.telhado.totalValue += value
+    }
+
+    panoramaProposals.push({
+      id: p.id,
+      clientName,
+      negotiationStatus: status,
+      totalValue: p.total_value,
+      profitMargin,
+      daysSinceUpdate,
+      totalPower: p.total_power ?? null,
+      crmContractDate,
+    })
   }
+
+  const avgMargin = marginCount > 0 ? Math.round((marginSum / marginCount) * 10) / 10 : null
 
   // Conversion time by month: proposals that are 'convertido', days from created_at to updated_at
   const converted = proposals.filter((p) => {
@@ -175,5 +257,7 @@ export async function getSalesAnalystPanorama(): Promise<PanoramaData> {
     kpis: { totalAberto, totalFechamento, totalConcluido, qtdParados },
     proposals: panoramaProposals,
     conversionByMonth,
+    avgMargin,
+    installationBreakdown: breakdown,
   }
 }
