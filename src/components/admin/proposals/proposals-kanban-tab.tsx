@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useTransition } from "react"
+import { useState, useRef, useEffect } from "react"
 import Link from "next/link"
 import {
   DndContext,
@@ -16,9 +16,8 @@ import {
   type DragOverEvent,
   type DragEndEvent,
 } from "@dnd-kit/core"
-import { GripVertical, Pencil, Check, X } from "lucide-react"
+import { GripVertical } from "lucide-react"
 import { updateNegotiationStatus } from "@/app/actions/sales-analyst"
-import { updateProposalMargin } from "@/app/actions/proposals"
 import { useToast } from "@/hooks/use-toast"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { STATUS_LABELS, type ProposalListItem } from "./proposals-list-tab"
@@ -94,115 +93,6 @@ function formatColumnValue(total: number): string {
   return `R$ ${total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-// ── Inline Margin Editor ──────────────────────────────────────────────────────
-
-function MarginEditor({
-  proposalId,
-  currentMargin,
-  onSuccess,
-}: {
-  proposalId: string
-  currentMargin: number | null
-  onSuccess: (newMargin: number) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(String(currentMargin ?? ""))
-  const [error, setError] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  function handleOpen(e: React.MouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    setValue(String(currentMargin ?? ""))
-    setError(null)
-    setEditing(true)
-    setTimeout(() => inputRef.current?.select(), 0)
-  }
-
-  function handleCancel(e: React.MouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    setEditing(false)
-    setError(null)
-  }
-
-  function handleConfirm(e: React.MouseEvent) {
-    e.preventDefault()
-    e.stopPropagation()
-    const num = parseFloat(value.replace(",", "."))
-    if (isNaN(num) || num < 0 || num > 60) {
-      setError("0–60%")
-      return
-    }
-    startTransition(async () => {
-      const result = await updateProposalMargin(proposalId, num)
-      if (result.error) {
-        setError(result.error)
-      } else {
-        onSuccess(num)
-        setEditing(false)
-        setError(null)
-      }
-    })
-  }
-
-  if (!editing) {
-    return (
-      <button
-        onClick={handleOpen}
-        className="ml-1 text-muted-foreground hover:text-foreground transition-colors"
-        title="Editar margem"
-        aria-label="Editar margem"
-      >
-        <Pencil className="w-3 h-3" />
-      </button>
-    )
-  }
-
-  return (
-    <span className="flex flex-col gap-0.5">
-      <span className="flex items-center gap-1">
-        <input
-          ref={inputRef}
-          type="number"
-          min={0}
-          max={60}
-          step={0.1}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleConfirm(e as unknown as React.MouseEvent)
-            if (e.key === "Escape") handleCancel(e as unknown as React.MouseEvent)
-          }}
-          className="w-14 rounded border border-border bg-background px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-          disabled={isPending}
-          aria-label="Nova margem %"
-        />
-        <span className="text-xs text-muted-foreground">%</span>
-        <button
-          onClick={handleConfirm}
-          disabled={isPending}
-          className="rounded bg-emerald-500 p-0.5 text-white hover:bg-emerald-600 disabled:opacity-50"
-          title="Confirmar"
-        >
-          <Check className="w-3 h-3" />
-        </button>
-        <button
-          onClick={handleCancel}
-          disabled={isPending}
-          className="rounded border border-border p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
-          title="Cancelar"
-        >
-          <X className="w-3 h-3" />
-        </button>
-      </span>
-      {error && <span className="text-xs text-red-500">{error}</span>}
-    </span>
-  )
-}
-
 // ── Card View (pure markup, no hooks) ────────────────────────────────────────
 
 function ProposalCardView({
@@ -211,8 +101,6 @@ function ProposalCardView({
   dragHandleAttributes,
   isDragging = false,
   isOverlay = false,
-  isAdmin = false,
-  onMarginUpdate,
   onCardClick,
 }: {
   proposal: ProposalListItem
@@ -220,8 +108,6 @@ function ProposalCardView({
   dragHandleAttributes?: React.HTMLAttributes<HTMLElement>
   isDragging?: boolean
   isOverlay?: boolean
-  isAdmin?: boolean
-  onMarginUpdate?: (proposalId: string, newMargin: number) => void
   onCardClick?: (proposal: ProposalListItem) => void
 }) {
   const daysColor =
@@ -231,7 +117,7 @@ function ProposalCardView({
         ? "text-amber-500"
         : "text-muted-foreground"
 
-  const margin = proposal.profitMargin
+  const margin = proposal.marginCalculatedPercent
   const marginColor =
     margin == null
       ? "text-muted-foreground"
@@ -310,24 +196,18 @@ function ProposalCardView({
 
       {/* Lucro + days */}
       <div className="mt-1.5 flex items-center justify-between gap-1">
-        <span className="flex items-center gap-1">
+        <span>
           {margin != null ? (
             <span className={`text-xs font-bold ${marginColor}`}>
-              Lucro: R${" "}
+              Margem:{" "}
               {margin.toLocaleString("pt-BR", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
               })}
+              %
             </span>
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
-          )}
-          {isAdmin && !isOverlay && onMarginUpdate && (
-            <MarginEditor
-              proposalId={proposal.id}
-              currentMargin={margin}
-              onSuccess={(newMargin) => onMarginUpdate(proposal.id, newMargin)}
-            />
           )}
         </span>
         {proposal.daysSinceUpdate > 0 && (
@@ -344,13 +224,9 @@ function ProposalCardView({
 
 function ProposalCard({
   proposal,
-  isAdmin,
-  onMarginUpdate,
   onCardClick,
 }: {
   proposal: ProposalListItem
-  isAdmin?: boolean
-  onMarginUpdate?: (proposalId: string, newMargin: number) => void
   onCardClick?: (proposal: ProposalListItem) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -364,8 +240,6 @@ function ProposalCard({
         dragHandleListeners={listeners}
         dragHandleAttributes={attributes}
         isDragging={isDragging}
-        isAdmin={isAdmin}
-        onMarginUpdate={onMarginUpdate}
         onCardClick={onCardClick}
       />
     </div>
@@ -377,14 +251,10 @@ function ProposalCard({
 function KanbanColumn({
   column,
   proposals,
-  isAdmin,
-  onMarginUpdate,
   onCardClick,
 }: {
   column: ColumnDef
   proposals: ProposalListItem[]
-  isAdmin?: boolean
-  onMarginUpdate?: (proposalId: string, newMargin: number) => void
   onCardClick?: (proposal: ProposalListItem) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id })
@@ -431,8 +301,6 @@ function KanbanColumn({
               <ProposalCard
                 key={p.id}
                 proposal={p}
-                isAdmin={isAdmin}
-                onMarginUpdate={onMarginUpdate}
                 onCardClick={onCardClick}
               />
             ))}
@@ -473,12 +341,6 @@ export function ProposalsKanbanTab({
     }),
     useSensor(KeyboardSensor)
   )
-
-  function handleMarginUpdate(proposalId: string, newMargin: number) {
-    setProposals((prev) =>
-      prev.map((p) => (p.id === proposalId ? { ...p, profitMargin: newMargin } : p))
-    )
-  }
 
   function handleDragStart(event: DragStartEvent) {
     const id = event.active.id as string
@@ -601,8 +463,6 @@ export function ProposalsKanbanTab({
                 key={col.id}
                 column={col}
                 proposals={proposals.filter((p) => p.negotiationStatus === col.id)}
-                isAdmin={isAdmin}
-                onMarginUpdate={handleMarginUpdate}
                 onCardClick={handleCardClick}
               />
             ))}
@@ -621,6 +481,20 @@ export function ProposalsKanbanTab({
           proposal={summaryProposal}
           open={summaryOpen}
           onOpenChange={setSummaryOpen}
+          canAdjustFinancial={isAdmin}
+          onFinancialUpdate={(proposalId, values) => {
+            setProposals((current) =>
+              current.map((item) =>
+                item.id === proposalId
+                  ? {
+                      ...item,
+                      totalValue: values.totalValue,
+                      profitMargin: values.profitValue,
+                    }
+                  : item
+              )
+            )
+          }}
         />
       )}
     </>

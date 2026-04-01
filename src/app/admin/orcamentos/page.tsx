@@ -87,6 +87,22 @@ function getEstimatedKwh(calculation: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null
 }
 
+function getCalculatedMarginPercent(calculation: unknown): number | null {
+    if (!calculation || typeof calculation !== "object" || Array.isArray(calculation)) return null
+    const input = (calculation as JsonObject).input
+    const margin =
+        input && typeof input === "object" && !Array.isArray(input)
+            ? (input as JsonObject).margin
+            : null
+    const rawValue =
+        margin && typeof margin === "object" && !Array.isArray(margin)
+            ? (margin as JsonObject).margem_percentual
+            : null
+    const parsed = Number(rawValue)
+    if (!Number.isFinite(parsed)) return null
+    return parsed * 100
+}
+
 function normalizeSourceMode(value: unknown): "simple" | "complete" | "legacy" {
     if (value === "simple" || value === "complete" || value === "legacy") return value
     return "legacy"
@@ -280,6 +296,7 @@ export default async function ProposalsPage({ searchParams }: ProposalsPageProps
         })(),
         totalValue: p.total_value ?? null,
         profitMargin: p.profit_margin ?? null,
+        marginCalculatedPercent: getCalculatedMarginPercent(p.calculation),
         daysSinceUpdate: p.updated_at ? differenceInDays(new Date(), parseISO(p.updated_at)) : 0,
         negotiationStatus: negotiationMap[p.id] ?? "sem_contato" as NegotiationStatus,
         materialValue: (() => {

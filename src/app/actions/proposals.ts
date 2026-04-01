@@ -5,6 +5,11 @@ import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
 import { aggregateProposalInverterItems } from "@/lib/proposal-inverter-utils"
+import {
+  applyProposalFinancialAdjustment,
+  computeEffectiveMarginPercent,
+  computeProposalMaterialBreakdown,
+} from "@/lib/proposal-financial-adjustment-utils"
 import { revalidatePath } from "next/cache"
 
 const proposalViewRoles = [
@@ -339,8 +344,15 @@ export type ProposalSummaryData = {
   clientName: string
   // Financeiro
   totalValue: number | null
+  profitValue: number | null
+  effectiveMarginPercent: number | null
+  marginCalculatedPercent: number | null
   materialValue: number | null
-  profitMargin: number | null
+  kitCost: number | null
+  structureCost: number | null
+  additionalCost: number | null
+  materialTotal: number | null
+  materialWithAdditionalTotal: number | null
   // Pagamento
   entrada: number | null          // valor entrada
   parcelaMensal: number | null
@@ -382,7 +394,7 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
   const { data: proposal, error: proposalError } = await supabaseAdmin
     .from("proposals")
     .select(`
-      id, total_value, profit_margin, total_power, calculation,
+      id, total_value, profit_margin, total_power, calculation, equipment_cost, additional_cost,
       cliente:indicacoes!proposals_client_id_fkey(nome),
       contato:contacts!proposals_contact_id_fkey(full_name, first_name, last_name)
     `)
@@ -411,6 +423,16 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
   const potenciaModuloW: number | null = calc?.input?.dimensioning?.potencia_modulo_w ?? null
   const indiceProducao: number | null = calc?.input?.dimensioning?.indice_producao ?? null
   const materialValue: number | null = calc?.output?.totals?.views?.view_material ?? null
+  const marginCalculatedPercentRaw = Number(calc?.input?.margin?.margem_percentual ?? NaN)
+  const marginCalculatedPercent: number | null = Number.isFinite(marginCalculatedPercentRaw)
+    ? marginCalculatedPercentRaw * 100
+    : null
+  const materialBreakdown = computeProposalMaterialBreakdown({
+    kitCost: calc?.output?.kit?.custo_kit ?? proposal.equipment_cost ?? null,
+    structureCost: calc?.output?.structure?.valor_estrutura_total ?? null,
+    additionalCost: calc?.output?.extras?.extras_total ?? proposal.additional_cost ?? null,
+    materialValueFallback: materialValue,
+  })
   // Pagamento
   const entrada: number | null = calc?.output?.finance?.entrada_percentual != null && calc?.output?.totals?.total_a_vista != null
     ? calc.output.finance.entrada_percentual / 100 * calc.output.totals.total_a_vista
@@ -465,8 +487,18 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
     id: proposal.id,
     clientName,
     totalValue: proposal.total_value ?? null,
+    profitValue: proposal.profit_margin ?? null,
+    effectiveMarginPercent: computeEffectiveMarginPercent(
+      proposal.total_value ?? null,
+      proposal.profit_margin ?? null
+    ),
+    marginCalculatedPercent,
     materialValue,
-    profitMargin: proposal.profit_margin ?? null,
+    kitCost: materialBreakdown.kitCost,
+    structureCost: materialBreakdown.structureCost,
+    additionalCost: materialBreakdown.additionalCost,
+    materialTotal: materialBreakdown.materialTotal,
+    materialWithAdditionalTotal: materialBreakdown.materialWithAdditionalTotal,
     totalPower: proposal.total_power ?? null,
     kWp,
     kWhMensal,
@@ -516,4 +548,82 @@ export async function updateProposalMargin(
 
   revalidatePath("/admin/orcamentos")
   return {}
+}
+
+type UpdateProposalFinancialAdjustmentInput = {
+  deltaTotalValue: number
+  deltaProfitValue: number
+}
+
+type UpdateProposalFinancialAdjustmentResult = {
+  error?: string
+  data?: {
+    totalValue: number
+    profitValue: number
+    effectiveMarginPercent: number | null
+  }
+}
+
+export async function updateProposalFinancialAdjustment(
+  proposalId: string,
+  input: UpdateProposalFinancialAdjustmentInput
+): Promise<UpdateProposalFinancialAdjustmentResult> {
+  const normalizedProposalId = proposalId.trim()
+  if (!normalizedProposalId) return { error: "Orçamento inválido." }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: "Não autenticado" }
+
+  const profile = await getProfile(supabase, user.id)
+  const role = (profile?.role ?? user.user_metadata?.role) as string | undefined
+  if (!role || !ADM_ROLES.includes(role)) return { error: "Acesso negado" }
+
+  const deltaTotalValue = Number(input.deltaTotalValue)
+  const deltaProfitValue = Number(input.deltaProfitValue)
+  if (!Number.isFinite(deltaTotalValue) || !Number.isFinite(deltaProfitValue)) {
+    return { error: "Ajuste financeiro inválido." }
+  }
+
+  const service = createSupabaseServiceClient()
+  const { data: current, error: fetchError } = await service
+    .from("proposals")
+    .select("id, total_value, profit_margin")
+    .eq("id", normalizedProposalId)
+    .maybeSingle()
+
+  if (fetchError || !current) {
+    return { error: "Orçamento não encontrado." }
+  }
+
+  const adjustment = applyProposalFinancialAdjustment({
+    currentTotalValue: current.total_value ?? 0,
+    currentProfitValue: current.profit_margin ?? 0,
+    deltaTotalValue,
+    deltaProfitValue,
+  })
+
+  if (!adjustment.ok) return { error: adjustment.error }
+
+  const { error: updateError } = await service
+    .from("proposals")
+    .update({
+      total_value: adjustment.nextTotalValue,
+      profit_margin: adjustment.nextProfitValue,
+    })
+    .eq("id", normalizedProposalId)
+
+  if (updateError) {
+    return { error: "Erro ao salvar ajuste financeiro." }
+  }
+
+  revalidatePath("/admin/orcamentos")
+
+  return {
+    data: {
+      totalValue: adjustment.nextTotalValue,
+      profitValue: adjustment.nextProfitValue,
+      effectiveMarginPercent: adjustment.nextMarginPercent,
+    },
+  }
 }

@@ -8,6 +8,7 @@ export type ProposalListItem = {
   clientName: string
   totalValue: number | null
   profitMargin: number | null
+  marginCalculatedPercent: number | null
   daysSinceUpdate: number
   negotiationStatus: NegotiationStatus
   materialValue: number | null   // kit + structure cost

@@ -12,7 +12,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { getProposalSummary, type ProposalSummaryData } from "@/app/actions/proposals"
+import {
+  getProposalSummary,
+  type ProposalSummaryData,
+  updateProposalFinancialAdjustment,
+} from "@/app/actions/proposals"
 import {
   getProposalFollowupPanelData,
   saveProposalFeedback,
@@ -23,6 +27,7 @@ import {
   formatDateTimeInCuiaba,
   toDateTimeLocalInCuiaba,
 } from "@/lib/proposal-reminder-utils"
+import { getProposalFinancialPreview } from "@/lib/proposal-financial-adjustment-utils"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { useToast } from "@/hooks/use-toast"
 import type { ProposalListItem } from "./proposals-list-tab"
@@ -31,6 +36,11 @@ type Props = {
   proposal: ProposalListItem
   open: boolean
   onOpenChange: (open: boolean) => void
+  canAdjustFinancial?: boolean
+  onFinancialUpdate?: (
+    proposalId: string,
+    values: { totalValue: number; profitValue: number; effectiveMarginPercent: number | null }
+  ) => void
 }
 
 const STATUS_LABELS: Record<NegotiationStatus, string> = {
@@ -61,6 +71,22 @@ function num(value: number | null, decimals = 2): string {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })
+}
+
+function percent(value: number | null, decimals = 1): string {
+  if (value == null) return "—"
+  return `${value.toLocaleString("pt-BR", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}%`
+}
+
+function parseDelta(value: string): number {
+  if (!value.trim()) return 0
+  const normalized = value.replace(",", ".")
+  const parsed = Number(normalized)
+  if (!Number.isFinite(parsed)) return 0
+  return parsed
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -141,7 +167,13 @@ function FollowupPanelSkeleton() {
   )
 }
 
-export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
+export function ProposalSummarySheet({
+  proposal,
+  open,
+  onOpenChange,
+  canAdjustFinancial = false,
+  onFinancialUpdate,
+}: Props) {
   const [data, setData] = useState<ProposalSummaryData | null>(null)
   const [panelData, setPanelData] = useState<ProposalFollowupPanelData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -151,6 +183,9 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
   const [autoReminderEnabledDraft, setAutoReminderEnabledDraft] = useState(true)
   const [savingFeedback, setSavingFeedback] = useState(false)
   const [savingReminder, setSavingReminder] = useState(false)
+  const [savingFinancialAdjustment, setSavingFinancialAdjustment] = useState(false)
+  const [deltaTotalDraft, setDeltaTotalDraft] = useState("")
+  const [deltaProfitDraft, setDeltaProfitDraft] = useState("")
   const { showToast } = useToast()
 
   useEffect(() => {
@@ -161,6 +196,8 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
     setData(null)
     setPanelData(null)
     setFeedbackDraft("")
+    setDeltaTotalDraft("")
+    setDeltaProfitDraft("")
 
     Promise.all([
       getProposalSummary(proposal.id),
@@ -208,6 +245,18 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
 
   const hasFinance = data && (data.parcelaMensal != null || data.totalPago != null)
   const hasCommercial = data && (data.economiaMensal != null || data.economiaAnual != null)
+  const deltaTotalValue = parseDelta(deltaTotalDraft)
+  const deltaProfitValue = parseDelta(deltaProfitDraft)
+  const hasFinancialDelta = deltaTotalValue !== 0 || deltaProfitValue !== 0
+  const financialPreview = useMemo(() => {
+    if (!data) return null
+    return getProposalFinancialPreview({
+      currentTotalValue: data.totalValue,
+      currentProfitValue: data.profitValue,
+      deltaTotalValue,
+      deltaProfitValue,
+    })
+  }, [data, deltaProfitValue, deltaTotalValue])
 
   async function handleSaveFeedback() {
     const content = feedbackDraft.trim()
@@ -280,6 +329,58 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
     }
   }
 
+  async function handleSaveFinancialAdjustment() {
+    if (!data || !financialPreview) return
+    if (financialPreview.totalWouldBeNegative) {
+      showToast({
+        variant: "error",
+        title: "Ajuste inválido",
+        description: "O valor total final não pode ficar negativo.",
+      })
+      return
+    }
+
+    setSavingFinancialAdjustment(true)
+    try {
+      const result = await updateProposalFinancialAdjustment(proposal.id, {
+        deltaTotalValue,
+        deltaProfitValue,
+      })
+
+      if (result.error) throw new Error(result.error)
+      if (!result.data) throw new Error("Resposta inválida do servidor.")
+      const nextValues = result.data
+
+      setData((previous) => {
+        if (!previous) return previous
+        return {
+          ...previous,
+          totalValue: nextValues.totalValue,
+          profitValue: nextValues.profitValue,
+          effectiveMarginPercent: nextValues.effectiveMarginPercent,
+        }
+      })
+
+      onFinancialUpdate?.(proposal.id, nextValues)
+      setDeltaTotalDraft("")
+      setDeltaProfitDraft("")
+      showToast({
+        variant: "success",
+        title: "Ajuste financeiro salvo",
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Erro ao salvar ajuste financeiro."
+      showToast({
+        variant: "error",
+        title: "Erro ao salvar ajuste",
+        description: message,
+      })
+    } finally {
+      setSavingFinancialAdjustment(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto p-5 sm:p-6">
@@ -332,22 +433,146 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                 <SectionLabel>Resumo Financeiro</SectionLabel>
                 <div className="rounded-lg border border-border bg-card px-3 py-1">
                   <Row label="Valor Total à Vista" value={brlFull(data.totalValue)} />
-                  <Row label="Custo do Material" value={brlFull(data.materialValue)} />
+                  <Row label="Lucro Atual" value={brlFull(data.profitValue)} />
                   <Row
-                    label="Margem de Lucro"
+                    label="Margem Efetiva"
                     value={
-                      data.profitMargin != null ? (
+                      data.effectiveMarginPercent != null ? (
                         <span className={
-                          data.profitMargin >= 18 ? "text-emerald-600" :
-                          data.profitMargin >= 10 ? "text-amber-600" :
+                          data.effectiveMarginPercent >= 18 ? "text-emerald-600" :
+                          data.effectiveMarginPercent >= 10 ? "text-amber-600" :
                           "text-red-600"
                         }>
-                          {num(data.profitMargin, 1)}%
+                          {percent(data.effectiveMarginPercent)}
                         </span>
                       ) : "—"
                     }
                   />
+                  <Row
+                    label="Margem (%) Calculada"
+                    value={
+                      data.marginCalculatedPercent != null ? (
+                        <span className={
+                          data.marginCalculatedPercent >= 18 ? "text-emerald-600" :
+                          data.marginCalculatedPercent >= 10 ? "text-amber-600" :
+                          "text-red-600"
+                        }>
+                          {percent(data.marginCalculatedPercent)}
+                        </span>
+                      ) : "—"
+                    }
+                  />
+                  <Row label="Kit Gerador" value={brlFull(data.kitCost)} />
+                  <Row label="Estrutura" value={brlFull(data.structureCost)} />
+                  <Row label="Adicionais" value={brlFull(data.additionalCost)} />
+                  <Row label="Total Material (Kit + Estrutura)" value={brlFull(data.materialTotal)} />
+                  <Row label="Total com Adicionais" value={brlFull(data.materialWithAdditionalTotal)} />
                 </div>
+
+                {canAdjustFinancial && financialPreview && (
+                  <>
+                    <SectionLabel>Ajuste Financeiro</SectionLabel>
+                    <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Ajuste no valor total
+                          </label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={deltaTotalDraft}
+                            onChange={(event) => setDeltaTotalDraft(event.target.value)}
+                            disabled={savingFinancialAdjustment}
+                            placeholder="0,00"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Ajuste no lucro
+                          </label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={deltaProfitDraft}
+                            onChange={(event) => setDeltaProfitDraft(event.target.value)}
+                            disabled={savingFinancialAdjustment}
+                            placeholder="0,00"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                          Preview
+                        </p>
+                        <div className="space-y-1 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Total atual</span>
+                            <span className="font-semibold text-foreground">{brlFull(financialPreview.currentTotalValue)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Total estimado</span>
+                            <span className="font-semibold text-foreground">{brlFull(financialPreview.estimatedTotalValue)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Lucro atual</span>
+                            <span className="font-semibold text-foreground">{brlFull(financialPreview.currentProfitValue)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Lucro estimado</span>
+                            <span className="font-semibold text-foreground">{brlFull(financialPreview.estimatedProfitValue)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Margem atual efetiva</span>
+                            <span className="font-semibold text-foreground">{percent(financialPreview.currentMarginPercent)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Margem estimada</span>
+                            <span className="font-semibold text-foreground">{percent(financialPreview.estimatedMarginPercent)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground">Variação de margem</span>
+                            <span className="font-semibold text-foreground">
+                              {financialPreview.marginDeltaPercentagePoints != null
+                                ? `${financialPreview.marginDeltaPercentagePoints >= 0 ? "+" : ""}${financialPreview.marginDeltaPercentagePoints.toLocaleString("pt-BR", {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })} p.p.`
+                                : "—"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {financialPreview.totalWouldBeNegative && (
+                        <p className="text-xs text-red-600">
+                          O valor total final não pode ficar negativo.
+                        </p>
+                      )}
+
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={handleSaveFinancialAdjustment}
+                          disabled={
+                            savingFinancialAdjustment ||
+                            financialPreview.totalWouldBeNegative ||
+                            !hasFinancialDelta
+                          }
+                          size="sm"
+                        >
+                          {savingFinancialAdjustment ? "Salvando..." : "Salvar ajuste financeiro"}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {!canAdjustFinancial && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Ajuste financeiro disponível apenas para administradores.
+                  </p>
+                )}
 
                 {hasFinance && (
                   <>
