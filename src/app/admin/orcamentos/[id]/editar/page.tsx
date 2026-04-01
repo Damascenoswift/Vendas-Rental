@@ -3,11 +3,10 @@ import { getProducts } from "@/services/product-service"
 import { getPricingRules, getProposalEditorData, getProposalSellerAssignmentContext } from "@/services/proposal-service"
 import { ProposalCalculator } from "@/components/admin/proposals/proposal-calculator"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
-import { ProposalAnalystChat } from "@/components/admin/proposals/proposal-analyst-chat"
 import { getSalesAnalystConversation, getNegotiationRecord } from "@/app/actions/sales-analyst"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { getProposalPriceApproval } from "@/app/actions/price-approval"
-import { ProposalPriceApproval } from "@/components/admin/proposals/proposal-price-approval"
+import { ProposalAnalystPanel } from "@/components/admin/proposals/proposal-analyst-panel"
 
 export const dynamic = "force-dynamic"
 
@@ -167,6 +166,13 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
         // Non-blocking — chat is additive, page still works without it
     }
 
+    const initialAnalystMessages = analystMessages.map((m) => ({
+        role: m.role as "analyst" | "user",
+        content: m.content,
+        status_suggestion: m.status_suggestion as NegotiationStatus | null,
+        created_at: m.created_at,
+    }))
+
     return (
         <div className="flex gap-4 h-[calc(100vh-4rem)] overflow-hidden">
             {/* Left: existing proposal calculator */}
@@ -191,26 +197,14 @@ export default async function EditProposalPage({ params, searchParams }: EditPro
                 </div>
             </div>
 
-            {/* Right: analyst chat panel */}
-            <div className="w-80 flex-shrink-0 border-l border-border bg-card px-4 py-4 overflow-hidden flex flex-col">
-                <h2 className="text-sm font-bold text-foreground mb-3">Analista de Vendas</h2>
-                <ProposalAnalystChat
-                    proposalId={id}
-                    initialMessages={analystMessages.map((m) => ({
-                        role: m.role as "analyst" | "user",
-                        content: m.content,
-                        status_suggestion: m.status_suggestion as NegotiationStatus | null,
-                        created_at: m.created_at,
-                    }))}
-                    initialStatus={negotiationStatus}
-                />
-                <ProposalPriceApproval
-                    proposalId={id}
-                    initialApproval={initialApproval}
-                    currentMargin={proposal.profit_margin ?? null}
-                    currentValue={proposal.total_value ?? null}
-                />
-            </div>
+            <ProposalAnalystPanel
+                proposalId={id}
+                initialMessages={initialAnalystMessages}
+                initialStatus={negotiationStatus}
+                initialApproval={initialApproval}
+                currentMargin={proposal.profit_margin ?? null}
+                currentValue={proposal.total_value ?? null}
+            />
         </div>
     )
 }
