@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   Dialog,
@@ -9,7 +9,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { getProposalSummary, type ProposalSummaryData } from "@/app/actions/proposals"
+import {
+  getProposalFollowupPanelData,
+  saveProposalFeedback,
+  saveProposalReminderSettings,
+  type ProposalFollowupPanelData,
+} from "@/app/actions/sales-analyst"
+import {
+  formatDateTimeInCuiaba,
+  toDateTimeLocalInCuiaba,
+} from "@/lib/proposal-reminder-utils"
+import type { NegotiationStatus } from "@/services/sales-analyst-service"
+import { useToast } from "@/hooks/use-toast"
 import type { ProposalListItem } from "./proposals-list-tab"
 
 type Props = {
@@ -18,7 +33,15 @@ type Props = {
   onOpenChange: (open: boolean) => void
 }
 
-// Formatação BRL com 2 casas decimais: 18.500,00
+const STATUS_LABELS: Record<NegotiationStatus, string> = {
+  sem_contato: "Sem contato",
+  em_negociacao: "Em negociação",
+  followup: "Follow-up",
+  parado: "Parado",
+  perdido: "Perdido",
+  convertido: "Convertido",
+}
+
 function brl(value: number | null): string {
   if (value == null) return "—"
   return value.toLocaleString("pt-BR", {
@@ -32,7 +55,6 @@ function brlFull(value: number | null): string {
   return `R$ ${brl(value)}`
 }
 
-// Número simples com casas decimais
 function num(value: number | null, decimals = 2): string {
   if (value == null) return "—"
   return value.toLocaleString("pt-BR", {
@@ -110,18 +132,53 @@ function LoadingSkeleton() {
   )
 }
 
+function FollowupPanelSkeleton() {
+  return (
+    <div className="space-y-3 animate-pulse">
+      <div className="h-28 rounded-lg bg-muted" />
+      <div className="h-24 rounded-lg bg-muted" />
+    </div>
+  )
+}
+
 export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
   const [data, setData] = useState<ProposalSummaryData | null>(null)
+  const [panelData, setPanelData] = useState<ProposalFollowupPanelData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [panelLoading, setPanelLoading] = useState(false)
+  const [feedbackDraft, setFeedbackDraft] = useState("")
+  const [manualReminderDraft, setManualReminderDraft] = useState("")
+  const [autoReminderEnabledDraft, setAutoReminderEnabledDraft] = useState(true)
+  const [savingFeedback, setSavingFeedback] = useState(false)
+  const [savingReminder, setSavingReminder] = useState(false)
+  const { showToast } = useToast()
 
   useEffect(() => {
     if (!open) return
+
     setLoading(true)
+    setPanelLoading(true)
     setData(null)
-    getProposalSummary(proposal.id).then((result) => {
-      setData(result)
-      setLoading(false)
-    })
+    setPanelData(null)
+    setFeedbackDraft("")
+
+    Promise.all([
+      getProposalSummary(proposal.id),
+      getProposalFollowupPanelData(proposal.id),
+    ])
+      .then(([summary, followup]) => {
+        setData(summary)
+        setPanelData(followup)
+        setManualReminderDraft(toDateTimeLocalInCuiaba(followup.reminder.followupAt))
+        setAutoReminderEnabledDraft(followup.reminder.autoReminderEnabled)
+      })
+      .catch((error) => {
+        console.error("Erro ao carregar resumo do orçamento:", error)
+      })
+      .finally(() => {
+        setLoading(false)
+        setPanelLoading(false)
+      })
   }, [open, proposal.id])
 
   const shortId = proposal.id.slice(-8).toUpperCase()
@@ -142,8 +199,86 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
     return "—"
   })()
 
+  const nextAutoReminderLabel = useMemo(() => {
+    if (!panelData) return "—"
+    if (!autoReminderEnabledDraft) return "Automático desativado."
+    if (!panelData.reminder.nextAutoReminderAt) return "Sem próximo lembrete automático no momento."
+    return `Próximo automático: ${formatDateTimeInCuiaba(panelData.reminder.nextAutoReminderAt)}`
+  }, [panelData, autoReminderEnabledDraft])
+
   const hasFinance = data && (data.parcelaMensal != null || data.totalPago != null)
   const hasCommercial = data && (data.economiaMensal != null || data.economiaAnual != null)
+
+  async function handleSaveFeedback() {
+    const content = feedbackDraft.trim()
+    if (!content) {
+      showToast({
+        variant: "error",
+        title: "Feedback vazio",
+        description: "Digite um feedback antes de salvar.",
+      })
+      return
+    }
+
+    setSavingFeedback(true)
+    try {
+      const result = await saveProposalFeedback(proposal.id, content)
+      setPanelData((previous) => {
+        if (!previous) return previous
+        return {
+          ...previous,
+          timeline: [...previous.timeline, result.message],
+        }
+      })
+      setFeedbackDraft("")
+      showToast({
+        variant: "success",
+        title: "Feedback salvo",
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao salvar feedback."
+      showToast({
+        variant: "error",
+        title: "Erro ao salvar feedback",
+        description: message,
+      })
+    } finally {
+      setSavingFeedback(false)
+    }
+  }
+
+  async function handleSaveReminder() {
+    setSavingReminder(true)
+    try {
+      const result = await saveProposalReminderSettings(proposal.id, {
+        followupAt: manualReminderDraft || null,
+        autoReminderEnabled: autoReminderEnabledDraft,
+      })
+
+      setPanelData((previous) => {
+        if (!previous) return previous
+        return {
+          ...previous,
+          reminder: result.reminder,
+        }
+      })
+      setManualReminderDraft(toDateTimeLocalInCuiaba(result.reminder.followupAt))
+      setAutoReminderEnabledDraft(result.reminder.autoReminderEnabled)
+      showToast({
+        variant: "success",
+        title: "Lembretes atualizados",
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao salvar lembretes."
+      showToast({
+        variant: "error",
+        title: "Erro ao salvar lembretes",
+        description: message,
+      })
+    } finally {
+      setSavingReminder(false)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -159,7 +294,6 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
           <div className="mt-2 pb-2">
             <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
               <div>
-                {/* KPIs de produção */}
                 {(data.kWhMensal != null || data.kWhAnual != null) && (
                   <>
                     <SectionLabel>Produção Estimada</SectionLabel>
@@ -195,7 +329,6 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                   </>
                 )}
 
-                {/* Resumo Financeiro */}
                 <SectionLabel>Resumo Financeiro</SectionLabel>
                 <div className="rounded-lg border border-border bg-card px-3 py-1">
                   <Row label="Valor Total à Vista" value={brlFull(data.totalValue)} />
@@ -215,7 +348,7 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                     }
                   />
                 </div>
-                {/* Pagamento */}
+
                 {hasFinance && (
                   <>
                     <SectionLabel>Pagamento</SectionLabel>
@@ -251,7 +384,6 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
               </div>
 
               <div>
-                {/* Sistema Solar */}
                 <SectionLabel>Sistema Solar</SectionLabel>
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   {(data.kWp ?? data.totalPower) != null && (
@@ -279,7 +411,6 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                   )}
                 </div>
 
-                {/* Equipamentos */}
                 <SectionLabel>Equipamentos</SectionLabel>
                 <div className="rounded-lg border border-border bg-card px-3 py-1">
                   <Row label="Módulo" value={data.moduleName ?? "—"} />
@@ -287,8 +418,32 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                     label="Tipo Inversor"
                     value={data.inverterType ?? "—"}
                   />
-                  {data.inverterNames.length > 0 && (
-                    <Row label="Inversor" value={inverterLabel} />
+                  <Row
+                    label="Inversor"
+                    value={data.inverterNames.length > 0 ? inverterLabel : "—"}
+                  />
+                  <Row
+                    label="Quantidade de inversores"
+                    value={
+                      data.inverterTotalQuantity != null
+                        ? data.inverterTotalQuantity.toLocaleString("pt-BR")
+                        : "—"
+                    }
+                  />
+                  {data.inverterItems.length > 0 && (
+                    <div className="py-2">
+                      <p className="text-xs font-medium text-muted-foreground mb-1.5">Modelos</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {data.inverterItems.map((item) => (
+                          <span
+                            key={`${item.name}-${item.quantity}`}
+                            className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs text-foreground"
+                          >
+                            {item.quantity}x {item.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -301,7 +456,6 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                   </>
                 )}
 
-                {/* Botão */}
                 <div className="mt-6">
                   <Link
                     href={`/admin/orcamentos/${proposal.id}/editar`}
@@ -311,6 +465,117 @@ export function ProposalSummarySheet({ proposal, open, onOpenChange }: Props) {
                     Abrir orçamento completo →
                   </Link>
                 </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2 lg:items-start mt-6">
+              <div>
+                <SectionLabel>Acompanhamento</SectionLabel>
+                {panelLoading && <FollowupPanelSkeleton />}
+                {!panelLoading && panelData && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-border bg-card p-3">
+                      {panelData.timeline.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          Nenhum feedback registrado ainda.
+                        </p>
+                      ) : (
+                        <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                          {panelData.timeline.map((message) => (
+                            <div key={message.id} className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-foreground">
+                                  {message.role === "analyst" ? "Analista" : (message.userName ?? "Usuário")}
+                                </span>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {formatDateTimeInCuiaba(message.createdAt)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-sm text-foreground whitespace-pre-wrap">{message.content}</p>
+                              {message.statusSuggestion && (
+                                <p className="mt-1 text-[11px] text-muted-foreground">
+                                  Sugestão de status:{" "}
+                                  <strong>{STATUS_LABELS[message.statusSuggestion] ?? message.statusSuggestion}</strong>
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                      <Textarea
+                        rows={4}
+                        value={feedbackDraft}
+                        onChange={(event) => setFeedbackDraft(event.target.value)}
+                        placeholder="Registre aqui o feedback deste orçamento..."
+                        disabled={savingFeedback}
+                      />
+                      <div className="flex justify-end">
+                        <Button
+                          onClick={handleSaveFeedback}
+                          disabled={savingFeedback || !feedbackDraft.trim()}
+                          size="sm"
+                        >
+                          {savingFeedback ? "Salvando..." : "Salvar feedback"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <SectionLabel>Lembretes</SectionLabel>
+                {panelLoading && <FollowupPanelSkeleton />}
+                {!panelLoading && panelData && (
+                  <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Lembrete manual
+                      </label>
+                      <Input
+                        type="datetime-local"
+                        value={manualReminderDraft}
+                        onChange={(event) => setManualReminderDraft(event.target.value)}
+                        disabled={savingReminder}
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Notificado em: {formatDateTimeInCuiaba(panelData.reminder.followupNotifiedAt)}
+                      </p>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={autoReminderEnabledDraft}
+                        onChange={(event) => setAutoReminderEnabledDraft(event.target.checked)}
+                        disabled={savingReminder}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      Lembrete automático ativo (a cada 2 dias)
+                    </label>
+
+                    <p className="text-xs text-muted-foreground">
+                      {nextAutoReminderLabel}
+                    </p>
+
+                    <p className="text-xs text-muted-foreground">
+                      Status atual: {STATUS_LABELS[panelData.reminder.negotiationStatus] ?? panelData.reminder.negotiationStatus}
+                    </p>
+
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={handleSaveReminder}
+                        disabled={savingReminder}
+                        size="sm"
+                      >
+                        {savingReminder ? "Salvando..." : "Salvar lembretes"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -7,7 +7,15 @@ import { getProfile, type UserRole } from "@/lib/auth"
 import { runSalesAnalyst, type NegotiationStatus, type ProposalContext } from "@/services/sales-analyst-service"
 import { differenceInDays, parseISO } from "date-fns"
 
-const ALLOWED_ROLES: UserRole[] = ['adm_mestre', 'adm_dorata']
+const ALLOWED_ROLES: UserRole[] = [
+  "adm_mestre",
+  "adm_dorata",
+  "supervisor",
+  "suporte_tecnico",
+  "suporte_limitado",
+  "funcionario_n1",
+  "funcionario_n2",
+]
 
 export async function POST(request: Request) {
   try {

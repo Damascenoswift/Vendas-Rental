@@ -6,8 +6,21 @@ import { getProfile, type UserRole } from "@/lib/auth"
 import type { NegotiationStatus } from "@/services/sales-analyst-service"
 import { differenceInDays, parseISO } from "date-fns"
 import { getInstallationType } from "@/lib/price-approval-utils"
+import {
+  computeNextAutoReminderAt,
+  normalizeFollowupAtInput,
+  toDateKeyInTimeZone,
+} from "@/lib/proposal-reminder-utils"
 
-const ALLOWED_ROLES: UserRole[] = ['adm_mestre', 'adm_dorata']
+const ALLOWED_ROLES: UserRole[] = [
+  "adm_mestre",
+  "adm_dorata",
+  "supervisor",
+  "suporte_tecnico",
+  "suporte_limitado",
+  "funcionario_n1",
+  "funcionario_n2",
+]
 
 async function assertAccess() {
   const supabase = await createClient()
@@ -18,7 +31,7 @@ async function assertAccess() {
   if (!role || !ALLOWED_ROLES.includes(role)) throw new Error("Acesso negado")
   const service = createSupabaseServiceClient()
   // users.id = auth.uid() in this project (no separate auth_id column)
-  return { userId: user.id, role, service }
+  return { userId: user.id, role, profile, service }
 }
 
 export async function getSalesAnalystConversation(proposalId: string) {
@@ -40,6 +53,250 @@ export async function getNegotiationRecord(proposalId: string) {
     .eq("proposal_id", proposalId)
     .maybeSingle()
   return data
+}
+
+type FollowupTimelineMessage = {
+  id: string
+  role: "analyst" | "user"
+  content: string
+  statusSuggestion: NegotiationStatus | null
+  createdAt: string
+  userId: string | null
+  userName: string | null
+}
+
+type FollowupReminderConfig = {
+  negotiationStatus: NegotiationStatus
+  followupAt: string | null
+  followupNotifiedAt: string | null
+  autoReminderEnabled: boolean
+  autoReminderIntervalDays: number
+  lastAutoReminderAt: string | null
+  nextAutoReminderAt: string | null
+}
+
+export type ProposalFollowupPanelData = {
+  proposalId: string
+  proposalCreatedAt: string
+  timeline: FollowupTimelineMessage[]
+  reminder: FollowupReminderConfig
+}
+
+type FollowupPanelConversationRow = {
+  id: string
+  role: "analyst" | "user"
+  content: string
+  status_suggestion: NegotiationStatus | null
+  created_at: string
+  user_id: string | null
+}
+
+type FollowupPanelNegotiationRow = {
+  negotiation_status?: NegotiationStatus | null
+  followup_at?: string | null
+  followup_notified_at?: string | null
+  auto_reminder_enabled?: boolean | null
+  auto_reminder_interval_days?: number | null
+  last_auto_reminder_at?: string | null
+}
+
+type FollowupPanelProposalRow = {
+  id: string
+  created_at: string
+}
+
+async function buildProposalFollowupPanelData(params: {
+  service: ReturnType<typeof createSupabaseServiceClient>
+  proposalId: string
+}) {
+  const { service, proposalId } = params
+
+  const [proposalResult, conversationResult, negotiationResult] = await Promise.all([
+    service
+      .from("proposals")
+      .select("id, created_at")
+      .eq("id", proposalId)
+      .maybeSingle(),
+    service
+      .from("proposal_analyst_conversations")
+      .select("id, role, content, status_suggestion, created_at, user_id")
+      .eq("proposal_id", proposalId)
+      .order("created_at", { ascending: true }),
+    service
+      .from("proposal_negotiations")
+      .select(
+        "proposal_id, negotiation_status, followup_at, followup_notified_at, auto_reminder_enabled, auto_reminder_interval_days, last_auto_reminder_at"
+      )
+      .eq("proposal_id", proposalId)
+      .maybeSingle(),
+  ])
+
+  if (proposalResult.error) throw new Error(proposalResult.error.message)
+  if (!proposalResult.data) throw new Error("Orçamento não encontrado.")
+  if (conversationResult.error) throw new Error(conversationResult.error.message)
+  if (negotiationResult.error) throw new Error(negotiationResult.error.message)
+
+  const proposal = proposalResult.data as FollowupPanelProposalRow
+  const conversations = (conversationResult.data ?? []) as FollowupPanelConversationRow[]
+  const negotiation = (negotiationResult.data ?? null) as FollowupPanelNegotiationRow | null
+
+  const userIds = Array.from(
+    new Set(
+      conversations
+        .map((conversation) => conversation.user_id)
+        .filter((userId): userId is string => Boolean(userId))
+    )
+  )
+
+  const userNameById = new Map<string, string>()
+  if (userIds.length > 0) {
+    const { data: users, error: usersError } = await service
+      .from("users")
+      .select("id, name")
+      .in("id", userIds)
+
+    if (usersError) throw new Error(usersError.message)
+    for (const user of users ?? []) {
+      if (!user?.id) continue
+      userNameById.set(user.id, user.name?.trim() || "Usuário")
+    }
+  }
+
+  const timeline: FollowupTimelineMessage[] = conversations.map((conversation) => ({
+    id: conversation.id,
+    role: conversation.role,
+    content: conversation.content,
+    statusSuggestion: conversation.status_suggestion,
+    createdAt: conversation.created_at,
+    userId: conversation.user_id,
+    userName: conversation.user_id ? (userNameById.get(conversation.user_id) ?? "Usuário") : "Analista",
+  }))
+
+  const autoReminderEnabled = negotiation?.auto_reminder_enabled ?? true
+  const autoReminderIntervalDays = Math.max(negotiation?.auto_reminder_interval_days ?? 2, 1)
+  const nextAutoReminder = computeNextAutoReminderAt({
+    proposalCreatedAt: proposal.created_at,
+    lastAutoReminderAt: negotiation?.last_auto_reminder_at ?? null,
+    autoReminderEnabled,
+    autoReminderIntervalDays,
+    negotiationStatus: negotiation?.negotiation_status ?? "sem_contato",
+  })
+
+  return {
+    proposalId: proposal.id,
+    proposalCreatedAt: proposal.created_at,
+    timeline,
+    reminder: {
+      negotiationStatus: negotiation?.negotiation_status ?? "sem_contato",
+      followupAt: negotiation?.followup_at ?? null,
+      followupNotifiedAt: negotiation?.followup_notified_at ?? null,
+      autoReminderEnabled,
+      autoReminderIntervalDays,
+      lastAutoReminderAt: negotiation?.last_auto_reminder_at ?? null,
+      nextAutoReminderAt: nextAutoReminder ? nextAutoReminder.toISOString() : null,
+    },
+  } satisfies ProposalFollowupPanelData
+}
+
+export async function getProposalFollowupPanelData(proposalId: string): Promise<ProposalFollowupPanelData> {
+  const normalizedProposalId = proposalId.trim()
+  if (!normalizedProposalId) throw new Error("Orçamento inválido.")
+
+  const { service } = await assertAccess()
+  return buildProposalFollowupPanelData({
+    service,
+    proposalId: normalizedProposalId,
+  })
+}
+
+export async function saveProposalFeedback(proposalId: string, content: string) {
+  const normalizedProposalId = proposalId.trim()
+  if (!normalizedProposalId) throw new Error("Orçamento inválido.")
+
+  const trimmedContent = content.trim()
+  if (!trimmedContent) throw new Error("Informe um feedback para salvar.")
+  if (trimmedContent.length > 2000) throw new Error("Feedback muito longo (máx. 2000 caracteres).")
+
+  const { userId, profile, service } = await assertAccess()
+
+  const { data: insertedMessage, error: insertError } = await service
+    .from("proposal_analyst_conversations")
+    .insert({
+      proposal_id: normalizedProposalId,
+      user_id: userId,
+      role: "user",
+      content: trimmedContent,
+    })
+    .select("id, role, content, status_suggestion, created_at, user_id")
+    .single()
+
+  if (insertError) throw new Error(insertError.message)
+
+  const message = insertedMessage as FollowupPanelConversationRow
+
+  return {
+    message: {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      statusSuggestion: message.status_suggestion,
+      createdAt: message.created_at,
+      userId: message.user_id,
+      userName: profile?.name?.trim() || "Usuário",
+    } satisfies FollowupTimelineMessage,
+  }
+}
+
+export async function saveProposalReminderSettings(
+  proposalId: string,
+  input: { followupAt: string | null; autoReminderEnabled: boolean }
+): Promise<{ reminder: FollowupReminderConfig }> {
+  const normalizedProposalId = proposalId.trim()
+  if (!normalizedProposalId) throw new Error("Orçamento inválido.")
+
+  const { userId, service } = await assertAccess()
+  const normalizedFollowupAt = normalizeFollowupAtInput(input.followupAt)
+  const rawFollowupInput = (input.followupAt ?? "").trim()
+  if (rawFollowupInput && !normalizedFollowupAt) {
+    throw new Error("Data/hora inválida para o lembrete manual.")
+  }
+
+  const { data: existingNegotiation, error: existingError } = await service
+    .from("proposal_negotiations")
+    .select("proposal_id, followup_at, auto_reminder_interval_days")
+    .eq("proposal_id", normalizedProposalId)
+    .maybeSingle()
+
+  if (existingError) throw new Error(existingError.message)
+
+  const resetFollowupNotifiedAt = (existingNegotiation?.followup_at ?? null) !== normalizedFollowupAt
+  const nowIso = new Date().toISOString()
+
+  const payload = {
+    proposal_id: normalizedProposalId,
+    followup_at: normalizedFollowupAt,
+    followup_date: normalizedFollowupAt ? toDateKeyInTimeZone(normalizedFollowupAt) : null,
+    auto_reminder_enabled: input.autoReminderEnabled,
+    auto_reminder_interval_days: Math.max(existingNegotiation?.auto_reminder_interval_days ?? 2, 1),
+    updated_by: userId,
+    updated_at: nowIso,
+    ...(resetFollowupNotifiedAt ? { followup_notified_at: null } : {}),
+  }
+
+  const { error: upsertError } = await service
+    .from("proposal_negotiations")
+    .upsert(payload, { onConflict: "proposal_id" })
+
+  if (upsertError) throw new Error(upsertError.message)
+
+  const panelData = await buildProposalFollowupPanelData({
+    service,
+    proposalId: normalizedProposalId,
+  })
+
+  return {
+    reminder: panelData.reminder,
+  }
 }
 
 // confirmStatusSuggestion is a named alias for updateNegotiationStatus — used when

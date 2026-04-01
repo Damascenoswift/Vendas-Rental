@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createSupabaseServiceClient } from "@/lib/supabase-server"
 import { getProfile } from "@/lib/auth"
 import { getSupervisorVisibleUserIds } from "@/lib/supervisor-scope"
+import { aggregateProposalInverterItems } from "@/lib/proposal-inverter-utils"
 import { revalidatePath } from "next/cache"
 
 const proposalViewRoles = [
@@ -364,6 +365,8 @@ export type ProposalSummaryData = {
   moduleName: string | null
   inverterType: string | null
   inverterNames: string[]
+  inverterTotalQuantity: number | null
+  inverterItems: Array<{ name: string; quantity: number }>
 }
 
 export async function getProposalSummary(proposalId: string): Promise<ProposalSummaryData | null> {
@@ -425,7 +428,11 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
 
   // Extract product names from items
   let moduleName: string | null = null
-  const inverterNames: string[] = []
+  const inverterAggregationInput: Array<{
+    quantity?: number | null
+    productType?: string | null
+    productName?: string | null
+  }> = []
 
   for (const item of items ?? []) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -434,10 +441,16 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
     const type: string = (product.type ?? "").toLowerCase()
     if (type === "module" && !moduleName) {
       moduleName = product.name ?? null
-    } else if (type === "inverter") {
-      if (product.name) inverterNames.push(product.name)
     }
+
+    inverterAggregationInput.push({
+      quantity: Number((item as { quantity?: number | null }).quantity ?? 0),
+      productType: product.type ?? null,
+      productName: product.name ?? null,
+    })
   }
+
+  const inverterSummary = aggregateProposalInverterItems(inverterAggregationInput)
 
   // Derive client name
   const cliente = Array.isArray(proposal.cliente) ? (proposal.cliente[0] ?? null) : proposal.cliente
@@ -473,7 +486,9 @@ export async function getProposalSummary(proposalId: string): Promise<ProposalSu
     economiaAnual,
     tarifaKwh,
     moduleName,
-    inverterNames,
+    inverterNames: inverterSummary.inverterNames,
+    inverterTotalQuantity: inverterSummary.inverterTotalQuantity,
+    inverterItems: inverterSummary.inverterItems,
   }
 }
 
@@ -502,4 +517,3 @@ export async function updateProposalMargin(
   revalidatePath("/admin/orcamentos")
   return {}
 }
-

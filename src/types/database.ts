@@ -1060,6 +1060,11 @@ export interface Database {
           proposal_id: string
           negotiation_status: Database['public']['Enums']['negotiation_status_enum']
           followup_date: string | null
+          followup_at: string | null
+          followup_notified_at: string | null
+          auto_reminder_enabled: boolean
+          auto_reminder_interval_days: number
+          last_auto_reminder_at: string | null
           client_signal: string | null
           objections: string | null
           updated_by: string | null
@@ -1071,6 +1076,11 @@ export interface Database {
           proposal_id: string
           negotiation_status?: Database['public']['Enums']['negotiation_status_enum']
           followup_date?: string | null
+          followup_at?: string | null
+          followup_notified_at?: string | null
+          auto_reminder_enabled?: boolean
+          auto_reminder_interval_days?: number
+          last_auto_reminder_at?: string | null
           client_signal?: string | null
           objections?: string | null
           updated_by?: string | null
@@ -1080,6 +1090,11 @@ export interface Database {
         Update: {
           negotiation_status?: Database['public']['Enums']['negotiation_status_enum']
           followup_date?: string | null
+          followup_at?: string | null
+          followup_notified_at?: string | null
+          auto_reminder_enabled?: boolean
+          auto_reminder_interval_days?: number
+          last_auto_reminder_at?: string | null
           client_signal?: string | null
           objections?: string | null
           updated_by?: string | null

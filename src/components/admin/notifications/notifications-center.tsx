@@ -73,6 +73,7 @@ function getDomainLabel(domain: NotificationDomain) {
 
 function getNotificationTypeLabel(notification: NotificationItem) {
     if (notification.domain === "CHAT") return "Mensagem interna"
+    if (notification.event_key === "PROPOSAL_REMINDER") return "Lembrete de orçamento"
     if (notification.event_key === "TASK_COMMENT_MENTION") return "Menção"
     if (notification.event_key === "TASK_COMMENT_REPLY") return "Resposta"
     if (notification.event_key === "TASK_COMMENT_CREATED") return "Comentário"
@@ -167,6 +168,7 @@ function getNotificationActionLabel(notification: NotificationItem, targetPath: 
     if (notification.domain === "TASK") return "Ir para tarefa"
     if (notification.domain === "INDICACAO") return "Ir para indicação"
     if (notification.domain === "OBRA") return "Ir para obra"
+    if (notification.event_key === "PROPOSAL_REMINDER") return "Ir para orçamento"
     return "Abrir"
 }
 
