@@ -91,7 +91,7 @@ function parseDelta(value: string): number {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 mt-5">
+    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 mt-3">
       {children}
     </p>
   )
@@ -124,11 +124,11 @@ function KpiCard({
   const textColor = (accent ? textMap[accent] : null) ?? "text-foreground"
 
   return (
-    <div className={`rounded-lg border p-3 ${bg}`}>
+    <div className={`rounded-lg border p-2.5 ${bg}`}>
       <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
         {label}
       </p>
-      <p className={`text-base font-bold leading-tight ${textColor}`}>{value}</p>
+      <p className={`text-[15px] font-bold leading-tight ${textColor}`}>{value}</p>
       {sub && <p className="text-[11px] text-muted-foreground mt-0.5">{sub}</p>}
     </div>
   )
@@ -136,9 +136,9 @@ function KpiCard({
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-2 py-1.5 border-b border-border/50 last:border-0">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="text-sm font-semibold text-foreground text-right">{value ?? "—"}</span>
+    <div className="flex items-center justify-between gap-2 py-1 border-b border-border/50 last:border-0">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs font-semibold text-foreground text-right">{value ?? "—"}</span>
     </div>
   )
 }
@@ -383,7 +383,7 @@ export function ProposalSummarySheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto p-5 sm:p-6">
+      <DialogContent className="max-h-[94vh] w-[min(96vw,1280px)] max-w-none overflow-y-auto p-4 sm:p-5 lg:overflow-hidden">
         <DialogHeader>
           <DialogTitle className="text-base leading-tight pr-6">{proposal.clientName}</DialogTitle>
           <DialogDescription className="text-xs">Orçamento #{shortId}</DialogDescription>
@@ -392,9 +392,9 @@ export function ProposalSummarySheet({
         {loading && <LoadingSkeleton />}
 
         {!loading && data && (
-          <div className="mt-2 pb-2">
-            <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-              <div>
+          <div className="mt-1 pb-1 lg:h-[calc(94vh-120px)] lg:overflow-hidden">
+            <div className="grid gap-4 lg:h-full lg:grid-cols-2 lg:items-start lg:gap-4 lg:overflow-hidden">
+              <div className="space-y-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
                 {(data.kWhMensal != null || data.kWhAnual != null) && (
                   <>
                     <SectionLabel>Produção Estimada</SectionLabel>
@@ -472,7 +472,7 @@ export function ProposalSummarySheet({
                 {canAdjustFinancial && financialPreview && (
                   <>
                     <SectionLabel>Ajuste Financeiro</SectionLabel>
-                    <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+                    <div className="rounded-lg border border-border bg-card p-2.5 space-y-2.5">
                       <div className="grid gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
                           <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -502,56 +502,53 @@ export function ProposalSummarySheet({
                         </div>
                       </div>
 
-                      <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                      <div className="rounded-md border border-border/70 bg-muted/20 px-2.5 py-2">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
                           Preview
                         </p>
-                        <div className="space-y-1 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Total atual</span>
-                            <span className="font-semibold text-foreground">{brlFull(financialPreview.currentTotalValue)}</span>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                          <div className="space-y-0.5">
+                            <p className="text-muted-foreground">Total atual</p>
+                            <p className="font-semibold text-foreground">{brlFull(financialPreview.currentTotalValue)}</p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Total estimado</span>
-                            <span className="font-semibold text-foreground">{brlFull(financialPreview.estimatedTotalValue)}</span>
+                          <div className="space-y-0.5">
+                            <p className="text-muted-foreground">Total estimado</p>
+                            <p className="font-semibold text-foreground">{brlFull(financialPreview.estimatedTotalValue)}</p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Lucro atual</span>
-                            <span className="font-semibold text-foreground">{brlFull(financialPreview.currentProfitValue)}</span>
+                          <div className="space-y-0.5">
+                            <p className="text-muted-foreground">Lucro atual</p>
+                            <p className="font-semibold text-foreground">{brlFull(financialPreview.currentProfitValue)}</p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Lucro estimado</span>
-                            <span className="font-semibold text-foreground">{brlFull(financialPreview.estimatedProfitValue)}</span>
+                          <div className="space-y-0.5">
+                            <p className="text-muted-foreground">Lucro estimado</p>
+                            <p className="font-semibold text-foreground">{brlFull(financialPreview.estimatedProfitValue)}</p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Margem atual efetiva</span>
-                            <span className="font-semibold text-foreground">{percent(financialPreview.currentMarginPercent)}</span>
+                          <div className="space-y-0.5">
+                            <p className="text-muted-foreground">Margem atual</p>
+                            <p className="font-semibold text-foreground">{percent(financialPreview.currentMarginPercent)}</p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Margem estimada</span>
-                            <span className="font-semibold text-foreground">{percent(financialPreview.estimatedMarginPercent)}</span>
+                          <div className="space-y-0.5">
+                            <p className="text-muted-foreground">Margem estimada</p>
+                            <p className="font-semibold text-foreground">{percent(financialPreview.estimatedMarginPercent)}</p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-muted-foreground">Variação de margem</span>
-                            <span className="font-semibold text-foreground">
+                          <div className="col-span-2 space-y-0.5">
+                            <p className="text-muted-foreground">Variação</p>
+                            <p className="font-semibold text-foreground">
                               {financialPreview.marginDeltaPercentagePoints != null
                                 ? `${financialPreview.marginDeltaPercentagePoints >= 0 ? "+" : ""}${financialPreview.marginDeltaPercentagePoints.toLocaleString("pt-BR", {
                                     minimumFractionDigits: 2,
                                     maximumFractionDigits: 2,
                                   })} p.p.`
                                 : "—"}
-                            </span>
+                            </p>
                           </div>
                         </div>
                       </div>
 
-                      {financialPreview.totalWouldBeNegative && (
+                      <div className="flex items-center justify-between gap-2">
                         <p className="text-xs text-red-600">
-                          O valor total final não pode ficar negativo.
+                          {financialPreview.totalWouldBeNegative ? "O valor total final não pode ficar negativo." : ""}
                         </p>
-                      )}
-
-                      <div className="flex justify-end">
                         <Button
                           onClick={handleSaveFinancialAdjustment}
                           disabled={
@@ -608,7 +605,7 @@ export function ProposalSummarySheet({
                 )}
               </div>
 
-              <div>
+              <div className="space-y-1 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
                 <SectionLabel>Sistema Solar</SectionLabel>
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   {(data.kWp ?? data.totalPower) != null && (
@@ -681,33 +678,19 @@ export function ProposalSummarySheet({
                   </>
                 )}
 
-                <div className="mt-6">
-                  <Link
-                    href={`/admin/orcamentos/${proposal.id}/editar`}
-                    className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                    onClick={() => onOpenChange(false)}
-                  >
-                    Abrir orçamento completo →
-                  </Link>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-2 lg:items-start mt-6">
-              <div>
                 <SectionLabel>Acompanhamento</SectionLabel>
                 {panelLoading && <FollowupPanelSkeleton />}
                 {!panelLoading && panelData && (
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-border bg-card p-3">
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-border bg-card p-2.5">
                       {panelData.timeline.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           Nenhum feedback registrado ainda.
                         </p>
                       ) : (
-                        <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                        <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
                           {panelData.timeline.map((message) => (
-                            <div key={message.id} className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                            <div key={message.id} className="rounded-md border border-border/70 bg-muted/20 p-2">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs font-semibold text-foreground">
                                   {message.role === "analyst" ? "Analista" : (message.userName ?? "Usuário")}
@@ -716,7 +699,7 @@ export function ProposalSummarySheet({
                                   {formatDateTimeInCuiaba(message.createdAt)}
                                 </span>
                               </div>
-                              <p className="mt-1 text-sm text-foreground whitespace-pre-wrap">{message.content}</p>
+                              <p className="mt-1 text-xs text-foreground whitespace-pre-wrap">{message.content}</p>
                               {message.statusSuggestion && (
                                 <p className="mt-1 text-[11px] text-muted-foreground">
                                   Sugestão de status:{" "}
@@ -729,13 +712,14 @@ export function ProposalSummarySheet({
                       )}
                     </div>
 
-                    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                    <div className="rounded-lg border border-border bg-card p-2.5 space-y-2">
                       <Textarea
-                        rows={4}
+                        rows={2}
                         value={feedbackDraft}
                         onChange={(event) => setFeedbackDraft(event.target.value)}
                         placeholder="Registre aqui o feedback deste orçamento..."
                         disabled={savingFeedback}
+                        className="text-xs"
                       />
                       <div className="flex justify-end">
                         <Button
@@ -749,13 +733,11 @@ export function ProposalSummarySheet({
                     </div>
                   </div>
                 )}
-              </div>
 
-              <div>
                 <SectionLabel>Lembretes</SectionLabel>
                 {panelLoading && <FollowupPanelSkeleton />}
                 {!panelLoading && panelData && (
-                  <div className="rounded-lg border border-border bg-card p-3 space-y-3">
+                  <div className="rounded-lg border border-border bg-card p-2.5 space-y-2.5">
                     <div className="space-y-1.5">
                       <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                         Lembrete manual
@@ -771,7 +753,7 @@ export function ProposalSummarySheet({
                       </p>
                     </div>
 
-                    <label className="flex items-center gap-2 text-sm text-foreground">
+                    <label className="flex items-center gap-2 text-xs text-foreground">
                       <input
                         type="checkbox"
                         checked={autoReminderEnabledDraft}
@@ -801,6 +783,16 @@ export function ProposalSummarySheet({
                     </div>
                   </div>
                 )}
+
+                <div className="mt-4">
+                  <Link
+                    href={`/admin/orcamentos/${proposal.id}/editar`}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Abrir orçamento completo →
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
