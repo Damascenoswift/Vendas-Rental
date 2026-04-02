@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useLayoutEffect, useState } from "react"
+import { useState } from "react"
 import { MessageSquare } from "lucide-react"
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
@@ -23,24 +23,6 @@ type ProposalAnalystPanelProps = {
   initialApproval: PriceApprovalRecord | null
   currentMargin: number | null
   currentValue: number | null
-}
-
-const FLOATING_PANEL_BREAKPOINT_QUERY = "(max-width: 1366px)"
-const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect
-
-function useFloatingPanel() {
-  const [isFloatingPanel, setIsFloatingPanel] = useState(false)
-
-  useIsomorphicLayoutEffect(() => {
-    const media = window.matchMedia(FLOATING_PANEL_BREAKPOINT_QUERY)
-    const sync = () => setIsFloatingPanel(media.matches)
-    sync()
-
-    media.addEventListener("change", sync)
-    return () => media.removeEventListener("change", sync)
-  }, [])
-
-  return isFloatingPanel
 }
 
 function AnalystPanelContent({
@@ -70,22 +52,7 @@ function AnalystPanelContent({
 }
 
 export function ProposalAnalystPanel(props: ProposalAnalystPanelProps) {
-  const isFloatingPanel = useFloatingPanel()
   const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    if (!isFloatingPanel && open) {
-      setOpen(false)
-    }
-  }, [isFloatingPanel, open])
-
-  if (!isFloatingPanel) {
-    return (
-      <div className="w-80 flex-shrink-0 border-l border-border bg-card px-4 py-4 overflow-hidden flex flex-col">
-        <AnalystPanelContent {...props} />
-      </div>
-    )
-  }
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
