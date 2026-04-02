@@ -38,6 +38,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
+import { CurrencyMaskedInput } from "@/components/ui/currency-masked-input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -640,7 +641,6 @@ export function ProposalCalculatorComplete({
     const { showToast } = useToast()
     const router = useRouter()
     const [loading, setLoading] = useState(false)
-    const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
     const [interestInputDraft, setInterestInputDraft] = useState<string | null>(null)
     const [kitGeradorValor, setKitGeradorValor] = useState<number>(() => {
         const fromOutput = Number(initialProposal?.calculation?.output?.kit?.custo_kit ?? 0)
@@ -934,8 +934,7 @@ export function ProposalCalculatorComplete({
         }))
     }
 
-    const handleTotalUsinaChange = (value: string) => {
-        const targetTotal = toNumber(value)
+    const handleTotalUsinaChange = (targetTotal: number) => {
         const baseValue = calculated.output.totals.soma_com_estrutura
         const extrasValue = calculated.output.extras.extras_total
         const tradeAdjustment =
@@ -954,8 +953,7 @@ export function ProposalCalculatorComplete({
         })
     }
 
-    const handleInstallmentChange = (value: string) => {
-        const targetInstallment = toNumber(value)
+    const handleInstallmentChange = (targetInstallment: number) => {
         const permutaMensal =
             input.trade?.enabled && normalizeTradeMode(input.trade?.mode) === "INSTALLMENTS" && input.finance.enabled
                 ? Math.max(Math.min(Number(input.trade?.value || 0), calculated.output.finance.parcela_mensal_base), 0)
@@ -969,20 +967,6 @@ export function ProposalCalculatorComplete({
         })
 
         updateFinance({ juros_mensal: monthlyRate })
-    }
-
-    const handleInstallmentInputChange = (value: string) => {
-        setInstallmentInputDraft(value)
-        if (!value.trim()) return
-        handleInstallmentChange(value)
-    }
-
-    const handleInstallmentInputBlur = () => {
-        if (installmentInputDraft === null) return
-        if (installmentInputDraft.trim()) {
-            handleInstallmentChange(installmentInputDraft)
-        }
-        setInstallmentInputDraft(null)
     }
 
     const handleInterestChange = (value: string) => {
@@ -1752,12 +1736,10 @@ export function ProposalCalculatorComplete({
                         </div>
                         <div className="space-y-2">
                             <Label>Tarifa kWh (R$)</Label>
-                            <Input
-                                type="number"
-                                min="0"
-                                step="0.0001"
+                            <CurrencyMaskedInput
                                 value={input.commercial?.tarifa_kwh ?? defaultTariffKwh}
-                                onChange={(e) => updateCommercial({ tarifa_kwh: toNumber(e.target.value) })}
+                                fractionDigits={4}
+                                onValueChange={(value) => updateCommercial({ tarifa_kwh: value })}
                             />
                             <p className="text-xs text-muted-foreground">
                                 Valor por kWh utilizado para economia mensal/anual desta proposta.
@@ -2032,12 +2014,9 @@ export function ProposalCalculatorComplete({
                             </div>
                             <div className="space-y-2">
                                 <Label>Valor do kit gerador (R$)</Label>
-                                <Input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
+                                <CurrencyMaskedInput
                                     value={kitGeradorValor}
-                                    onChange={(e) => setKitGeradorValor(toNumber(e.target.value))}
+                                    onValueChange={setKitGeradorValor}
                                 />
                             </div>
                         </div>
@@ -2348,11 +2327,9 @@ export function ProposalCalculatorComplete({
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                                 <Label>Total da usina (R$)</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    value={calculated.output.totals.total_a_vista.toFixed(2)}
-                                    onChange={(e) => handleTotalUsinaChange(e.target.value)}
+                                <CurrencyMaskedInput
+                                    value={calculated.output.totals.total_a_vista}
+                                    onValueChange={handleTotalUsinaChange}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -2441,11 +2418,9 @@ export function ProposalCalculatorComplete({
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                                 <Label>Entrada (R$)</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
+                                <CurrencyMaskedInput
                                     value={input.finance.entrada_valor}
-                                    onChange={(e) => updateFinance({ entrada_valor: toNumber(e.target.value) })}
+                                    onValueChange={(value) => updateFinance({ entrada_valor: value })}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -2466,15 +2441,9 @@ export function ProposalCalculatorComplete({
                             </div>
                             <div className="space-y-2">
                                 <Label>Parcela mensal (R$)</Label>
-                                <Input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={
-                                        installmentInputDraft ??
-                                        formatDecimalForInput(calculated.output.finance.parcela_mensal)
-                                    }
-                                    onChange={(e) => handleInstallmentInputChange(e.target.value)}
-                                    onBlur={handleInstallmentInputBlur}
+                                <CurrencyMaskedInput
+                                    value={calculated.output.finance.parcela_mensal}
+                                    onValueChange={handleInstallmentChange}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -2577,12 +2546,9 @@ export function ProposalCalculatorComplete({
                                                 ? "Valor mensal da permuta (R$)"
                                                 : "Valor da permuta (R$)"}
                                         </Label>
-                                        <Input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
+                                        <CurrencyMaskedInput
                                             value={input.trade?.value ?? 0}
-                                            onChange={(e) => updateTrade({ value: toNumber(e.target.value) })}
+                                            onValueChange={(value) => updateTrade({ value })}
                                         />
                                     </div>
                                 </div>

@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Input } from "@/components/ui/input"
+import { CurrencyMaskedInput } from "@/components/ui/currency-masked-input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -436,7 +437,6 @@ export function ProposalCalculatorSimple({
     const [tradeValue, setTradeValue] = useState(
         initialInput?.trade?.value ?? 0
     )
-    const [installmentInputDraft, setInstallmentInputDraft] = useState<string | null>(null)
     const [interestInputDraft, setInterestInputDraft] = useState<string | null>(null)
 
     const { showToast } = useToast()
@@ -641,8 +641,7 @@ export function ProposalCalculatorSimple({
         }
     }, [commissionSplitEnabled, commissionSplitSellerId, commissionSplitSellerOptions])
 
-    const handleTotalUsinaChange = (value: string) => {
-        const targetTotal = toNumber(value)
+    const handleTotalUsinaChange = (targetTotal: number) => {
         const baseValue = calculated.output.totals.soma_com_estrutura
         const extrasValue = calculated.output.extras.extras_total
         const tradeAdjustment = tradeEnabled && tradeMode === "TOTAL_VALUE" ? Math.max(tradeValue, 0) : 0
@@ -656,8 +655,7 @@ export function ProposalCalculatorSimple({
         setMargemPercentual(Number.isFinite(nextMarginPercent) ? nextMarginPercent : 0)
     }
 
-    const handleInstallmentChange = (value: string) => {
-        const targetInstallment = toNumber(value)
+    const handleInstallmentChange = (targetInstallment: number) => {
         const permutaMensal = tradeEnabled && tradeMode === "INSTALLMENTS" && financeEnabled
             ? Math.max(Math.min(tradeValue, calculated.output.finance.parcela_mensal_base), 0)
             : 0
@@ -670,20 +668,6 @@ export function ProposalCalculatorSimple({
         })
 
         setJurosMensal(monthlyRate)
-    }
-
-    const handleInstallmentInputChange = (value: string) => {
-        setInstallmentInputDraft(value)
-        if (!value.trim()) return
-        handleInstallmentChange(value)
-    }
-
-    const handleInstallmentInputBlur = () => {
-        if (installmentInputDraft === null) return
-        if (installmentInputDraft.trim()) {
-            handleInstallmentChange(installmentInputDraft)
-        }
-        setInstallmentInputDraft(null)
     }
 
     const handleInterestChange = (value: string) => {
@@ -1219,12 +1203,10 @@ export function ProposalCalculatorSimple({
                             </div>
                             <div className="space-y-2">
                                 <Label>Tarifa kWh (R$)</Label>
-                                <Input
-                                    type="number"
-                                    min="0"
-                                    step="0.0001"
+                                <CurrencyMaskedInput
                                     value={tarifaKwh}
-                                    onChange={(e) => setTarifaKwh(toNumber(e.target.value))}
+                                    fractionDigits={4}
+                                    onValueChange={setTarifaKwh}
                                 />
                                 <p className="text-xs text-muted-foreground">
                                     Valor por kWh usado para calcular a economia desta proposta.
@@ -1286,12 +1268,9 @@ export function ProposalCalculatorSimple({
                             </div>
                             <div className="space-y-2">
                                 <Label>Valor do kit gerador (R$)</Label>
-                                <Input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
+                                <CurrencyMaskedInput
                                     value={kitGeradorValor}
-                                    onChange={(e) => setKitGeradorValor(toNumber(e.target.value))}
+                                    onValueChange={setKitGeradorValor}
                                 />
                                 <p className="text-xs text-muted-foreground">
                                     No cálculo, o sistema aplica automaticamente kit x2.
@@ -1539,12 +1518,9 @@ export function ProposalCalculatorSimple({
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
                                     <Label>Valor por placa (R$)</Label>
-                                    <Input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
+                                    <CurrencyMaskedInput
                                         value={soloUnitValue}
-                                        onChange={(e) => setSoloUnitValue(toNumber(e.target.value))}
+                                        onValueChange={setSoloUnitValue}
                                     />
                                 </div>
                                 <div className="space-y-2">
@@ -1566,11 +1542,9 @@ export function ProposalCalculatorSimple({
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2">
                                 <Label>Total da usina (R$)</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    value={calculated.output.totals.total_a_vista.toFixed(2)}
-                                    onChange={(e) => handleTotalUsinaChange(e.target.value)}
+                                <CurrencyMaskedInput
+                                    value={calculated.output.totals.total_a_vista}
+                                    onValueChange={handleTotalUsinaChange}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -1583,12 +1557,9 @@ export function ProposalCalculatorSimple({
                             </div>
                             <div className="space-y-2">
                                 <Label>Valor adicional (R$)</Label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
+                                <CurrencyMaskedInput
                                     value={valorAdicional}
-                                    onChange={(e) => setValorAdicional(toNumber(e.target.value))}
+                                    onValueChange={setValorAdicional}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -1617,12 +1588,9 @@ export function ProposalCalculatorSimple({
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="space-y-2">
                                         <Label>Entrada (R$)</Label>
-                                        <Input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
+                                        <CurrencyMaskedInput
                                             value={entradaValor}
-                                            onChange={(e) => setEntradaValor(toNumber(e.target.value))}
+                                            onValueChange={setEntradaValor}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -1643,15 +1611,9 @@ export function ProposalCalculatorSimple({
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Parcela mensal (R$)</Label>
-                                        <Input
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={
-                                                installmentInputDraft ??
-                                                formatDecimalForInput(calculated.output.finance.parcela_mensal)
-                                            }
-                                            onChange={(e) => handleInstallmentInputChange(e.target.value)}
-                                            onBlur={handleInstallmentInputBlur}
+                                        <CurrencyMaskedInput
+                                            value={calculated.output.finance.parcela_mensal}
+                                            onValueChange={handleInstallmentChange}
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -1721,12 +1683,9 @@ export function ProposalCalculatorSimple({
                                                 ? "Valor mensal da permuta (R$)"
                                                 : "Valor da permuta (R$)"}
                                         </Label>
-                                        <Input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
+                                        <CurrencyMaskedInput
                                             value={tradeValue}
-                                            onChange={(e) => setTradeValue(toNumber(e.target.value))}
+                                            onValueChange={setTradeValue}
                                         />
                                     </div>
                                 </div>
