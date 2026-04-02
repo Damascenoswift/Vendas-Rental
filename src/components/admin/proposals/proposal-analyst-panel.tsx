@@ -25,22 +25,22 @@ type ProposalAnalystPanelProps = {
   currentValue: number | null
 }
 
-const TABLET_BREAKPOINT_QUERY = "(min-width: 768px) and (max-width: 1279px)"
+const FLOATING_PANEL_BREAKPOINT_QUERY = "(max-width: 1366px)"
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect
 
-function useTabletPanel() {
-  const [isTablet, setIsTablet] = useState(false)
+function useFloatingPanel() {
+  const [isFloatingPanel, setIsFloatingPanel] = useState(false)
 
   useIsomorphicLayoutEffect(() => {
-    const media = window.matchMedia(TABLET_BREAKPOINT_QUERY)
-    const sync = () => setIsTablet(media.matches)
+    const media = window.matchMedia(FLOATING_PANEL_BREAKPOINT_QUERY)
+    const sync = () => setIsFloatingPanel(media.matches)
     sync()
 
     media.addEventListener("change", sync)
     return () => media.removeEventListener("change", sync)
   }, [])
 
-  return isTablet
+  return isFloatingPanel
 }
 
 function AnalystPanelContent({
@@ -70,16 +70,16 @@ function AnalystPanelContent({
 }
 
 export function ProposalAnalystPanel(props: ProposalAnalystPanelProps) {
-  const isTablet = useTabletPanel()
+  const isFloatingPanel = useFloatingPanel()
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    if (!isTablet && open) {
+    if (!isFloatingPanel && open) {
       setOpen(false)
     }
-  }, [isTablet, open])
+  }, [isFloatingPanel, open])
 
-  if (!isTablet) {
+  if (!isFloatingPanel) {
     return (
       <div className="w-80 flex-shrink-0 border-l border-border bg-card px-4 py-4 overflow-hidden flex flex-col">
         <AnalystPanelContent {...props} />
@@ -93,7 +93,7 @@ export function ProposalAnalystPanel(props: ProposalAnalystPanelProps) {
         <Button
           type="button"
           size="icon"
-          className="fixed bottom-24 right-5 z-40 h-12 w-12 rounded-full shadow-lg"
+          className="fixed bottom-40 right-5 z-40 h-12 w-12 rounded-full shadow-lg"
           aria-label="Abrir analista de vendas"
         >
           <MessageSquare className="h-5 w-5" />
