@@ -25,22 +25,22 @@ type ProposalAnalystPanelProps = {
   currentValue: number | null
 }
 
-const DESKTOP_BREAKPOINT_QUERY = "(min-width: 1280px)"
+const TABLET_BREAKPOINT_QUERY = "(min-width: 768px) and (max-width: 1279px)"
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect
 
-function useDesktopPanel() {
-  const [isDesktop, setIsDesktop] = useState(true)
+function useTabletPanel() {
+  const [isTablet, setIsTablet] = useState(false)
 
   useIsomorphicLayoutEffect(() => {
-    const media = window.matchMedia(DESKTOP_BREAKPOINT_QUERY)
-    const sync = () => setIsDesktop(media.matches)
+    const media = window.matchMedia(TABLET_BREAKPOINT_QUERY)
+    const sync = () => setIsTablet(media.matches)
     sync()
 
     media.addEventListener("change", sync)
     return () => media.removeEventListener("change", sync)
   }, [])
 
-  return isDesktop
+  return isTablet
 }
 
 function AnalystPanelContent({
@@ -70,16 +70,16 @@ function AnalystPanelContent({
 }
 
 export function ProposalAnalystPanel(props: ProposalAnalystPanelProps) {
-  const isDesktop = useDesktopPanel()
+  const isTablet = useTabletPanel()
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    if (isDesktop && open) {
+    if (!isTablet && open) {
       setOpen(false)
     }
-  }, [isDesktop, open])
+  }, [isTablet, open])
 
-  if (isDesktop) {
+  if (!isTablet) {
     return (
       <div className="w-80 flex-shrink-0 border-l border-border bg-card px-4 py-4 overflow-hidden flex flex-col">
         <AnalystPanelContent {...props} />
